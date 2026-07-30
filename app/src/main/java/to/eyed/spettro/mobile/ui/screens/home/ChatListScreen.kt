@@ -754,7 +754,7 @@ internal fun previewChats(): List<ChatSummary> = listOf(
         projectPath = "/Users/carlo/dev/SpettroAndroid",
         updatedAt = "2026-07-29T18:03:00Z",
         messageCount = 61,
-        preview = "Done — zxing ScanContract with QR-only format.",
+        preview = "Done — CameraX + ML Kit scanner, QR-only.",
     ),
     ChatSummary(
         id = "4",

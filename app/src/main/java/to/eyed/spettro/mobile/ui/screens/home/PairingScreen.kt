@@ -1,6 +1,5 @@
 package to.eyed.spettro.mobile.ui.screens.home
 
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -42,14 +41,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import to.eyed.spettro.mobile.ui.components.AppIconImage
 import to.eyed.spettro.mobile.ui.components.SpettroSpinner
 import to.eyed.spettro.mobile.ui.theme.Dimens
@@ -59,8 +55,8 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
  * The one-time setup screen: point the phone at the pairing QR code on the
- * Mac. Port of the iOS `PairingView` intro, with the camera handled by
- * zxing's [ScanContract] instead of an in-place AVCapture preview.
+ * Mac. Port of the iOS `PairingView` intro, with the camera handled by the
+ * in-app CameraX + ML Kit [QrScannerScreen].
  *
  * Stateless: the caller drives [isPairing] and [errorText]; scans and manual
  * pastes flow up through [onScanned] / [onManualEntry] as the raw string for
@@ -77,15 +73,7 @@ fun PairingScreen(
 ) {
     val colors = LocalSpettroColors.current
 
-    // The launcher needs an activity registry, which previews don't have.
-    val scanLauncher = if (LocalInspectionMode.current) {
-        null
-    } else {
-        rememberLauncherForActivityResult(ScanContract()) { result ->
-            result.contents?.let(onScanned)
-        }
-    }
-
+    var showScanner by rememberSaveable { mutableStateOf(false) }
     var showManualEntry by rememberSaveable { mutableStateOf(false) }
     // Dismissal is presentation-only, so it lives here; a *new* error text
     // resets it and shows again.
@@ -139,20 +127,7 @@ fun PairingScreen(
             }
 
             Button(
-                onClick = {
-                    scanLauncher?.launch(
-                        ScanOptions().apply {
-                            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                            setPrompt("Point at the QR code on your Mac")
-                            setBeepEnabled(false)
-                            // Follow the phone's orientation instead of forcing landscape.
-                            setOrientationLocked(false)
-                            // Square framing rect, so the finder reads as a QR target.
-                            addExtra("SCAN_WIDTH", 900)
-                            addExtra("SCAN_HEIGHT", 900)
-                        },
-                    )
-                },
+                onClick = { showScanner = true },
                 enabled = !isPairing,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.accent,
@@ -192,6 +167,17 @@ fun PairingScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+
+        if (showScanner) {
+            QrScannerScreen(
+                onResult = { value ->
+                    showScanner = false
+                    onScanned(value)
+                },
+                onClose = { showScanner = false },
+                modifier = Modifier.matchParentSize(),
+            )
         }
 
         if (isPairing) {
