@@ -127,7 +127,10 @@ data class RemoteAuthRequest(
     val platform: String,
     /** base64url(HMAC-SHA256(key, challenge || utf8(hostID))). */
     val proof: String,
-    val protocolVersion: Int = RemoteProtocolInfo.VERSION,
+    // No default: SpettroJson has encodeDefaults=false, and a defaulted field
+    // would be omitted from the wire — Swift's Codable then rejects the whole
+    // request as invalid params (its property defaults don't apply to decoding).
+    val protocolVersion: Int,
 ) {
     companion object {
         const val MODE_PAIR = "pair"

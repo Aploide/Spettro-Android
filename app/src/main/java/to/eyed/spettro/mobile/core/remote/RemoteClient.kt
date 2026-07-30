@@ -474,6 +474,7 @@ class RemoteClient(
             deviceName = deviceName,
             platform = platform,
             proof = RemoteCrypto.proof(key = key, challenge = challenge, hostID = hello.hostID),
+            protocolVersion = RemoteProtocolInfo.VERSION,
         )
         val params = SpettroJson.encodeToJsonElement(RemoteAuthRequest.serializer(), request) as JsonObject
         val result = activePeer.request(RemoteMethod.AUTH, params)
