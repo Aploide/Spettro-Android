@@ -49,7 +49,7 @@ import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpUsage
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.TranscriptItem
-import to.eyed.spettro.mobile.ui.components.EyeGlyph
+import to.eyed.spettro.mobile.ui.components.AppIconImage
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
@@ -283,10 +283,7 @@ private fun EmptyTranscript(modifier: Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
         ) {
-            EyeGlyph(
-                modifier = Modifier.size(48.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            AppIconImage(size = 48.dp)
             Text(
                 text = "Start the conversation",
                 fontSize = 24.sp,

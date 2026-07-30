@@ -50,7 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import to.eyed.spettro.mobile.ui.components.EyeGlyph
+import to.eyed.spettro.mobile.ui.components.AppIconImage
 import to.eyed.spettro.mobile.ui.components.SpettroSpinner
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
@@ -101,10 +101,7 @@ fun PairingScreen(
         ) {
             Spacer(Modifier.weight(1f))
 
-            EyeGlyph(
-                modifier = Modifier.size(width = 96.dp, height = 48.dp),
-                tint = colors.accent,
-            )
+            AppIconImage(size = 72.dp)
             Spacer(Modifier.height(Dimens.spacingLg))
             Text(
                 "Spettro Remote",
@@ -148,7 +145,11 @@ fun PairingScreen(
                             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                             setPrompt("Point at the QR code on your Mac")
                             setBeepEnabled(false)
-                            setOrientationLocked(true)
+                            // Follow the phone's orientation instead of forcing landscape.
+                            setOrientationLocked(false)
+                            // Square framing rect, so the finder reads as a QR target.
+                            addExtra("SCAN_WIDTH", 900)
+                            addExtra("SCAN_HEIGHT", 900)
                         },
                     )
                 },

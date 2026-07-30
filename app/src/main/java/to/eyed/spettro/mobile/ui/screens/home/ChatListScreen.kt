@@ -78,7 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import to.eyed.spettro.mobile.core.remote.ChatSummary
-import to.eyed.spettro.mobile.ui.components.EyeGlyph
+import to.eyed.spettro.mobile.ui.components.AppIconImage
 import to.eyed.spettro.mobile.ui.components.SpettroSpinner
 import to.eyed.spettro.mobile.ui.components.StatusDot
 import to.eyed.spettro.mobile.ui.theme.Dimens
@@ -524,10 +524,7 @@ private fun EmptyState(onNewChat: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
     ) {
-        EyeGlyph(
-            modifier = Modifier.size(width = 72.dp, height = 36.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        AppIconImage(size = 56.dp)
         Text(
             "No chats yet",
             style = MaterialTheme.typography.titleMedium,
