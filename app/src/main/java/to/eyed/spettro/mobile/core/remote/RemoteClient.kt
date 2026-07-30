@@ -215,7 +215,11 @@ class RemoteClient(
         connectJob?.cancel()
         connectJob = null
         teardown()
-        _state.value = RemoteState.Connecting
+        // Stay in Unpaired while pairing runs: the pairing screen owns the
+        // progress and error presentation. Flipping to Connecting/Offline here
+        // would route the UI to the disconnected screen mid-scan with copy
+        // written for a *lost* pairing, not a failed one.
+        log("pairing with ${payload.hostName} (${payload.hostID.take(8)}…)")
 
         // The QR's address hint is the fast path — the user is standing in
         // front of the screen. But it can be missing or stale, so the
@@ -271,13 +275,14 @@ class RemoteClient(
         }
 
         val (activePeer, hello) = opened ?: run {
-            _state.value = RemoteState.Offline(OfflineReason.HostNotFound)
+            _state.value = RemoteState.Unpaired
+            log("pairing failed: no reachable endpoint (${lastError.message})")
             throw RemotePairingException(lastError.message ?: "Couldn't reach that Mac.")
         }
 
         if (hello.hostID != payload.hostID) {
             teardown()
-            _state.value = RemoteState.Offline(OfflineReason.Rejected)
+            _state.value = RemoteState.Unpaired
             throw RemotePairingException("That code belongs to a different Mac.")
         }
 
@@ -291,7 +296,7 @@ class RemoteClient(
             val deviceKey = result.deviceKey?.let(Base64Url::decode)
             if (deviceKey == null || deviceKey.size != RemoteCrypto.KEY_LENGTH) {
                 teardown()
-                _state.value = RemoteState.Offline(OfflineReason.Rejected)
+                _state.value = RemoteState.Unpaired
                 throw RemotePairingException("The Mac didn't send a key back. Try showing a new code.")
             }
             val credential = RemoteCredential(
@@ -309,7 +314,8 @@ class RemoteClient(
             log("paired with ${result.hostName}")
         } catch (e: RpcException) {
             teardown()
-            _state.value = RemoteState.Offline(OfflineReason.Rejected)
+            _state.value = RemoteState.Unpaired
+            log("pairing auth failed (${e.code}): ${e.message}")
             throw RemotePairingException(e.message ?: "The Mac refused the pairing.")
         }
     }

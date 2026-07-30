@@ -146,8 +146,11 @@ private fun CameraQrPreview(onResult: (String) -> Unit) {
                 .build(),
         )
     }
-    // One result only: the first hit wins, later frames are dropped.
-    var delivered by remember { mutableStateOf(false) }
+    // One result only: the first hit wins, later frames are dropped. The
+    // analyzer runs on its own executor, so this must be atomic — a plain
+    // flag lets two in-flight frames both deliver, and two pairing attempts
+    // racing each other corrupts the host-side pairing window.
+    val delivered = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -171,9 +174,9 @@ private fun CameraQrPreview(onResult: (String) -> Unit) {
                     .build()
                 analysis.setAnalyzer(analysisExecutor) { imageProxy ->
                     scanFrame(scanner, imageProxy) { value ->
-                        if (!delivered) {
-                            delivered = true
-                            onResult(value)
+                        if (delivered.compareAndSet(false, true)) {
+                            analysis.clearAnalyzer()
+                            ContextCompat.getMainExecutor(ctx).execute { onResult(value) }
                         }
                     }
                 }

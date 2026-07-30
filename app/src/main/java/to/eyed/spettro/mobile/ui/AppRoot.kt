@@ -90,7 +90,11 @@ private fun RemoteRoot(container: AppContainer) {
         is RemoteState.Unpaired -> {
             var isPairing by remember { mutableStateOf(false) }
             var error by remember { mutableStateOf<String?>(null) }
-            val pair: (String) -> Unit = { text ->
+            val pair: (String) -> Unit = pair@{ text ->
+                // A second scan result while one attempt is in flight would
+                // tear the first down mid-auth and strand the host's pairing
+                // window — one attempt at a time.
+                if (isPairing) return@pair
                 val payload = RemotePairing.parse(text)
                 if (payload == null) {
                     error = "That doesn't look like a Spettro pairing code."
