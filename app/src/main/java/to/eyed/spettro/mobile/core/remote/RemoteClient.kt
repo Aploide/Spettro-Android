@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -228,12 +229,6 @@ class RemoteClient(
                 if (none { it == ep }) add(ep)
             }
         }
-        if (candidates.isEmpty()) {
-            _state.value = RemoteState.Offline(OfflineReason.HostNotFound)
-            throw RemotePairingException(
-                "Couldn't find that Mac on the network. Check both devices are on the same Wi-Fi.",
-            )
-        }
 
         var opened: Pair<JsonRpcPeer, RemoteHello>? = null
         var lastError: Exception = RemotePairingException("Couldn't reach that Mac.")
@@ -252,6 +247,29 @@ class RemoteClient(
                 teardown()
             }
         }
+
+        // The hint failed (or was missing). Android's NSD resolves slowly, so
+        // give Bonjour a moment to find the host before declaring it gone —
+        // the user just scanned a code off a Mac that is clearly running.
+        if (opened == null) {
+            val discovered = withTimeoutOrNull(DISCOVERY_WAIT_MS) {
+                discovery.hosts.first { payload.hostID in it }[payload.hostID]
+            }
+            val ep = discovered?.let { Endpoint(it.host, it.port) }
+            if (ep != null && candidates.none { it == ep }) {
+                try {
+                    opened = openAndHello(ep)
+                    usedEndpoint = ep
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    lastError = e
+                    log("pairing via discovered ${ep.host}:${ep.port} failed: ${e.message}")
+                    teardown()
+                }
+            }
+        }
+
         val (activePeer, hello) = opened ?: run {
             _state.value = RemoteState.Offline(OfflineReason.HostNotFound)
             throw RemotePairingException(lastError.message ?: "Couldn't reach that Mac.")
@@ -558,6 +576,7 @@ class RemoteClient(
 
     @Synchronized
     private fun log(line: String) {
+        android.util.Log.d("SpettroRemote", line)
         val stamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         _diagnostics.update { existing ->
             val appended = existing + "$stamp  $line"
@@ -583,6 +602,7 @@ class RemoteClient(
         const val INITIAL_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 30_000L
         const val HELLO_TIMEOUT_MS = 10_000L
+        const val DISCOVERY_WAIT_MS = 8_000L
         const val MAX_DIAGNOSTICS = 40
     }
 }

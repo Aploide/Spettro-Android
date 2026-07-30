@@ -12,7 +12,11 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
+    <!-- Both Spettro protocols are deliberately plaintext on the trusted LAN
+         (auth is HMAC proof-of-key, hosts are raw IPs — TLS certs can't work
+         here), so cleartext must be allowed app-wide. -->
     <application
+        android:usesCleartextTraffic="true"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
