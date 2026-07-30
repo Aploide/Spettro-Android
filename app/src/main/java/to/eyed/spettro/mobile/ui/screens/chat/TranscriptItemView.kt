@@ -106,7 +106,7 @@ private fun UserBubble(message: ChatMessage, modifier: Modifier) {
                 Text(
                     text = message.text,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(Dimens.radiusBubble))
                         .background(colors.userBubble)

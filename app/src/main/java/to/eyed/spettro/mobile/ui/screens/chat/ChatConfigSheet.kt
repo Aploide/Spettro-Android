@@ -43,7 +43,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -112,16 +115,19 @@ private fun categoryIcon(option: AcpConfigOption): ImageVector =
         else -> Icons.Outlined.Settings
     }
 
-private enum class SelectStyle { Segmented, Drill, Rows }
+private enum class SelectStyle { Segmented, Drill, Rows, Slider }
 
 /**
  * Segmented needs few, flat, short choices; a grouped or long list (models)
- * reads better as its own page.
+ * reads better as its own page; an ordered intensity scale (thinking level)
+ * is a slider.
  */
-private fun selectStyle(kind: AcpConfigOption.Kind.Select): SelectStyle {
+private fun selectStyle(option: AcpConfigOption, kind: AcpConfigOption.Kind.Select): SelectStyle {
     val grouped = kind.groups.any { !it.name.isNullOrEmpty() }
     val count = kind.groups.sumOf { it.options.size }
+    val isThinking = (option.category ?: option.id) in setOf("thinking", "thought_level")
     return when {
+        isThinking && !grouped && count >= 3 -> SelectStyle.Slider
         grouped || count > 6 -> SelectStyle.Drill
         count in 2..4 -> SelectStyle.Segmented
         else -> SelectStyle.Rows
@@ -174,7 +180,13 @@ internal fun ChatConfigSheetContent(
             ) {
                 items(ordered, key = { it.id }) { option ->
                     when (val kind = option.kind) {
-                        is AcpConfigOption.Kind.Select -> when (selectStyle(kind)) {
+                        is AcpConfigOption.Kind.Select -> when (selectStyle(option, kind)) {
+                            SelectStyle.Slider -> SliderSection(
+                                option = option,
+                                kind = kind,
+                                pending = pendingValues?.get(option.id),
+                                onSelect = { onSetString(option.id, it) },
+                            )
                             SelectStyle.Segmented -> SegmentedSection(
                                 option = option,
                                 kind = kind,
@@ -232,6 +244,84 @@ private fun labelFor(kind: AcpConfigOption.Kind.Select, value: String?): String?
         .flatMap { it.options.asSequence() }
         .firstOrNull { it.value == value }
         ?.name
+
+/**
+ * An ordered intensity scale (the thinking level) as a discrete slider. The
+ * track and thumb desaturate toward gray at the bottom of the scale ("off")
+ * and reach the fully saturated accent at the top ("max"), so the color
+ * itself reads as how hard the agent will think.
+ */
+@Composable
+private fun SliderSection(
+    option: AcpConfigOption,
+    kind: AcpConfigOption.Kind.Select,
+    pending: ConfigValue?,
+    onSelect: (String) -> Unit,
+) {
+    val colors = LocalSpettroColors.current
+    val choices = kind.groups.flatMap { it.options }
+    val current = currentValue(kind, pending)
+    val currentIndex = choices.indexOfFirst { it.value == current }.coerceAtLeast(0)
+
+    var dragPosition by androidx.compose.runtime.remember(option.id, currentIndex) {
+        androidx.compose.runtime.mutableFloatStateOf(currentIndex.toFloat())
+    }
+    val activeIndex = dragPosition.roundToInt().coerceIn(choices.indices)
+
+    // Saturation follows the live position: 0 = gray, top = full accent.
+    val levelColor = run {
+        val fraction = if (choices.size > 1) dragPosition / (choices.size - 1) else 1f
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(colors.accent.toArgb(), hsv)
+        hsv[1] = hsv[1] * (0.08f + 0.92f * fraction)
+        Color(android.graphics.Color.HSVToColor(hsv))
+    }
+
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            SectionLabel(option)
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = choices[activeIndex].name,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = levelColor,
+                modifier = Modifier.padding(bottom = Dimens.spacingSm),
+            )
+        }
+        androidx.compose.material3.Slider(
+            value = dragPosition,
+            onValueChange = { dragPosition = it },
+            onValueChangeFinished = {
+                val snapped = dragPosition.roundToInt().coerceIn(choices.indices)
+                dragPosition = snapped.toFloat()
+                if (choices[snapped].value != current) onSelect(choices[snapped].value)
+            },
+            valueRange = 0f..(choices.size - 1).toFloat(),
+            steps = (choices.size - 2).coerceAtLeast(0),
+            colors = androidx.compose.material3.SliderDefaults.colors(
+                thumbColor = levelColor,
+                activeTrackColor = levelColor,
+                activeTickColor = colors.canvas,
+                inactiveTrackColor = colors.hairline,
+                inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        val active = choices[activeIndex]
+        (active.description ?: option.description)?.takeIf { it.isNotEmpty() }?.let { text ->
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Dimens.spacingXs),
+            )
+        }
+    }
+}
 
 /** A compact flat choice — the N-way horizontal toggle (mode, permission). */
 @Composable

@@ -250,7 +250,7 @@ private fun PrimaryActionButton(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(
             containerColor = colors.accent,
-            contentColor = Color.White,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
         shape = RoundedCornerShape(Dimens.radiusLg),
         modifier = Modifier.widthIn(min = 180.dp).height(48.dp),

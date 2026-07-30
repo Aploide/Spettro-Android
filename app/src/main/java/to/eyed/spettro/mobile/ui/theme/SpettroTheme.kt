@@ -127,9 +127,15 @@ private val DarkColorScheme: ColorScheme = darkColorScheme(
 )
 
 /**
- * The app theme: Material 3 Expressive with the fixed Spettro brand palette
- * (never dynamic color) and the expressive motion scheme. Also provides
- * [LocalSpettroColors] so components can read the non-Material tokens.
+ * The app theme: Material 3 Expressive with **dynamic (Material You) color**
+ * drawn from the user's wallpaper (minSdk 33, so always available), plus the
+ * expressive motion scheme. The Spettro tokens in [LocalSpettroColors] are
+ * derived from the dynamic scheme so the whole app follows the user's
+ * palette; only the semantic colors (diff green/red, agent purple, per-mode
+ * tints) stay fixed — they carry meaning, not branding.
+ *
+ * Previews (`LocalInspectionMode`) keep the static brand palette: dynamic
+ * schemes need a real device context.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -137,8 +143,32 @@ fun SpettroTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val spettroColors = if (darkTheme) DarkSpettroColors else LightSpettroColors
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val useDynamic = !androidx.compose.ui.platform.LocalInspectionMode.current
+    val colorScheme = if (useDynamic) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        if (darkTheme) {
+            androidx.compose.material3.dynamicDarkColorScheme(context)
+        } else {
+            androidx.compose.material3.dynamicLightColorScheme(context)
+        }
+    } else {
+        if (darkTheme) DarkColorScheme else LightColorScheme
+    }
+    val spettroColors = if (useDynamic) {
+        SpettroColors(
+            isDark = darkTheme,
+            accent = colorScheme.primary,
+            canvas = colorScheme.background,
+            surfaceRaised = colorScheme.surfaceContainer,
+            hairline = if (darkTheme) HairlineDark else HairlineLight,
+            diffAdded = DiffAdded,
+            diffRemoved = DiffRemoved,
+            agentAccent = AgentAccent,
+            userBubble = colorScheme.primary,
+        )
+    } else {
+        if (darkTheme) DarkSpettroColors else LightSpettroColors
+    }
     CompositionLocalProvider(LocalSpettroColors provides spettroColors) {
         MaterialExpressiveTheme(
             colorScheme = colorScheme,

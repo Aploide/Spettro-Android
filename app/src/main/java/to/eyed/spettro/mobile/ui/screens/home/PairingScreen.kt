@@ -131,7 +131,7 @@ fun PairingScreen(
                 enabled = !isPairing,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.accent,
-                    contentColor = Color.White,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(Dimens.radiusLg),
@@ -206,7 +206,7 @@ private fun PairingStep(number: Int, text: String) {
         ) {
             Text(
                 "$number",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
             )

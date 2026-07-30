@@ -167,13 +167,13 @@ fun CliConnectScreen(
                 enabled = !isConnecting && host.isNotBlank() && token.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.accent,
-                    contentColor = Color.White,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 shape = RoundedCornerShape(Dimens.radiusLg),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 if (isConnecting) {
-                    SpettroSpinner(size = 16.dp, color = Color.White)
+                    SpettroSpinner(size = 16.dp, color = MaterialTheme.colorScheme.onPrimary)
                     Spacer(Modifier.size(Dimens.spacingSm))
                     Text("Connecting…", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 } else {

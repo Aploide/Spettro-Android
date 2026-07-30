@@ -198,7 +198,7 @@ private fun AttachmentStrip(
                 Icon(
                     imageVector = Icons.Filled.Cancel,
                     contentDescription = "Remove attachment",
-                    tint = Color.White,
+                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(2.dp)
@@ -322,7 +322,7 @@ private fun SendButton(
             Icon(
                 imageVector = Icons.Outlined.Stop,
                 contentDescription = "Stop",
-                tint = Color.White,
+                tint = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -338,7 +338,7 @@ private fun SendButton(
             Icon(
                 imageVector = Icons.Outlined.ArrowUpward,
                 contentDescription = "Send",
-                tint = Color.White,
+                tint = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(20.dp),
             )
         }
