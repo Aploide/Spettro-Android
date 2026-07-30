@@ -57,6 +57,7 @@ dependencies {
     implementation(libs.zxing.embedded)
     implementation(libs.markdown.renderer.m3)
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
