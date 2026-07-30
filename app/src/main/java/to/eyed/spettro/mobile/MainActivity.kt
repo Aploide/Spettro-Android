@@ -4,44 +4,34 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import to.eyed.spettro.mobile.coordinator.AppContainer
+import to.eyed.spettro.mobile.ui.AppRoot
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 class MainActivity : ComponentActivity() {
+    private lateinit var container: AppContainer
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        container = AppContainer.get(this)
         setContent {
             SpettroTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                AppRoot(container)
             }
         }
     }
-}
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+    override fun onStart() {
+        super.onStart()
+        // Foreground: reconnect immediately with fresh backoff (iOS parity).
+        container.client.start()
+    }
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    SpettroTheme {
-        Greeting("Android")
+    override fun onStop() {
+        super.onStop()
+        // Background: drop the socket deliberately; the credential is the
+        // durable thing, not the connection.
+        container.client.stop()
     }
 }
