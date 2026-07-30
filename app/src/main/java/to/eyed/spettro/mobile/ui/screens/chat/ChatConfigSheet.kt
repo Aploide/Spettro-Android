@@ -1,5 +1,11 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Memory
@@ -19,15 +27,24 @@ import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import to.eyed.spettro.mobile.core.acp.AcpConfigOption
@@ -41,11 +58,16 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
  * Mode, model, permission, thinking level, and any boolean toggles the agent
- * advertises — as a grouped bottom sheet (port of ChatConfigSheet.swift).
+ * advertises — as a grouped bottom sheet.
+ *
+ * Presentation is chosen per option: compact flat selects (mode, permission)
+ * render as a horizontal segmented toggle; big or grouped lists (model)
+ * render as a navigation row that opens a full picker page inside the sheet;
+ * everything else falls back to check rows.
  *
  * Selecting calls straight back; the host applies the change asynchronously.
  * [pendingValues] lets the caller overlay optimistic values (choices made but
- * not yet confirmed by the agent) so the checkmark follows the tap.
+ * not yet confirmed by the agent) so the selection follows the tap.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +112,22 @@ private fun categoryIcon(option: AcpConfigOption): ImageVector =
         else -> Icons.Outlined.Settings
     }
 
+private enum class SelectStyle { Segmented, Drill, Rows }
+
+/**
+ * Segmented needs few, flat, short choices; a grouped or long list (models)
+ * reads better as its own page.
+ */
+private fun selectStyle(kind: AcpConfigOption.Kind.Select): SelectStyle {
+    val grouped = kind.groups.any { !it.name.isNullOrEmpty() }
+    val count = kind.groups.sumOf { it.options.size }
+    return when {
+        grouped || count > 6 -> SelectStyle.Drill
+        count in 2..4 -> SelectStyle.Segmented
+        else -> SelectStyle.Rows
+    }
+}
+
 @Composable
 internal fun ChatConfigSheetContent(
     options: List<AcpConfigOption>,
@@ -98,29 +136,72 @@ internal fun ChatConfigSheetContent(
     onSetBool: (String, Boolean) -> Unit,
 ) {
     val ordered = options.sortedBy(::categoryRank)
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = Dimens.spacingLg,
-            end = Dimens.spacingLg,
-            bottom = Dimens.spacingXl,
-        ),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
-    ) {
-        items(ordered, key = { it.id }) { option ->
-            when (val kind = option.kind) {
-                is AcpConfigOption.Kind.Select -> SelectSection(
-                    option = option,
-                    kind = kind,
-                    pending = pendingValues?.get(option.id),
-                    onSelect = { onSetString(option.id, it) },
-                )
-                is AcpConfigOption.Kind.Bool -> BoolSection(
-                    option = option,
-                    kind = kind,
-                    pending = pendingValues?.get(option.id),
-                    onToggle = { onSetBool(option.id, it) },
-                )
+    var drillId by rememberSaveable { mutableStateOf<String?>(null) }
+    val drill = ordered.firstOrNull { it.id == drillId }
+
+    AnimatedContent(
+        targetState = drill,
+        transitionSpec = {
+            if (targetState != null) {
+                (slideInHorizontally { it / 3 } + fadeIn()).togetherWith(slideOutHorizontally { -it / 3 } + fadeOut())
+            } else {
+                (slideInHorizontally { -it / 3 } + fadeIn()).togetherWith(slideOutHorizontally { it / 3 } + fadeOut())
+            }
+        },
+        label = "config-drill",
+    ) { page ->
+        val pageKind = page?.kind as? AcpConfigOption.Kind.Select
+        if (page != null && pageKind != null) {
+            DrillPage(
+                option = page,
+                kind = pageKind,
+                pending = pendingValues?.get(page.id),
+                onSelect = { value ->
+                    onSetString(page.id, value)
+                    drillId = null
+                },
+                onBack = { drillId = null },
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = Dimens.spacingLg,
+                    end = Dimens.spacingLg,
+                    bottom = Dimens.spacingXl,
+                ),
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
+            ) {
+                items(ordered, key = { it.id }) { option ->
+                    when (val kind = option.kind) {
+                        is AcpConfigOption.Kind.Select -> when (selectStyle(kind)) {
+                            SelectStyle.Segmented -> SegmentedSection(
+                                option = option,
+                                kind = kind,
+                                pending = pendingValues?.get(option.id),
+                                onSelect = { onSetString(option.id, it) },
+                            )
+                            SelectStyle.Drill -> DrillEntrySection(
+                                option = option,
+                                kind = kind,
+                                pending = pendingValues?.get(option.id),
+                                onOpen = { drillId = option.id },
+                            )
+                            SelectStyle.Rows -> RowsSection(
+                                option = option,
+                                kind = kind,
+                                pending = pendingValues?.get(option.id),
+                                onSelect = { onSetString(option.id, it) },
+                            )
+                        }
+                        is AcpConfigOption.Kind.Bool -> BoolSection(
+                            option = option,
+                            kind = kind,
+                            pending = pendingValues?.get(option.id),
+                            onToggle = { onSetBool(option.id, it) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -143,43 +224,170 @@ private fun SectionLabel(option: AcpConfigOption) {
     }
 }
 
+private fun currentValue(kind: AcpConfigOption.Kind.Select, pending: ConfigValue?): String? =
+    (pending as? ConfigValue.Str)?.value ?: kind.current
+
+private fun labelFor(kind: AcpConfigOption.Kind.Select, value: String?): String? =
+    kind.groups.asSequence()
+        .flatMap { it.options.asSequence() }
+        .firstOrNull { it.value == value }
+        ?.name
+
+/** A compact flat choice — the N-way horizontal toggle (mode, permission). */
 @Composable
-private fun SelectSection(
+private fun SegmentedSection(
     option: AcpConfigOption,
     kind: AcpConfigOption.Kind.Select,
     pending: ConfigValue?,
     onSelect: (String) -> Unit,
 ) {
     val colors = LocalSpettroColors.current
-    val current = (pending as? ConfigValue.Str)?.value ?: kind.current
+    val current = currentValue(kind, pending)
+    val choices = kind.groups.flatMap { it.options }
+    Column {
+        SectionLabel(option)
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            choices.forEachIndexed { index, choice ->
+                SegmentedButton(
+                    selected = choice.value == current,
+                    onClick = { onSelect(choice.value) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
+                    colors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = colors.accent.copy(alpha = 0.16f),
+                        activeContentColor = MaterialTheme.colorScheme.onSurface,
+                        activeBorderColor = colors.accent,
+                        inactiveContainerColor = colors.surfaceRaised,
+                        inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        inactiveBorderColor = colors.hairline,
+                    ),
+                    icon = {},
+                ) {
+                    Text(
+                        text = choice.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+        // Segments have no room for descriptions; explain the active choice below.
+        val active = choices.firstOrNull { it.value == current }
+        (active?.description ?: option.description)?.takeIf { it.isNotEmpty() }?.let { text ->
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Dimens.spacingXs, top = Dimens.spacingSm),
+            )
+        }
+    }
+}
+
+/** The navigation row for big pickers: current value + chevron → full page. */
+@Composable
+private fun DrillEntrySection(
+    option: AcpConfigOption,
+    kind: AcpConfigOption.Kind.Select,
+    pending: ConfigValue?,
+    onOpen: () -> Unit,
+) {
+    val current = currentValue(kind, pending)
     Column {
         SectionLabel(option)
         SpettroCard(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpen)
+                    .padding(horizontal = Dimens.spacingMd, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = labelFor(kind, current) ?: current ?: "Choose…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    contentDescription = "Open",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        option.description?.takeIf { it.isNotEmpty() }?.let { description ->
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Dimens.spacingMd, top = Dimens.spacingXs),
+            )
+        }
+    }
+}
+
+/** The full picker page a [DrillEntrySection] opens (e.g. every model). */
+@Composable
+private fun DrillPage(
+    option: AcpConfigOption,
+    kind: AcpConfigOption.Kind.Select,
+    pending: ConfigValue?,
+    onSelect: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val colors = LocalSpettroColors.current
+    val current = currentValue(kind, pending)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.spacingSm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Text(
+                text = option.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = Dimens.spacingLg,
+                end = Dimens.spacingLg,
+                top = Dimens.spacingSm,
+                bottom = Dimens.spacingXl,
+            ),
+        ) {
             kind.groups.forEachIndexed { groupIndex, group ->
-                // Model lists arrive grouped by provider; without the label
-                // two identically named models are indistinguishable.
                 group.name?.takeIf { it.isNotEmpty() }?.let { name ->
-                    Text(
-                        text = name.uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(
-                            start = Dimens.spacingMd,
-                            end = Dimens.spacingMd,
-                            top = if (groupIndex == 0) Dimens.spacingSm else Dimens.spacingMd,
-                            bottom = Dimens.spacingXs,
-                        ),
-                    )
-                }
-                group.options.forEachIndexed { index, choice ->
-                    if (index > 0 || (groupIndex > 0 && group.name == null)) {
-                        HairlineDivider(modifier = Modifier.padding(horizontal = Dimens.spacingMd))
+                    item(key = "group-$groupIndex") {
+                        Text(
+                            text = name.uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(
+                                start = Dimens.spacingXs,
+                                top = if (groupIndex == 0) 0.dp else Dimens.spacingLg,
+                                bottom = Dimens.spacingXs,
+                            ),
+                        )
                     }
+                }
+                items(group.options, key = { "$groupIndex-${it.value}" }) { choice ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSelect(choice.value) }
-                            .padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
+                            .padding(horizontal = Dimens.spacingXs, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -209,6 +417,63 @@ private fun SelectSection(
                             )
                         }
                     }
+                    HairlineDivider()
+                }
+            }
+        }
+    }
+}
+
+/** Middling flat lists (e.g. thinking levels) stay as check rows in a card. */
+@Composable
+private fun RowsSection(
+    option: AcpConfigOption,
+    kind: AcpConfigOption.Kind.Select,
+    pending: ConfigValue?,
+    onSelect: (String) -> Unit,
+) {
+    val colors = LocalSpettroColors.current
+    val current = currentValue(kind, pending)
+    Column {
+        SectionLabel(option)
+        SpettroCard(modifier = Modifier.fillMaxWidth()) {
+            kind.groups.flatMap { it.options }.forEachIndexed { index, choice ->
+                if (index > 0) {
+                    HairlineDivider(modifier = Modifier.padding(horizontal = Dimens.spacingMd))
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(choice.value) }
+                        .padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = choice.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        choice.description?.takeIf { it.isNotEmpty() }?.let { description ->
+                            Text(
+                                text = description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (choice.value == current) {
+                        Icon(
+                            imageVector = Icons.Outlined.Check,
+                            contentDescription = "Selected",
+                            tint = colors.accent,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
         }
@@ -217,10 +482,7 @@ private fun SelectSection(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(
-                    start = Dimens.spacingMd,
-                    top = Dimens.spacingXs,
-                ),
+                modifier = Modifier.padding(start = Dimens.spacingMd, top = Dimens.spacingXs),
             )
         }
     }
@@ -263,10 +525,7 @@ private fun BoolSection(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(
-                    start = Dimens.spacingMd,
-                    top = Dimens.spacingXs,
-                ),
+                modifier = Modifier.padding(start = Dimens.spacingMd, top = Dimens.spacingXs),
             )
         }
     }
