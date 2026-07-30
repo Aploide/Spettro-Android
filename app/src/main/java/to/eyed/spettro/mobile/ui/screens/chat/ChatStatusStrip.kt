@@ -205,11 +205,30 @@ private fun UsageReadout(usage: AcpUsage) {
     val colors = LocalSpettroColors.current
     val fraction = usage.used.toFloat() / usage.size
     val percent = (fraction * 100).toInt()
-    Text(
-        text = "$percent%",
-        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
-        color = if (fraction > 0.9f) colors.diffRemoved else MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Cumulative session tokens — the same figure the Mac shows.
+        usage.tokensUsed?.takeIf { it > 0 }?.let { total ->
+            Text(
+                text = "${formatTokens(total)} tok",
+                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = "$percent%",
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+            color = if (fraction > 0.9f) colors.diffRemoved else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun formatTokens(count: Int): String = when {
+    count >= 1_000_000 -> String.format(java.util.Locale.US, "%.1fM", count / 1_000_000f)
+    count >= 1_000 -> String.format(java.util.Locale.US, "%.1fk", count / 1_000f)
+    else -> count.toString()
 }
 
 // MARK: Previews

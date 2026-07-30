@@ -244,7 +244,11 @@ class MobileModel(
     suspend fun openChat(chatID: String): Boolean {
         return try {
             val result = api.chatsOpen(chatID)
-            val stored = AcpParser.parseStoredSession(result.chat)
+            // A long transcript is a lot of JSON; parsing it on Main janks
+            // the open animation.
+            val stored = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                AcpParser.parseStoredSession(result.chat)
+            }
             val session = ChatSession(chatId = chatID)
             session.restoreFrom(stored)
             (result.configOptions as? JsonArray)?.let {

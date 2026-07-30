@@ -219,10 +219,14 @@ private fun RemoteNavigator(model: MobileModel, container: AppContainer, connect
             RemoteScreen.Chat -> {
                 val session = openChat
                 if (session != null) {
-                    RemoteChatHost(model, session, onBack = {
-                        model.closeChat()
-                        screen = RemoteScreen.ChatList
-                    })
+                    // Keyed so per-chat UI state (scroll position, composer
+                    // draft) resets when a different chat opens.
+                    androidx.compose.runtime.key(session.chatId) {
+                        RemoteChatHost(model, session, onBack = {
+                            model.closeChat()
+                            screen = RemoteScreen.ChatList
+                        })
+                    }
                 }
             }
 

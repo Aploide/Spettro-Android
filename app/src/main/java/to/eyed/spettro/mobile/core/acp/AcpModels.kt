@@ -1,5 +1,7 @@
 package to.eyed.spettro.mobile.core.acp
 
+import androidx.compose.runtime.Immutable
+
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -21,6 +23,7 @@ import kotlinx.serialization.json.JsonObject
  * A single session configuration option (mode / model / permission / thinking
  * select, or a boolean toggle like "ultra").
  */
+@Immutable
 data class AcpConfigOption(
     val id: String,
     val name: String,
@@ -141,6 +144,7 @@ data class AcpConfigOption(
 // MARK: - Available commands
 
 /** One slash command the agent advertises. */
+@Immutable
 data class AcpCommand(
     val name: String,
     val description: String = "",
@@ -167,6 +171,7 @@ data class AcpCommand(
 // MARK: - Plan
 
 /** One entry of the agent's published plan (task list). */
+@Immutable
 data class AcpPlanEntry(
     val content: String,
     val status: String = "pending",
@@ -191,6 +196,7 @@ data class AcpPlanEntry(
  * Live context-window accounting: how many tokens of the model's window the
  * session currently occupies.
  */
+@Immutable
 data class AcpUsage(
     /** Tokens currently in context. */
     val used: Int,
@@ -236,6 +242,7 @@ enum class AcpToolStatus(val rawValue: String) {
 }
 
 /** One piece of a tool call's reported content. */
+@Immutable
 sealed class AcpToolContent {
     data class Text(val text: String) : AcpToolContent()
     data class Diff(val path: String, val oldText: String?, val newText: String) : AcpToolContent()
@@ -270,6 +277,7 @@ sealed class AcpToolContent {
  * A tool-call update parsed from either a `tool_call` (start) or
  * `tool_call_update` session notification.
  */
+@Immutable
 data class AcpToolCallEvent(
     val toolCallId: String,
     val title: String? = null,

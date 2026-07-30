@@ -1,5 +1,7 @@
 package to.eyed.spettro.mobile.model
 
+import androidx.compose.runtime.Immutable
+
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -29,6 +31,7 @@ fun nowIso(): String {
  * A chat message bubble: the user's prompt, the assistant's answer, streamed
  * reasoning, or a local system notice.
  */
+@Immutable
 data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val role: Role,
@@ -76,6 +79,7 @@ enum class ToolIcon(val materialIconName: String) {
 }
 
 /** A tool invocation the agent reported, with its live status and output. */
+@Immutable
 data class ToolCallItem(
     /** The ACP toolCallId. */
     val id: String,
@@ -364,6 +368,7 @@ data class ToolCallItem(
 }
 
 /** One ordered entry in a transcript, with a stable id for list diffing. */
+@Immutable
 sealed class TranscriptItem {
     abstract val id: String
 

@@ -251,7 +251,11 @@ fun ChatScreen(
 
 @Composable
 private fun Transcript(items: List<TranscriptItem>, modifier: Modifier) {
-    val listState = rememberLazyListState()
+    // A chat opens at its newest message: seed the list state at the end so
+    // the first frame is already at the bottom — no visible jump.
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = (items.size - 1).coerceAtLeast(0),
+    )
 
     // Auto-scroll: follow the conversation only while the reader is already
     // near the bottom, so scrolling back through history isn't hijacked.

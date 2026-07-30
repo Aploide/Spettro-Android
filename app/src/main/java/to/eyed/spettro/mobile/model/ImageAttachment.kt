@@ -1,5 +1,7 @@
 package to.eyed.spettro.mobile.model
 
+import androidx.compose.runtime.Immutable
+
 import java.util.UUID
 import to.eyed.spettro.mobile.core.acp.AcpContentBlock
 
@@ -8,6 +10,7 @@ import to.eyed.spettro.mobile.core.acp.AcpContentBlock
  * model layer stays JVM-testable — no Android types here. Downsampling and
  * JPEG encoding live in ImageAttachmentAndroid.kt.
  */
+@Immutable
 data class ImageAttachment(
     val id: String = UUID.randomUUID().toString(),
     /** Standard (padded) base64 of the encoded image bytes. */
