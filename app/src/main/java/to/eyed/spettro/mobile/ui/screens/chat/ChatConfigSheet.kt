@@ -1,20 +1,31 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -33,23 +44,34 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
-import kotlin.math.roundToInt
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import to.eyed.spettro.mobile.core.acp.AcpConfigOption
 import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
@@ -246,10 +268,16 @@ private fun labelFor(kind: AcpConfigOption.Kind.Select, value: String?): String?
         ?.name
 
 /**
- * An ordered intensity scale (the thinking level) as a discrete slider. The
- * track and thumb desaturate toward gray at the bottom of the scale ("off")
- * and reach the fully saturated accent at the top ("max"), so the color
- * itself reads as how hard the agent will think.
+ * An ordered intensity scale (the thinking level) as a discrete Material 3
+ * Expressive slider: a thick track that shrinks its corners as the handle
+ * approaches, a gap around the handle, a stop dot per level, and a handle that
+ * thins and stretches under the finger with the expressive spring.
+ *
+ * The color carries the meaning: the fill desaturates to gray at the bottom of
+ * the scale ("off") and reaches the fully saturated accent at the top ("max"),
+ * animating between levels — so the slider reads as how hard the agent will
+ * think even before the label is read. Every level crossed also ticks the
+ * haptics, so the scale is felt as much as seen.
  */
 @Composable
 private fun SliderSection(
@@ -262,20 +290,42 @@ private fun SliderSection(
     val choices = kind.groups.flatMap { it.options }
     val current = currentValue(kind, pending)
     val currentIndex = choices.indexOfFirst { it.value == current }.coerceAtLeast(0)
+    val lastIndex = (choices.size - 1).coerceAtLeast(0)
 
-    var dragPosition by androidx.compose.runtime.remember(option.id, currentIndex) {
-        androidx.compose.runtime.mutableFloatStateOf(currentIndex.toFloat())
+    var dragPosition by remember(option.id, currentIndex) {
+        mutableFloatStateOf(currentIndex.toFloat())
     }
     val activeIndex = dragPosition.roundToInt().coerceIn(choices.indices)
 
-    // Saturation follows the live position: 0 = gray, top = full accent.
-    val levelColor = run {
-        val fraction = if (choices.size > 1) dragPosition / (choices.size - 1) else 1f
-        val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(colors.accent.toArgb(), hsv)
-        hsv[1] = hsv[1] * (0.08f + 0.92f * fraction)
-        Color(android.graphics.Color.HSVToColor(hsv))
+    // Haptics: one tick per level crossed while dragging, like a detented dial.
+    val haptics = LocalHapticFeedback.current
+    var tickedIndex by remember(option.id) { mutableIntStateOf(currentIndex) }
+
+    // Saturation follows the live position: 0 = gray, top = full accent. The
+    // animation smooths the jump between the discrete stops.
+    val levelTarget = remember(dragPosition, lastIndex, colors.accent) {
+        saturated(colors.accent, if (lastIndex > 0) dragPosition / lastIndex else 1f)
     }
+    val levelColor by animateColorAsState(
+        targetValue = levelTarget,
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "thinkingLevelColor",
+    )
+    // Ticks sit on top of the fill, so they follow its brightness, not the theme's.
+    val onLevelColor = if (levelColor.luminance() > 0.45f) {
+        Color.Black.copy(alpha = 0.55f)
+    } else {
+        Color.White.copy(alpha = 0.85f)
+    }
+
+    val interactionSource = remember { MutableInteractionSource() }
+    val sliderColors = SliderDefaults.colors(
+        thumbColor = levelColor,
+        activeTrackColor = levelColor,
+        activeTickColor = onLevelColor,
+        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+    )
 
     Column {
         Row(
@@ -283,44 +333,168 @@ private fun SliderSection(
             modifier = Modifier.fillMaxWidth(),
         ) {
             SectionLabel(option)
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = choices[activeIndex].name,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = levelColor,
-                modifier = Modifier.padding(bottom = Dimens.spacingSm),
+            Spacer(modifier = Modifier.weight(1f))
+            LevelPill(
+                label = choices[activeIndex].name,
+                index = activeIndex,
+                container = levelColor,
+                content = onLevelColor,
             )
         }
-        androidx.compose.material3.Slider(
+        Slider(
             value = dragPosition,
-            onValueChange = { dragPosition = it },
+            onValueChange = { value ->
+                dragPosition = value
+                val stop = value.roundToInt().coerceIn(choices.indices)
+                if (stop != tickedIndex) {
+                    tickedIndex = stop
+                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                }
+            },
             onValueChangeFinished = {
                 val snapped = dragPosition.roundToInt().coerceIn(choices.indices)
                 dragPosition = snapped.toFloat()
                 if (choices[snapped].value != current) onSelect(choices[snapped].value)
             },
-            valueRange = 0f..(choices.size - 1).toFloat(),
+            valueRange = 0f..lastIndex.toFloat(),
             steps = (choices.size - 2).coerceAtLeast(0),
-            colors = androidx.compose.material3.SliderDefaults.colors(
-                thumbColor = levelColor,
-                activeTrackColor = levelColor,
-                activeTickColor = colors.canvas,
-                inactiveTrackColor = colors.hairline,
-                inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-            ),
-            modifier = Modifier.fillMaxWidth(),
+            colors = sliderColors,
+            interactionSource = interactionSource,
+            thumb = {
+                ExpressiveHandle(color = levelColor, interactionSource = interactionSource)
+            },
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    // The expressive track: outer corners this round, corners
+                    // shrinking as the handle nears them, a gap either side of
+                    // the handle, and a dot per level instead of the end stop.
+                    trackCornerSize = TrackCornerSize,
+                    colors = sliderColors,
+                    drawStopIndicator = null,
+                    drawTick = { offset, color ->
+                        drawCircle(color = color, radius = TickRadius.toPx(), center = offset)
+                    },
+                    thumbTrackGapSize = ThumbTrackGap,
+                    trackInsideCornerSize = TrackInsideCorner,
+                )
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { stateDescription = choices[activeIndex].name },
         )
+        // The ends of the scale, so the fill has something to be measured against.
+        if (choices.size > 1) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                ScaleEnd(text = choices.first().name)
+                Spacer(modifier = Modifier.weight(1f))
+                ScaleEnd(text = choices.last().name)
+            }
+        }
         val active = choices[activeIndex]
         (active.description ?: option.description)?.takeIf { it.isNotEmpty() }?.let { text ->
-            Text(
-                text = text,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = Dimens.spacingXs),
-            )
+            AnimatedContent(
+                targetState = text,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                label = "thinkingLevelDescription",
+            ) { description ->
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(
+                        start = Dimens.spacingXs,
+                        top = Dimens.spacingXs,
+                    ),
+                )
+            }
         }
     }
+}
+
+// Expressive slider metrics: a chunkier gap and rounder corners than the
+// defaults, so the handle reads as sitting *in* the track rather than on it.
+private val TrackCornerSize = 12.dp
+private val TrackInsideCorner = 6.dp
+private val ThumbTrackGap = 8.dp
+private val TickRadius = 2.5.dp
+
+/**
+ * The expressive handle: a pill that thins and stretches while it is dragged
+ * (so the level under the finger stays visible) and springs back on release.
+ */
+@Composable
+private fun ExpressiveHandle(color: Color, interactionSource: MutableInteractionSource) {
+    val dragged by interactionSource.collectIsDraggedAsState()
+    val pressed by interactionSource.collectIsPressedAsState()
+    val engaged = dragged || pressed
+    val spec = MaterialTheme.motionScheme.fastSpatialSpec<Dp>()
+    val width by animateDpAsState(
+        targetValue = if (engaged) 3.dp else 5.dp,
+        animationSpec = spec,
+        label = "handleWidth",
+    )
+    val height by animateDpAsState(
+        targetValue = if (engaged) HandleHeightEngaged else HandleHeightIdle,
+        animationSpec = spec,
+        label = "handleHeight",
+    )
+    Box(
+        modifier = Modifier.size(width = 6.dp, height = HandleHeightEngaged),
+        contentAlignment = Alignment.Center,
+    ) {
+        Spacer(
+            modifier = Modifier
+                .size(width = width, height = height)
+                .background(color, CircleShape),
+        )
+    }
+}
+
+private val HandleHeightIdle = 40.dp
+private val HandleHeightEngaged = 52.dp
+
+/** The active level, as a filled pill that slides in the direction of travel. */
+@Composable
+private fun LevelPill(label: String, index: Int, container: Color, content: Color) {
+    AnimatedContent(
+        targetState = index to label,
+        transitionSpec = {
+            val rising = targetState.first > initialState.first
+            val enter = slideInVertically { h -> if (rising) h else -h } + fadeIn()
+            val exit = slideOutVertically { h -> if (rising) -h else h } + fadeOut()
+            enter togetherWith exit
+        },
+        label = "thinkingLevelPill",
+        modifier = Modifier.padding(bottom = Dimens.spacingSm),
+    ) { (_, text) ->
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = content,
+            modifier = Modifier
+                .background(container, CircleShape)
+                .padding(horizontal = 10.dp, vertical = 3.dp),
+        )
+    }
+}
+
+@Composable
+private fun ScaleEnd(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+    )
+}
+
+/** [accent] with its saturation scaled to [fraction] — 0 reads as gray. */
+private fun saturated(accent: Color, fraction: Float): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(accent.toArgb(), hsv)
+    hsv[1] = hsv[1] * (0.08f + 0.92f * fraction.coerceIn(0f, 1f))
+    return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
 /** A compact flat choice — the N-way horizontal toggle (mode, permission). */
