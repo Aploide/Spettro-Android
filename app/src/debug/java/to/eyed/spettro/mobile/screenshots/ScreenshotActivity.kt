@@ -72,7 +72,7 @@ class ScreenshotActivity : ComponentActivity() {
 private fun Scene(scene: String) {
     when (scene) {
         "chat" -> Chat(items = ChatPreviewData.transcript, busy = false)
-        "chat_busy" -> Chat(items = busyTranscript, busy = true)
+        "chat_busy" -> Chat(items = ChatPreviewData.streamingTranscript, busy = true)
         "list" -> ChatList()
         "config" -> {
             Chat(items = ChatPreviewData.transcript, busy = false)
