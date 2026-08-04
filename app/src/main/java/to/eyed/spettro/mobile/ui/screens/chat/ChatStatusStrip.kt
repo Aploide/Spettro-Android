@@ -209,7 +209,7 @@ private fun UsageReadout(usage: AcpUsage) {
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Cumulative session tokens — the same figure the Mac shows.
+        // Cumulative session tokens — the same figure the PC shows.
         usage.tokensUsed?.takeIf { it > 0 }?.let { total ->
             Text(
                 text = "${formatTokens(total)} tok",

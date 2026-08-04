@@ -36,7 +36,7 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.TabularNums
 
 /**
- * Where should the new chat run? The phone can't browse the Mac's
+ * Where should the new chat run? The phone can't browse the PC's
  * filesystem, so it picks from the folders the host already knows about.
  *
  * @param recentFirst true keeps the host's order (most recently active
@@ -94,7 +94,7 @@ private fun ProjectPickerContent(
         HairlineDivider()
         if (ordered.isEmpty()) {
             Text(
-                "No folders yet — open a project on your Mac first.",
+                "No folders yet — open a project on your PC first.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(Dimens.spacingXl).align(Alignment.CenterHorizontally),

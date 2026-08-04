@@ -90,7 +90,7 @@ fun QrScannerScreen(
             CameraQrPreview(onResult = onResult)
             ScannerOverlay()
             Text(
-                "Point at the QR code on your Mac",
+                "Point at the QR code on your PC",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,

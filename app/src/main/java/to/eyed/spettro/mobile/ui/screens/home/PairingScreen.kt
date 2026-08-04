@@ -55,7 +55,7 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
  * The one-time setup screen: point the phone at the pairing QR code on the
- * Mac. Port of the iOS `PairingView` intro, with the camera handled by the
+ * PC. Port of the iOS `PairingView` intro, with the camera handled by the
  * in-app CameraX + ML Kit [QrScannerScreen].
  *
  * Stateless: the caller drives [isPairing] and [errorText]; scans and manual
@@ -68,7 +68,6 @@ fun PairingScreen(
     errorText: String?,
     onScanned: (String) -> Unit,
     onManualEntry: (String) -> Unit,
-    onSwitchToCli: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
@@ -98,7 +97,7 @@ fun PairingScreen(
             )
             Spacer(Modifier.height(Dimens.spacingSm))
             Text(
-                "Drive the agent on your Mac from this phone — same chats, live.",
+                "Drive the agent on your PC from this phone — same chats, live.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -110,7 +109,7 @@ fun PairingScreen(
                 modifier = Modifier.widthIn(max = 340.dp),
                 verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             ) {
-                PairingStep(1, "Open Spettro on your Mac.")
+                PairingStep(1, "Open Spettro on your PC.")
                 PairingStep(2, "Settings → Remote Access → turn on sharing.")
                 PairingStep(3, "Scan the QR code.")
             }
@@ -151,22 +150,12 @@ fun PairingScreen(
 
             Spacer(Modifier.height(Dimens.spacingSm))
             Text(
-                "You only do this once. After that the app reconnects on its own whenever your Mac is sharing.",
+                "You only do this once. After that the app reconnects on its own whenever your PC is sharing.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.widthIn(max = 320.dp),
             )
-
-            // The escape hatch for people without the macOS app: Protocol A,
-            // straight to `spettro --headless`. Deliberately quiet.
-            TextButton(onClick = onSwitchToCli, enabled = !isPairing) {
-                Text(
-                    "Or connect directly to the CLI",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
 
         if (showScanner) {
@@ -264,7 +253,7 @@ private fun ManualEntryDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd)) {
                 Text(
-                    "Paste the spettro-pair:// link from your Mac — or just the part after the “?”.",
+                    "Paste the spettro-pair:// link from your PC — or just the part after the “?”.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -346,7 +335,6 @@ private fun PairingScreenPreview() {
             errorText = null,
             onScanned = {},
             onManualEntry = {},
-            onSwitchToCli = {},
         )
     }
 }
@@ -360,7 +348,6 @@ private fun PairingScreenErrorPreview() {
             errorText = "That isn't a Spettro pairing code.",
             onScanned = {},
             onManualEntry = {},
-            onSwitchToCli = {},
         )
     }
 }
@@ -374,7 +361,6 @@ private fun PairingScreenBusyPreview() {
             errorText = null,
             onScanned = {},
             onManualEntry = {},
-            onSwitchToCli = {},
         )
     }
 }

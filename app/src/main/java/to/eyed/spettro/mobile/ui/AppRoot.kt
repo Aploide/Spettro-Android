@@ -36,19 +36,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.spettro.mobile.coordinator.AppContainer
-import to.eyed.spettro.mobile.coordinator.AppMode
-import to.eyed.spettro.mobile.coordinator.headless.HeadlessConnection
-import to.eyed.spettro.mobile.coordinator.headless.acpAnswersToHeaderMap
-import to.eyed.spettro.mobile.coordinator.headless.approvalToAcpPermission
-import to.eyed.spettro.mobile.coordinator.headless.askUserToAcpQuestion
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
-import to.eyed.spettro.mobile.core.headless.HeadlessClient
-import to.eyed.spettro.mobile.core.headless.HeadlessEndpoint
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.RemotePairing
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.model.ChatSession
-import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.ImageProcessing
 import to.eyed.spettro.mobile.ui.components.SpettroCard
@@ -56,7 +48,6 @@ import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
-import to.eyed.spettro.mobile.ui.screens.home.CliConnectScreen
 import to.eyed.spettro.mobile.ui.screens.home.DisconnectReason
 import to.eyed.spettro.mobile.ui.screens.home.DisconnectedScreen
 import to.eyed.spettro.mobile.ui.screens.home.PairingScreen
@@ -67,20 +58,9 @@ import to.eyed.spettro.mobile.ui.screens.sheets.PermissionSheet
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 
-/** Top-level router: which backend, then which screen. */
+/** Top-level router: connection state first, then which screen. */
 @Composable
 fun AppRoot(container: AppContainer) {
-    val mode by container.prefs.mode.collectAsState(initial = AppMode.Remote)
-    when (mode) {
-        AppMode.Remote -> RemoteRoot(container)
-        AppMode.Cli -> CliRoot(container)
-    }
-}
-
-// MARK: - Protocol B (Spettro Remote)
-
-@Composable
-private fun RemoteRoot(container: AppContainer) {
     val client = container.client
     val model = container.model
     val scope = rememberCoroutineScope()
@@ -117,7 +97,6 @@ private fun RemoteRoot(container: AppContainer) {
                 errorText = error,
                 onScanned = pair,
                 onManualEntry = pair,
-                onSwitchToCli = { scope.launch { container.prefs.setMode(AppMode.Cli) } },
             )
         }
 
@@ -143,7 +122,6 @@ private fun RemoteRoot(container: AppContainer) {
                 onRetry = { client.start() },
                 onPairAgain = { client.forget() },
                 onForget = { client.forget() },
-                onSwitchToCli = { scope.launch { container.prefs.setMode(AppMode.Cli) } },
             )
         }
     }
@@ -235,7 +213,6 @@ private fun RemoteNavigator(model: MobileModel, container: AppContainer, connect
                 val account by model.account.collectAsState()
                 val login by model.login.collectAsState()
                 val diagnostics by model.client.diagnostics.collectAsState()
-                val context = LocalContext.current
                 SettingsScreen(
                     hostName = connected.host.hostName,
                     hostKind = connected.host.hostKind,
@@ -244,7 +221,7 @@ private fun RemoteNavigator(model: MobileModel, container: AppContainer, connect
                     account = account,
                     login = login,
                     diagnostics = diagnostics,
-                    appVersion = appVersion(context),
+                    appVersion = to.eyed.spettro.mobile.BuildConfig.VERSION_NAME,
                     onDisconnect = { model.client.stop() },
                     onForget = { model.client.forget() },
                     onSignIn = model::signIn,
@@ -447,150 +424,6 @@ private fun RemoteChatHost(model: MobileModel, session: ChatSession, onBack: () 
     }
 }
 
-// MARK: - Protocol A (direct CLI)
-
-@Composable
-private fun CliRoot(container: AppContainer) {
-    val scope = rememberCoroutineScope()
-    var connection by remember { mutableStateOf<HeadlessConnection?>(null) }
-    var isConnecting by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val saved by container.headlessStore.endpoint.collectAsState()
-
-    val active = connection
-    if (active == null) {
-        CliConnectScreen(
-            defaultHost = saved?.let { "${it.host}:${it.port}" } ?: "",
-            isConnecting = isConnecting,
-            errorText = error,
-            onConnect = { endpoint, tokenOrPaste ->
-                scope.launch {
-                    isConnecting = true
-                    error = null
-                    try {
-                        val paste = HeadlessEndpoint.parseTokenPaste(tokenOrPaste)
-                        val token = paste.token
-                            ?: throw IllegalArgumentException("Paste the SPETTRO_TOKEN= line or the 32-character token")
-                        var target = endpoint.trim()
-                        if (target.isEmpty()) throw IllegalArgumentException("Enter the computer's address")
-                        if (!target.contains(":") && paste.port != null) target = "$target:${paste.port}"
-                        val baseUrl = HeadlessEndpoint.parse(target)
-                            ?: throw IllegalArgumentException("That address doesn't look right")
-                        val client = HeadlessClient(baseUrl, token)
-                        client.probe() // verifies reachability and the token
-                        val conn = HeadlessConnection(container.scope, client)
-                        // Remember the endpoint (not the token — it changes every run).
-                        val hostPort = baseUrl.removePrefix("http://").removeSuffix("/")
-                        container.headlessStore.save(
-                            host = hostPort.substringBeforeLast(':'),
-                            port = hostPort.substringAfterLast(':').toIntOrNull() ?: 7878,
-                        )
-                        connection = conn
-                    } catch (e: Exception) {
-                        error = e.message ?: "Couldn't connect"
-                    } finally {
-                        isConnecting = false
-                    }
-                }
-            },
-            onBack = { scope.launch { container.prefs.setMode(AppMode.Remote) } },
-        )
-    } else {
-        CliChatHost(active, onClose = {
-            active.stop()
-            connection = null
-        })
-    }
-}
-
-@Composable
-private fun CliChatHost(connection: HeadlessConnection, onClose: () -> Unit) {
-    BackHandler(onBack = onClose)
-    val scope = rememberCoroutineScope()
-
-    val session = connection.session
-    val items by session.items.collectAsState()
-    val isBusy by connection.isBusy.collectAsState()
-    val runStartedAt by session.runStartedAt.collectAsState()
-    val tokensUsed by connection.tokensUsed.collectAsState()
-    val mode by connection.mode.collectAsState()
-    val plan by session.plan.collectAsState()
-    val usage by session.usage.collectAsState()
-
-    var composerText by rememberSaveable { mutableStateOf("") }
-
-    ChatScreen(
-        title = mode?.let { "spettro · $it" } ?: "spettro",
-        items = items,
-        isBusy = isBusy,
-        runStartedAt = runStartedAt,
-        liveTokens = tokensUsed.takeIf { isBusy && it > 0 },
-        plan = plan,
-        usage = usage,
-        modeName = mode,
-        modeColorName = mode,
-        isPinned = false,
-        isArchived = false,
-        composerText = composerText,
-        onComposerTextChange = { composerText = it },
-        attachments = emptyList(),
-        onRemoveAttachment = {},
-        onAddImages = {}, // The CLI plane is text-only.
-        onSend = {
-            val text = composerText.trim()
-            if (text.isNotEmpty()) {
-                composerText = ""
-                scope.launch { connection.send(text) }
-            }
-        },
-        onStop = { scope.launch { connection.interrupt() } },
-        enabled = true,
-        configSummary = null,
-        onConfigTap = {},
-        commands = emptyList(),
-        onCommandPick = { composerText = "/${it.name} " },
-        onBack = onClose,
-        onTogglePinned = {},
-        onToggleArchived = {},
-        onDelete = onClose,
-    )
-
-    CliPromptOverlays(connection)
-}
-
-@Composable
-private fun CliPromptOverlays(connection: HeadlessConnection) {
-    val scope = rememberCoroutineScope()
-    val approval by connection.pendingApproval.collectAsState()
-    val askUser by connection.pendingQuestion.collectAsState()
-
-    val currentApproval = approval
-    if (currentApproval != null) {
-        PermissionSheet(
-            request = approvalToAcpPermission(currentApproval),
-            chatTitle = null,
-            onSelect = { optionId ->
-                scope.launch { connection.approve(optionId ?: "deny") }
-            },
-            onDismiss = {},
-        )
-        return
-    }
-
-    val currentQuestion = askUser
-    if (currentQuestion != null) {
-        val form = remember(currentQuestion.questionId) { askUserToAcpQuestion(currentQuestion) }
-        QuestionSheet(
-            request = form,
-            onSubmit = { answers ->
-                scope.launch { connection.answerQuestion(acpAnswersToHeaderMap(currentQuestion, answers)) }
-            },
-            onDecline = { scope.launch { connection.answerQuestion(emptyMap()) } },
-            onDismiss = { scope.launch { connection.answerQuestion(emptyMap()) } },
-        )
-    }
-}
-
 // MARK: - Helpers
 
 private fun configSummary(options: List<to.eyed.spettro.mobile.core.acp.AcpConfigOption>): String? {
@@ -608,8 +441,3 @@ private fun loadAttachment(context: Context, uri: android.net.Uri): ImageAttachm
     null
 }
 
-private fun appVersion(context: Context): String = try {
-    context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
-} catch (_: Exception) {
-    "1.0"
-}

@@ -1,18 +1,20 @@
 # Spettro Android — Architecture Contract
 
 Android remote-control client for the `spettro` AI coding agent. Port of the iOS app
-(`../Spettro`, target `SpettroMobile`) plus a direct-CLI mode (`../spettro-CLI`).
+(`../Spettro`, target `SpettroMobile`).
 Package root: `to.eyed.spettro.mobile`. UI: Jetpack Compose, Material 3 Expressive.
 
-## Two protocols
+## Protocols
 
-- **Protocol B — "Spettro Remote"** (primary, iOS parity): WebSocket + JSON-RPC 2.0 to the
-  macOS Spettro app host. Bonjour `_spettro-remote._tcp`, QR pair-once (HMAC-SHA256
-  challenge/response), durable device key. Spec: `../Spettro/docs/34-remote-protocol.md`,
+- **Protocol B — "Spettro Remote"** (the only mode, iOS parity): WebSocket + JSON-RPC 2.0
+  to the Spettro desktop app host. Bonjour `_spettro-remote._tcp`, QR pair-once
+  (HMAC-SHA256 challenge/response), durable device key. Spec:
+  `../Spettro/docs/34-remote-protocol.md`,
   reference Swift: `../Spettro/Spettro/Core/Remote/*.swift`.
-- **Protocol A — CLI HTTP+SSE**: direct connection to `spettro --headless` / `/remote`.
-  Bearer token (32 hex chars), port 7878 default. Source of truth:
-  `../spettro-CLI/internal/remote/server.go`, `../spettro-CLI/cmd/spettro/headless.go`.
+- **Protocol A — CLI HTTP+SSE** *(removed)*: the direct `spettro --headless` connection
+  originally shipped alongside Protocol B, but was removed — the paired companion-app
+  connection is the safer surface, so it is the only one the app offers. References to
+  `core.headless` / headless screens below are historical.
 
 ## Package map & ownership
 

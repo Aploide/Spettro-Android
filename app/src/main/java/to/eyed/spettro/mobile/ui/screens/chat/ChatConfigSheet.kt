@@ -11,9 +11,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,16 +25,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Tune
@@ -59,7 +66,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -602,6 +611,28 @@ private fun DrillPage(
 ) {
     val colors = LocalSpettroColors.current
     val current = currentValue(kind, pending)
+    var query by rememberSaveable(option.id) { mutableStateOf("") }
+    // A group whose *name* matches keeps all its options (searching "openai"
+    // should list that provider's models); otherwise options match on their
+    // own name, description, or wire value.
+    val visibleGroups = remember(kind, query) {
+        val needle = query.trim()
+        if (needle.isEmpty()) {
+            kind.groups.mapIndexed { index, group -> index to group }
+        } else {
+            kind.groups.mapIndexedNotNull { index, group ->
+                if (group.name?.contains(needle, ignoreCase = true) == true) {
+                    return@mapIndexedNotNull index to group
+                }
+                val matches = group.options.filter { choice ->
+                    choice.name.contains(needle, ignoreCase = true) ||
+                        choice.value.contains(needle, ignoreCase = true) ||
+                        choice.description?.contains(needle, ignoreCase = true) == true
+                }
+                if (matches.isEmpty()) null else index to group.copy(options = matches)
+            }
+        }
+    }
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -622,6 +653,25 @@ private fun DrillPage(
                 fontWeight = FontWeight.SemiBold,
             )
         }
+        DrillSearchField(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = "Search ${option.name.lowercase()}s…",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingXs),
+        )
+        if (visibleGroups.isEmpty()) {
+            Text(
+                text = "Nothing matches “${query.trim()}”.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(
+                    horizontal = Dimens.spacingLg,
+                    vertical = Dimens.spacingXl,
+                ),
+            )
+        }
         LazyColumn(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -631,7 +681,7 @@ private fun DrillPage(
                 bottom = Dimens.spacingXl,
             ),
         ) {
-            kind.groups.forEachIndexed { groupIndex, group ->
+            visibleGroups.forEachIndexed { visibleIndex, (groupIndex, group) ->
                 group.name?.takeIf { it.isNotEmpty() }?.let { name ->
                     item(key = "group-$groupIndex") {
                         Text(
@@ -640,7 +690,7 @@ private fun DrillPage(
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             modifier = Modifier.padding(
                                 start = Dimens.spacingXs,
-                                top = if (groupIndex == 0) 0.dp else Dimens.spacingLg,
+                                top = if (visibleIndex == 0) 0.dp else Dimens.spacingLg,
                                 bottom = Dimens.spacingXs,
                             ),
                         )
@@ -686,6 +736,84 @@ private fun DrillPage(
             }
         }
     }
+}
+
+/**
+ * The picker page's search bar: the same expressive pill as the composer —
+ * raised surface, hairline stroke warming to the accent on focus, accent
+ * cursor — with a magnifier lead and a clear button that appears with the
+ * first character.
+ */
+@Composable
+private fun DrillSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalSpettroColors.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(Dimens.radiusInputPill)
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) colors.accent.copy(alpha = 0.5f) else colors.hairline,
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "searchBorder",
+    )
+
+    BasicTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(
+            color = MaterialTheme.colorScheme.onSurface,
+        ),
+        cursorBrush = SolidColor(colors.accent),
+        interactionSource = interactionSource,
+        modifier = modifier
+            .heightIn(min = 40.dp)
+            .clip(shape)
+            .background(colors.surfaceRaised)
+            .border(Dimens.hairlineWidth, borderColor, shape),
+        decorationBox = { innerTextField ->
+            Row(
+                modifier = Modifier.padding(horizontal = Dimens.spacingMd),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = if (focused) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            maxLines = 1,
+                        )
+                    }
+                    innerTextField()
+                }
+                if (query.isNotEmpty()) {
+                    IconButton(
+                        onClick = { onQueryChange("") },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Clear search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        },
+    )
 }
 
 /** Middling flat lists (e.g. thinking levels) stay as check rows in a card. */

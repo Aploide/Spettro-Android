@@ -159,7 +159,7 @@ fun SettingsScreen(
                 }
             }
             Text(
-                "Provider keys are stored on your Mac, never on this device.",
+                "Provider keys are stored on your PC, never on this device.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(start = Dimens.spacingXs),
@@ -189,7 +189,7 @@ fun SettingsScreen(
                 }
             }
             Text(
-                "Spettro Remote v1",
+                "Spettro Remote protocol v1",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(start = Dimens.spacingXs, bottom = Dimens.spacingXl),
@@ -304,7 +304,7 @@ private fun ConnectionCard(
         HairlineDivider()
         SettingsRow(onClick = onForget) {
             Text(
-                "Forget This Mac",
+                "Forget This PC",
                 color = colors.diffRemoved,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -414,7 +414,7 @@ private fun SignedInRows(account: AcpAccountStatus, onSignOut: () -> Unit) {
 }
 
 /**
- * The device-flow sign-in, inline: the CLI runs the flow on the Mac and
+ * The device-flow sign-in, inline: the CLI runs the flow on the PC and
  * pushes state; this only mirrors it, shows the URL in copyable form for when
  * the browser doesn't open on its own, and lets the user cancel.
  */
@@ -580,7 +580,7 @@ private fun SettingsPreviewSignedIn() {
                 "found Carlo's MacBook Pro at 192.168.1.24:51820",
                 "hello ok, agent ready",
             ),
-            appVersion = "1.0",
+            appVersion = "0.1.1",
             onDisconnect = {}, onForget = {}, onSignIn = {}, onSignOut = {},
             onCancelLogin = {}, onOpenProviders = {}, onBack = {},
         )
@@ -603,7 +603,7 @@ private fun SettingsPreviewLoginPending() {
                 browserUrl = "https://spettro.app/device?code=THX-1138",
             ),
             diagnostics = emptyList(),
-            appVersion = "1.0",
+            appVersion = "0.1.1",
             onDisconnect = {}, onForget = {}, onSignIn = {}, onSignOut = {},
             onCancelLogin = {}, onOpenProviders = {}, onBack = {},
         )

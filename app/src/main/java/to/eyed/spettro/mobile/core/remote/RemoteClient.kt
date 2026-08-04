@@ -235,7 +235,7 @@ class RemoteClient(
         }
 
         var opened: Pair<JsonRpcPeer, RemoteHello>? = null
-        var lastError: Exception = RemotePairingException("Couldn't reach that Mac.")
+        var lastError: Exception = RemotePairingException("Couldn't reach that PC.")
         var usedEndpoint: Endpoint? = null
         for (endpoint in candidates) {
             try {
@@ -254,7 +254,7 @@ class RemoteClient(
 
         // The hint failed (or was missing). Android's NSD resolves slowly, so
         // give Bonjour a moment to find the host before declaring it gone —
-        // the user just scanned a code off a Mac that is clearly running.
+        // the user just scanned a code off a PC that is clearly running.
         if (opened == null) {
             val discovered = withTimeoutOrNull(DISCOVERY_WAIT_MS) {
                 discovery.hosts.first { payload.hostID in it }[payload.hostID]
@@ -277,13 +277,13 @@ class RemoteClient(
         val (activePeer, hello) = opened ?: run {
             _state.value = RemoteState.Unpaired
             log("pairing failed: no reachable endpoint (${lastError.message})")
-            throw RemotePairingException(lastError.message ?: "Couldn't reach that Mac.")
+            throw RemotePairingException(lastError.message ?: "Couldn't reach that PC.")
         }
 
         if (hello.hostID != payload.hostID) {
             teardown()
             _state.value = RemoteState.Unpaired
-            throw RemotePairingException("That code belongs to a different Mac.")
+            throw RemotePairingException("That code belongs to a different PC.")
         }
 
         try {
@@ -297,7 +297,7 @@ class RemoteClient(
             if (deviceKey == null || deviceKey.size != RemoteCrypto.KEY_LENGTH) {
                 teardown()
                 _state.value = RemoteState.Unpaired
-                throw RemotePairingException("The Mac didn't send a key back. Try showing a new code.")
+                throw RemotePairingException("The PC didn't send a key back. Try showing a new code.")
             }
             val credential = RemoteCredential(
                 hostID = result.hostID,
@@ -316,7 +316,7 @@ class RemoteClient(
             teardown()
             _state.value = RemoteState.Unpaired
             log("pairing auth failed (${e.code}): ${e.message}")
-            throw RemotePairingException(e.message ?: "The Mac refused the pairing.")
+            throw RemotePairingException(e.message ?: "The PC refused the pairing.")
         }
     }
 

@@ -374,7 +374,7 @@ private data class ProjectGroup(
 )
 
 /**
- * Buckets chats by folder, mirroring the Mac's sidebar. Folder order follows
+ * Buckets chats by folder, mirroring the PC's sidebar. Folder order follows
  * the chats' own recency — the project you're working in floats to the top —
  * and within a folder pinned chats lead, then most recently updated.
  */
@@ -449,7 +449,7 @@ private fun ProjectHeader(
 
 // MARK: - Chrome
 
-/** The Mac is attached but its agent isn't up: chats read-only for now. */
+/** The PC is attached but its agent isn't up: chats read-only for now. */
 @Composable
 private fun AgentDownBanner(hostName: String?) {
     val colors = LocalSpettroColors.current
@@ -464,7 +464,7 @@ private fun AgentDownBanner(hostName: String?) {
     ) {
         StatusDot(color = amber, pulsing = true)
         Text(
-            "Agent starting on ${hostName ?: "your Mac"}… you can read chats but not send yet.",
+            "Agent starting on ${hostName ?: "your PC"}… you can read chats but not send yet.",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -531,7 +531,7 @@ private fun EmptyState(onNewChat: () -> Unit) {
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            "Start one here, or on your Mac.",
+            "Start one here, or on your PC.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

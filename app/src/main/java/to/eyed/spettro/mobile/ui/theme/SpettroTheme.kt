@@ -174,7 +174,15 @@ fun SpettroTheme(
             colorScheme = colorScheme,
             motionScheme = MotionScheme.expressive(),
             typography = SpettroTypography,
-            content = content,
-        )
+        ) {
+            // Without a root Surface, LocalContentColor stays at its default
+            // (black), so any Text without an explicit color is invisible on
+            // the dark canvas.
+            androidx.compose.material3.Surface(
+                color = colorScheme.background,
+                contentColor = colorScheme.onBackground,
+                content = content,
+            )
+        }
     }
 }

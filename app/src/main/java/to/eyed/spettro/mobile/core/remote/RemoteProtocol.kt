@@ -105,7 +105,7 @@ data class RemoteHello(
     val protocolVersion: Int,
     val hostID: String,
     val hostName: String,
-    /** `app` (Spettro.app on macOS) or `tui` (the CLI via /remote). */
+    /** `app` (the Spettro desktop app) or `tui` (the CLI via /remote). */
     val hostKind: String = "app",
     val hostVersion: String = "",
     /** Random per-connection nonce, base64url. */
@@ -223,9 +223,15 @@ data class ChatUserParams(
     val timestamp: String = "",
 )
 
+/**
+ * Every field defaults: a malformed notice (an old desktop host sends `{}`
+ * when a turn is cancelled) must degrade to an empty notice, not abort the
+ * decode of the whole `chat/state` — that would silently drop the turn-ended
+ * signal and leave the chat spinning forever.
+ */
 @Serializable
 data class RemoteNotice(
-    val text: String,
+    val text: String = "",
     val isError: Boolean = false,
 )
 
@@ -269,7 +275,7 @@ data class QuestionAskParams(
 @Serializable
 data class PromptResolvedParams(
     val promptID: String,
-    /** Who resolved it, for a short "answered on Mac" note. */
+    /** Who resolved it, for a short "answered on the PC" note. */
     val resolvedBy: String? = null,
 )
 

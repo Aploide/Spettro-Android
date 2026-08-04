@@ -12,8 +12,8 @@ android {
         applicationId = "to.eyed.spettro.mobile"
         minSdk = 33
         targetSdk = 36
-        versionCode = 266
-        versionName = "2.6.6"
+        versionCode = 11
+        versionName = "0.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -33,6 +33,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

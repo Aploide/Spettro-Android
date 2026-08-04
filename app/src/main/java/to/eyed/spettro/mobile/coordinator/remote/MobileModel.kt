@@ -52,7 +52,7 @@ data class PendingQuestion(
 data class Banner(val text: String, val isError: Boolean = false)
 
 /**
- * The Protocol B coordinator: owns the mirror of the Mac host's state and
+ * The Protocol B coordinator: owns the mirror of the PC host's state and
  * routes notifications into it. Port of the iOS MobileModel (+ the account
  * and provider stores, which live here because they share the agent relay).
  */
@@ -177,13 +177,14 @@ class MobileModel(
                 if (notification.chat.isBusy && !session.isBusy.value) session.beginRun()
                 if (notification.stopReason != null) session.endRun(notification.stopReason)
                 if (!notification.chat.isBusy && notification.stopReason == null) session.setBusy(false)
-                notification.notice?.let { session.appendNotice(it.text, it.isError) }
+                notification.notice?.takeIf { it.text.isNotEmpty() }
+                    ?.let { session.appendNotice(it.text, it.isError) }
             }
             is RemoteNotification.ChatRemoved -> {
                 _chats.value = _chats.value.filterNot { it.id == notification.chatID }
                 if (_openChat.value?.chatId == notification.chatID) {
                     _openChat.value = null
-                    _banner.value = Banner("This chat was deleted on the Mac")
+                    _banner.value = Banner("This chat was deleted on the PC")
                 }
             }
             is RemoteNotification.HostState -> {
@@ -428,7 +429,7 @@ class MobileModel(
             } catch (e: RpcException) {
                 _lastProvidersRefreshFailed.value = true
                 if (e.code == RpcException.METHOD_NOT_FOUND) {
-                    note("Update the spettro CLI on your Mac to manage providers from here")
+                    note("Update the spettro CLI on your PC to manage providers from here")
                 }
             } catch (_: Exception) {
                 _lastProvidersRefreshFailed.value = true
@@ -541,7 +542,7 @@ class MobileModel(
     }
 
     private fun relayErrorText(e: RpcException, prefix: String): String =
-        if (e.code == RpcException.METHOD_NOT_FOUND) "Update the spettro CLI on your Mac" else "$prefix: ${e.message}"
+        if (e.code == RpcException.METHOD_NOT_FOUND) "Update the spettro CLI on your PC" else "$prefix: ${e.message}"
 
     private fun textBlock(text: String): JsonObject = buildJsonObject {
         put("type", "text")

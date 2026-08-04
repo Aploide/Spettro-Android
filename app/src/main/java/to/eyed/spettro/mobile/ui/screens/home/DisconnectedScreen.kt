@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,7 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.LaptopMac
+import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.PersonRemove
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Refresh
@@ -37,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,7 +48,7 @@ import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
- * Why the app can't reach the Mac right now — each case is a different thing
+ * Why the app can't reach the PC right now — each case is a different thing
  * to tell the user, mapped from `core.remote`'s state by the router:
  * Searching (still looking / connecting), HostAsleep (found nothing at the
  * address), SharingOff (host said it stopped), NoLocalNetwork (discovery is
@@ -60,7 +58,7 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 enum class DisconnectReason { Searching, HostAsleep, SharingOff, NoLocalNetwork, Revoked, Transport }
 
 /**
- * The resting screen whenever the Mac isn't reachable — deliberately calm,
+ * The resting screen whenever the PC isn't reachable — deliberately calm,
  * because the fix is usually on the other device. Port of the iOS
  * `DisconnectedView`, minus the router that decides when to show it.
  */
@@ -71,17 +69,16 @@ fun DisconnectedScreen(
     onRetry: () -> Unit,
     onPairAgain: () -> Unit,
     onForget: () -> Unit,
-    onSwitchToCli: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    val host = hostName ?: "your Mac"
+    val host = hostName ?: "your PC"
     val isWorking = reason == DisconnectReason.Searching
     var confirmingForget by rememberSaveable { mutableStateOf(false) }
 
     val icon: ImageVector = when (reason) {
         DisconnectReason.Searching -> Icons.Outlined.Wifi
-        DisconnectReason.HostAsleep, DisconnectReason.Transport -> Icons.Outlined.LaptopMac
+        DisconnectReason.HostAsleep, DisconnectReason.Transport -> Icons.Outlined.Computer
         DisconnectReason.SharingOff -> Icons.Outlined.Block
         DisconnectReason.NoLocalNetwork -> Icons.Outlined.WarningAmber
         DisconnectReason.Revoked -> Icons.Outlined.PersonRemove
@@ -95,11 +92,11 @@ fun DisconnectedScreen(
     }
     val detail = when (reason) {
         DisconnectReason.Searching ->
-            "Make sure your Mac is awake and on the same network."
+            "Make sure your PC is awake and on the same network."
         DisconnectReason.HostAsleep, DisconnectReason.Transport ->
             "It isn't reachable right now. This screen updates by itself the moment it comes back."
         DisconnectReason.SharingOff ->
-            "Turn it back on in Spettro on your Mac."
+            "Turn it back on in Spettro on your PC."
         DisconnectReason.NoLocalNetwork ->
             "Spettro needs to see devices on your Wi-Fi to find $host. Check that Wi-Fi is on and that this app is allowed to use the local network in system settings."
         DisconnectReason.Revoked ->
@@ -144,34 +141,35 @@ fun DisconnectedScreen(
 
         Spacer(Modifier.height(Dimens.spacingXl))
 
-        if (isWorking) {
-            SpettroSpinner(size = 20.dp)
-        } else {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-            ) {
-                if (reason == DisconnectReason.Revoked) {
-                    // Retrying is pointless here — the Mac answered and said
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        ) {
+            when {
+                isWorking -> SpettroSpinner(size = 20.dp)
+                reason == DisconnectReason.Revoked ->
+                    // Retrying is pointless here — the PC answered and said
                     // no. Pairing is the only way forward.
                     PrimaryActionButton(
                         label = "Pair Again",
                         icon = Icons.Outlined.QrCodeScanner,
                         onClick = onPairAgain,
                     )
-                    TextButton(
-                        onClick = { confirmingForget = true },
-                        colors = ButtonDefaults.textButtonColors(contentColor = colors.diffRemoved),
-                    ) {
-                        Text("Forget This Mac")
-                    }
-                } else {
+                else ->
                     PrimaryActionButton(
                         label = "Try Again",
                         icon = Icons.Outlined.Refresh,
                         onClick = onRetry,
                     )
-                }
+            }
+            // Settings is only reachable once connected, so this screen is
+            // the sole way out of a stale pairing — offer it in every state,
+            // even while retries run in the background.
+            TextButton(
+                onClick = { confirmingForget = true },
+                colors = ButtonDefaults.textButtonColors(contentColor = colors.diffRemoved),
+            ) {
+                Text("Forget This PC")
             }
         }
 
@@ -194,7 +192,7 @@ fun DisconnectedScreen(
                     verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
                 ) {
                     Text(
-                        "On your Mac",
+                        "On your PC",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -207,14 +205,6 @@ fun DisconnectedScreen(
                 }
             }
             Spacer(Modifier.height(Dimens.spacingSm))
-        }
-
-        TextButton(onClick = onSwitchToCli) {
-            Text(
-                "Or connect directly to the CLI",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 
@@ -272,7 +262,6 @@ private fun DisconnectedPreview(reason: DisconnectReason, darkTheme: Boolean = t
             onRetry = {},
             onPairAgain = {},
             onForget = {},
-            onSwitchToCli = {},
         )
     }
 }

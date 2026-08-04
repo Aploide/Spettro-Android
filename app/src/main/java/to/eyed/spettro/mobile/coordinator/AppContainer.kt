@@ -5,7 +5,6 @@ import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import to.eyed.spettro.mobile.coordinator.headless.HeadlessStore
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
 import to.eyed.spettro.mobile.core.remote.RemoteClient
 import to.eyed.spettro.mobile.core.remote.RemoteCredentialStore
@@ -17,9 +16,6 @@ import to.eyed.spettro.mobile.core.remote.RemoteDiscovery
  */
 class AppContainer private constructor(context: Context) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-
-    val prefs = AppPrefs(context)
-    val headlessStore = HeadlessStore(context)
 
     val credentialStore = RemoteCredentialStore(context)
     val discovery = RemoteDiscovery(context)

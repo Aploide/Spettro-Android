@@ -92,6 +92,28 @@ class RemoteNotificationTest {
         assertTrue(state.notice!!.isError)
     }
 
+    /**
+     * Regression: the Electron desktop host emits `"notice": {}` on a
+     * cancelled turn (it flattens the notice to a string, which serializes
+     * its fields away). The stopReason must still land — dropping the whole
+     * notification left the app spinning forever after a cancel.
+     */
+    @Test
+    fun `parses cancelled chat state with empty notice object`() {
+        val note = parse(
+            RemoteMethod.CHAT_STATE,
+            """{"chat":{"id":"c-3","title":"t","projectPath":"/p",
+                "createdAt":"x","updatedAt":"x","isPinned":false,"isArchived":false,
+                "isBusy":false,"messageCount":3,"preview":""},
+               "stopReason":"cancelled",
+               "notice":{}}""",
+        )
+        val state = note as RemoteNotification.ChatState
+        assertEquals("cancelled", state.stopReason)
+        assertFalse(state.chat.isBusy)
+        assertEquals("", state.notice!!.text)
+    }
+
     @Test
     fun `parses chat state without optional fields`() {
         val note = parse(

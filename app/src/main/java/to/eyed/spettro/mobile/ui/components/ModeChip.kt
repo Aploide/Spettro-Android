@@ -20,7 +20,7 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 /**
  * A small mode-tinted chip: the mode's color at a low-opacity fill with the
  * label in the full color, so "coding" reads green and "plan" reads purple
- * everywhere, exactly as in the TUI and the macOS app.
+ * everywhere, exactly as in the TUI and the desktop app.
  *
  * @param colorName a manifest color name ("green", "cyan", ...) or a mode id
  *   ("plan", "coding", ...); null falls back to the accent.
