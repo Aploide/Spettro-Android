@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only additions. ScreenshotActivity is the Play-listing capture harness:
+  it renders one screen from the preview fixtures so `tools/playstore-screenshots.sh`
+  can drive it with `am start`. It never ships in a release build.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name=".screenshots.ScreenshotActivity"
+            android:exported="true"
+            android:label="Spettro Screenshots"
+            android:theme="@style/Theme.Spettro" />
+    </application>
+
+</manifest>

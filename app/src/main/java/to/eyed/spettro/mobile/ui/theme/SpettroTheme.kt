@@ -135,15 +135,19 @@ private val DarkColorScheme: ColorScheme = darkColorScheme(
  * tints) stay fixed — they carry meaning, not branding.
  *
  * Previews (`LocalInspectionMode`) keep the static brand palette: dynamic
- * schemes need a real device context.
+ * schemes need a real device context. Pass `dynamicColor = false` to force the
+ * brand palette on a real device too — that is what the store-screenshot
+ * harness does, so the listing shows Spettro's own colors instead of whichever
+ * wallpaper the capture device happened to have.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SpettroTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val useDynamic = !androidx.compose.ui.platform.LocalInspectionMode.current
+    val useDynamic = dynamicColor && !androidx.compose.ui.platform.LocalInspectionMode.current
     val colorScheme = if (useDynamic) {
         val context = androidx.compose.ui.platform.LocalContext.current
         if (darkTheme) {
