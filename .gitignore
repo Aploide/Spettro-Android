@@ -6,3 +6,4 @@ local.properties
 .claude/
 playstore/
 start.sh
+release/
