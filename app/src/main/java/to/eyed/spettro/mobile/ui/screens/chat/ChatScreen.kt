@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -91,6 +92,7 @@ fun ChatScreen(
     onToggleArchived: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    showBack: Boolean = true,
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -111,11 +113,15 @@ fun ChatScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "Back",
-                        )
+                    // In the tablet split shell the chat sits beside the list,
+                    // so there is nowhere to go "back" to.
+                    if (showBack) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back",
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -189,15 +195,17 @@ fun ChatScreen(
                 .imePadding(),
         ) {
             if (isBusy || plan.isNotEmpty() || usage != null || modeName != null) {
-                ChatStatusStrip(
-                    isBusy = isBusy,
-                    runStartedAt = runStartedAt,
-                    liveTokens = liveTokens,
-                    plan = plan,
-                    usage = usage,
-                    modeName = modeName,
-                    modeColorName = modeColorName,
-                )
+                ReadableColumn {
+                    ChatStatusStrip(
+                        isBusy = isBusy,
+                        runStartedAt = runStartedAt,
+                        liveTokens = liveTokens,
+                        plan = plan,
+                        usage = usage,
+                        modeName = modeName,
+                        modeColorName = modeColorName,
+                    )
+                }
             }
 
             if (items.isEmpty()) {
@@ -206,21 +214,23 @@ fun ChatScreen(
                 Transcript(items = items, modifier = Modifier.weight(1f))
             }
 
-            ChatComposer(
-                text = composerText,
-                onTextChange = onComposerTextChange,
-                attachments = attachments,
-                onRemoveAttachment = onRemoveAttachment,
-                onAddImages = onAddImages,
-                onSend = onSend,
-                onStop = onStop,
-                isBusy = isBusy,
-                enabled = enabled,
-                configSummary = configSummary,
-                onConfigTap = onConfigTap,
-                commands = commands,
-                onCommandPick = onCommandPick,
-            )
+            ReadableColumn {
+                ChatComposer(
+                    text = composerText,
+                    onTextChange = onComposerTextChange,
+                    attachments = attachments,
+                    onRemoveAttachment = onRemoveAttachment,
+                    onAddImages = onAddImages,
+                    onSend = onSend,
+                    onStop = onStop,
+                    isBusy = isBusy,
+                    enabled = enabled,
+                    configSummary = configSummary,
+                    onConfigTap = onConfigTap,
+                    commands = commands,
+                    onCommandPick = onCommandPick,
+                )
+            }
         }
     }
 
@@ -246,6 +256,23 @@ fun ChatScreen(
             },
             containerColor = colors.surfaceRaised,
         )
+    }
+}
+
+/**
+ * Desktop-style readable measure: on wide screens the transcript, status
+ * strip and composer cap out and recenter instead of stretching edge to
+ * edge — the same 820px cap the PC app puts on its transcript column. On
+ * phones the cap never engages.
+ */
+private val ContentMaxWidth = 820.dp
+
+@Composable
+private fun ReadableColumn(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()) {
+            content()
+        }
     }
 }
 
@@ -275,7 +302,9 @@ private fun Transcript(items: List<TranscriptItem>, modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
     ) {
         items(items, key = { it.id }) { item ->
-            TranscriptItemView(item = item)
+            ReadableColumn {
+                TranscriptItemView(item = item)
+            }
         }
     }
 }

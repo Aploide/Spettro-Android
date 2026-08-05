@@ -4,11 +4,19 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import to.eyed.spettro.mobile.BuildConfig
@@ -18,6 +26,8 @@ import to.eyed.spettro.mobile.core.acp.AcpQuestionItem
 import to.eyed.spettro.mobile.core.acp.AcpQuestionOption
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
 import to.eyed.spettro.mobile.core.remote.ChatSummary
+import to.eyed.spettro.mobile.ui.DesktopModal
+import to.eyed.spettro.mobile.ui.DetailPlaceholder
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
@@ -28,6 +38,7 @@ import to.eyed.spettro.mobile.ui.screens.home.previewProjects
 import to.eyed.spettro.mobile.ui.screens.settings.SettingsScreen
 import to.eyed.spettro.mobile.ui.screens.sheets.PermissionSheet
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
+import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -39,7 +50,11 @@ import java.util.TimeZone
  * fully populated from the preview fixtures, with no client and no network.
  *
  *     adb shell am start -n to.eyed.spettro.mobile/.screenshots.ScreenshotActivity \
- *         --es scene chat --es theme dark
+ *         --es scene chat --es theme dark --es form phone
+ *
+ * With `--es form tablet` the scenes render inside the split shell (sidebar +
+ * divider + detail pane) the way RemoteNavigator lays out expanded windows,
+ * and Settings presents as the desktop-style centered modal.
  *
  * Dynamic color is switched off so every capture carries the Spettro palette
  * rather than the capture device's wallpaper. Driven by
@@ -52,9 +67,10 @@ class ScreenshotActivity : ComponentActivity() {
         enableEdgeToEdge()
         val scene = intent.getStringExtra(EXTRA_SCENE) ?: SCENE_CHAT
         val dark = intent.getStringExtra(EXTRA_THEME) != "light"
+        val tablet = intent.getStringExtra(EXTRA_FORM) == "tablet"
         setContent {
             SpettroTheme(darkTheme = dark, dynamicColor = false) {
-                Scene(scene)
+                Scene(scene, tablet)
             }
         }
     }
@@ -62,6 +78,7 @@ class ScreenshotActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SCENE = "scene"
         const val EXTRA_THEME = "theme"
+        const val EXTRA_FORM = "form"
         const val SCENE_CHAT = "chat"
     }
 }
@@ -69,13 +86,14 @@ class ScreenshotActivity : ComponentActivity() {
 // MARK: - Scenes
 
 @Composable
-private fun Scene(scene: String) {
+private fun Scene(scene: String, tablet: Boolean) {
     when (scene) {
-        "chat" -> Chat(items = ChatPreviewData.transcript, busy = false)
-        "chat_busy" -> Chat(items = ChatPreviewData.streamingTranscript, busy = true)
-        "list" -> ChatList()
+        "chat" -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
+        "chat_busy" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true)
+        "list" -> if (tablet) SplitShell(items = null) else ChatList()
+        "split" -> SplitShell(items = ChatPreviewData.transcript, busy = false)
         "config" -> {
-            Chat(items = ChatPreviewData.transcript, busy = false)
+            Shell(tablet, items = ChatPreviewData.transcript, busy = false)
             ChatConfigSheet(
                 options = ChatPreviewData.configOptions,
                 pendingValues = null,
@@ -85,7 +103,7 @@ private fun Scene(scene: String) {
             )
         }
         "permission" -> {
-            Chat(items = ChatPreviewData.transcript, busy = true)
+            Shell(tablet, items = ChatPreviewData.transcript, busy = true)
             PermissionSheet(
                 request = permissionRequest,
                 chatTitle = "Fix the resume crash",
@@ -94,7 +112,7 @@ private fun Scene(scene: String) {
             )
         }
         "question" -> {
-            Chat(items = ChatPreviewData.transcript, busy = true)
+            Shell(tablet, items = ChatPreviewData.transcript, busy = true)
             QuestionSheet(
                 request = questionRequest,
                 onSubmit = {},
@@ -103,7 +121,7 @@ private fun Scene(scene: String) {
             )
         }
         "projects" -> {
-            ChatList()
+            if (tablet) SplitShell(items = null) else ChatList()
             ProjectPickerSheet(projects = previewProjects(), onPick = {}, onDismiss = {})
         }
         "pairing" -> PairingScreen(
@@ -112,13 +130,58 @@ private fun Scene(scene: String) {
             onScanned = {},
             onManualEntry = {},
         )
-        "settings" -> Settings()
-        else -> Chat(items = ChatPreviewData.transcript, busy = false)
+        "settings" -> if (tablet) {
+            SplitShell(items = null)
+            DesktopModal(onDismiss = {}) { Settings() }
+        } else {
+            Settings()
+        }
+        else -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
+    }
+}
+
+/** A chat-centric scene: full-screen chat on phone, split shell on tablet. */
+@Composable
+private fun Shell(
+    tablet: Boolean,
+    items: List<to.eyed.spettro.mobile.model.TranscriptItem>,
+    busy: Boolean,
+) {
+    if (tablet) SplitShell(items = items, busy = busy) else Chat(items = items, busy = busy)
+}
+
+/**
+ * The tablet split shell: sidebar + divider + detail pane, as RemoteNavigator
+ * lays it out. A null [items] shows the pre-selection welcome pane instead of
+ * an open chat.
+ */
+@Composable
+private fun SplitShell(
+    items: List<to.eyed.spettro.mobile.model.TranscriptItem>?,
+    busy: Boolean = false,
+) {
+    val colors = LocalSpettroColors.current
+    Row(Modifier.fillMaxSize()) {
+        Box(Modifier.width(320.dp).fillMaxHeight()) {
+            ChatList(selectedChatId = if (items != null) "1" else null)
+        }
+        VerticalDivider(color = colors.hairline)
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            if (items != null) {
+                Chat(items = items, busy = busy, showBack = false)
+            } else {
+                DetailPlaceholder(onNewChat = {})
+            }
+        }
     }
 }
 
 @Composable
-private fun Chat(items: List<to.eyed.spettro.mobile.model.TranscriptItem>, busy: Boolean) {
+private fun Chat(
+    items: List<to.eyed.spettro.mobile.model.TranscriptItem>,
+    busy: Boolean,
+    showBack: Boolean = true,
+) {
     var text by remember { mutableStateOf("") }
     ChatScreen(
         title = "Fix the resume crash",
@@ -148,13 +211,15 @@ private fun Chat(items: List<to.eyed.spettro.mobile.model.TranscriptItem>, busy:
         onTogglePinned = {},
         onToggleArchived = {},
         onDelete = {},
+        showBack = showBack,
     )
 }
 
 @Composable
-private fun ChatList() {
+private fun ChatList(selectedChatId: String? = null) {
     ChatListScreen(
         chats = listChats(),
+        selectedChatId = selectedChatId,
         archivedCount = 3,
         agentReady = true,
         hostName = "Carlo's MacBook Pro",

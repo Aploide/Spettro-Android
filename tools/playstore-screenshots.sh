@@ -1,24 +1,32 @@
 #!/usr/bin/env bash
 #
-# Capture the Play Store phone screenshots.
+# Capture the Play Store screenshots, phone or tablet.
 #
 # Drives the debug-only ScreenshotActivity (app/src/debug/…/screenshots/) scene
 # by scene and pulls a full-resolution PNG for each. Output lands in
-# playstore/screenshots/ as <NN>-<scene>-<theme>.png.
+# playstore/screenshots/ (phone) or playstore/screenshots-tablet/ (tablet) as
+# <NN>-<scene>-<theme>.png.
 #
-# The capture device must be 1080x1920 (9:16 exactly) so the PNGs satisfy
-# Play's "longest side at most twice the shortest" rule straight out of the
-# emulator — see README-screenshots in the output folder.
+# Phone captures must come from a 1080x1920 (9:16 exactly) device so the PNGs
+# satisfy Play's "longest side at most twice the shortest" rule straight out
+# of the emulator. Tablet captures come from the landscape Pixel Tablet AVD
+# (2560x1600, 16:10 — also within the 2:1 rule). Boot either with
+# ./tools/start.sh [phone|tablet].
 #
-#   ./tools/playstore-screenshots.sh                 # default emulator-5554
-#   SERIAL=emulator-5556 ./tools/playstore-screenshots.sh
+#   ./tools/playstore-screenshots.sh                 # phone, emulator-5554
+#   ./tools/playstore-screenshots.sh tablet          # tablet, emulator-5556
+#   SERIAL=emulator-5558 ./tools/playstore-screenshots.sh tablet
 #   SKIP_INSTALL=1 ./tools/playstore-screenshots.sh  # reuse the installed APK
 #
 set -euo pipefail
 
-SERIAL="${SERIAL:-emulator-5554}"
+FORM="${1:-phone}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="$ROOT/playstore/screenshots"
+case "$FORM" in
+    phone)  SERIAL="${SERIAL:-emulator-5554}"; OUT="$ROOT/playstore/screenshots" ;;
+    tablet) SERIAL="${SERIAL:-emulator-5556}"; OUT="$ROOT/playstore/screenshots-tablet" ;;
+    *) echo "usage: $0 [phone|tablet]" >&2; exit 1 ;;
+esac
 PKG=to.eyed.spettro.mobile
 ACT="$PKG/.screenshots.ScreenshotActivity"
 SETTLE="${SETTLE:-3}"
@@ -89,7 +97,7 @@ for entry in "${SCENES[@]}"; do
     fi
 
     adb shell am force-stop "$PKG"
-    adb shell am start -n "$ACT" --es scene "$scene" --es theme "$theme" >/dev/null
+    adb shell am start -n "$ACT" --es scene "$scene" --es theme "$theme" --es form "$FORM" >/dev/null
     sleep "$SETTLE"
     adb exec-out screencap -p > "$OUT/$name"
     echo "    $name  ($(identify -format '%wx%h' "$OUT/$name" 2>/dev/null || echo '?'))"

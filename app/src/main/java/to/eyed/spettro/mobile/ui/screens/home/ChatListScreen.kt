@@ -121,6 +121,7 @@ fun ChatListScreen(
     onOpenSettings: () -> Unit,
     onOpenArchived: () -> Unit,
     modifier: Modifier = Modifier,
+    selectedChatId: String? = null,
 ) {
     val colors = LocalSpettroColors.current
     var search by rememberSaveable { mutableStateOf("") }
@@ -274,6 +275,7 @@ fun ChatListScreen(
                                     ChatRow(
                                         chat = chat,
                                         now = now,
+                                        selected = chat.id == selectedChatId,
                                         onClick = { onOpenChat(chat.id) },
                                     )
                                 }
@@ -297,6 +299,7 @@ fun ChatRow(
     chat: ChatSummary,
     modifier: Modifier = Modifier,
     now: Long = System.currentTimeMillis(),
+    selected: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
@@ -305,6 +308,7 @@ fun ChatRow(
         modifier = modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .background(if (selected) colors.accent.copy(alpha = 0.14f) else Color.Transparent)
             .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingMd),
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
     ) {

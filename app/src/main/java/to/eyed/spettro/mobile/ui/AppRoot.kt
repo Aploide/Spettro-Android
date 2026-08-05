@@ -10,16 +10,34 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,8 +48,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,6 +64,7 @@ import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.model.ChatSession
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.ImageProcessing
+import to.eyed.spettro.mobile.ui.components.AppIconImage
 import to.eyed.spettro.mobile.ui.components.SpettroCard
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
@@ -56,6 +78,7 @@ import to.eyed.spettro.mobile.ui.screens.settings.ProvidersScreen
 import to.eyed.spettro.mobile.ui.screens.settings.SettingsScreen
 import to.eyed.spettro.mobile.ui.screens.sheets.PermissionSheet
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
+import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 
 /** Top-level router: connection state first, then which screen. */
@@ -129,6 +152,17 @@ fun AppRoot(container: AppContainer) {
 
 private enum class RemoteScreen { ChatList, Chat, Settings, Providers }
 
+/** Sidebar width of the desktop app's split shell, adapted to dp. */
+private val SidebarWidth = 320.dp
+
+/**
+ * Below these bounds the one-screen-at-a-time phone flow stays; at or above
+ * them the desktop-style split shell takes over. The height floor keeps
+ * landscape phones — wide but short — on the phone layout.
+ */
+private val ExpandedMinWidth = 780.dp
+private val ExpandedMinHeight = 500.dp
+
 @Composable
 private fun RemoteNavigator(model: MobileModel, container: AppContainer, connected: RemoteState.Connected) {
     val scope = rememberCoroutineScope()
@@ -147,121 +181,305 @@ private fun RemoteNavigator(model: MobileModel, container: AppContainer, connect
         if (openChat == null && screen == RemoteScreen.Chat) screen = RemoteScreen.ChatList
     }
 
-    Box(Modifier.fillMaxSize()) {
-        when (screen) {
-            RemoteScreen.ChatList -> {
-                val visible = chats.filter { !it.isArchived }
-                    .sortedWith(compareByDescending<to.eyed.spettro.mobile.core.remote.ChatSummary> { it.isPinned }.thenByDescending { it.updatedAt })
-                ChatListScreen(
-                    chats = visible,
-                    archivedCount = chats.count { it.isArchived },
-                    agentReady = agentReady,
-                    hostName = connected.host.hostName,
-                    isRefreshing = isRefreshing,
-                    onRefresh = { model.refreshEverything() },
-                    onOpenChat = { id -> scope.launch { if (model.openChat(id)) screen = RemoteScreen.Chat } },
-                    onNewChat = { showProjectPicker = true },
-                    onPin = model::setPinned,
-                    onArchive = model::setArchived,
-                    onDelete = model::deleteChat,
-                    onOpenSettings = { screen = RemoteScreen.Settings },
-                    onOpenArchived = { showArchived = true },
-                )
-                if (showProjectPicker) {
-                    ProjectPickerSheet(
-                        projects = projects,
-                        onPick = { path ->
-                            showProjectPicker = false
-                            scope.launch {
-                                val id = model.newChat(path)
-                                if (id != null && model.openChat(id)) screen = RemoteScreen.Chat
-                            }
-                        },
-                        onDismiss = { showProjectPicker = false },
-                    )
-                }
-                if (showArchived) {
-                    ArchivedChatsSheet(
-                        chats = chats.filter { it.isArchived }.sortedByDescending { it.updatedAt },
-                        onOpen = { id ->
-                            showArchived = false
-                            scope.launch { if (model.openChat(id)) screen = RemoteScreen.Chat }
-                        },
-                        onUnarchive = { model.setArchived(it, false) },
-                        onDelete = model::deleteChat,
-                        onDismiss = { showArchived = false },
-                    )
-                }
-            }
+    val visibleChats = chats.filter { !it.isArchived }
+        .sortedWith(compareByDescending<to.eyed.spettro.mobile.core.remote.ChatSummary> { it.isPinned }.thenByDescending { it.updatedAt })
+    val openChatById: (String) -> Unit = { id ->
+        scope.launch { if (model.openChat(id)) screen = RemoteScreen.Chat }
+    }
 
-            RemoteScreen.Chat -> {
-                val session = openChat
-                if (session != null) {
-                    // Keyed so per-chat UI state (scroll position, composer
-                    // draft) resets when a different chat opens.
-                    androidx.compose.runtime.key(session.chatId) {
-                        RemoteChatHost(model, session, onBack = {
-                            model.closeChat()
-                            screen = RemoteScreen.ChatList
-                        })
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val isExpanded = maxWidth >= ExpandedMinWidth && maxHeight >= ExpandedMinHeight
+
+        // Leaving the split shell (fold closed, window shrunk) with a chat
+        // still open: land on that chat, not the list it was selected from.
+        LaunchedEffect(isExpanded, openChat) {
+            if (!isExpanded && openChat != null && screen == RemoteScreen.ChatList) {
+                screen = RemoteScreen.Chat
+            }
+        }
+
+        if (isExpanded) {
+            val colors = LocalSpettroColors.current
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.width(SidebarWidth).fillMaxHeight()) {
+                    ChatListScreen(
+                        chats = visibleChats,
+                        archivedCount = chats.count { it.isArchived },
+                        agentReady = agentReady,
+                        hostName = connected.host.hostName,
+                        isRefreshing = isRefreshing,
+                        onRefresh = { model.refreshEverything() },
+                        onOpenChat = openChatById,
+                        onNewChat = { showProjectPicker = true },
+                        onPin = model::setPinned,
+                        onArchive = model::setArchived,
+                        onDelete = model::deleteChat,
+                        onOpenSettings = { screen = RemoteScreen.Settings },
+                        onOpenArchived = { showArchived = true },
+                        selectedChatId = openChat?.chatId,
+                    )
+                }
+                VerticalDivider(color = colors.hairline)
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    val session = openChat
+                    if (session != null) {
+                        // Keyed so per-chat UI state (scroll position, composer
+                        // draft) resets when a different chat opens.
+                        key(session.chatId) {
+                            RemoteChatHost(
+                                model,
+                                session,
+                                showBack = false,
+                                onBack = { model.closeChat() },
+                            )
+                        }
+                    } else {
+                        DetailPlaceholder(onNewChat = { showProjectPicker = true })
                     }
                 }
             }
-
-            RemoteScreen.Settings -> {
-                BackHandler { screen = RemoteScreen.ChatList }
-                val account by model.account.collectAsState()
-                val login by model.login.collectAsState()
-                val diagnostics by model.client.diagnostics.collectAsState()
-                SettingsScreen(
-                    hostName = connected.host.hostName,
-                    hostKind = connected.host.hostKind,
-                    connectionLabel = "Connected",
-                    agentReady = agentReady,
-                    account = account,
-                    login = login,
-                    diagnostics = diagnostics,
-                    appVersion = to.eyed.spettro.mobile.BuildConfig.VERSION_NAME,
-                    onDisconnect = { model.client.stop() },
-                    onForget = { model.client.forget() },
-                    onSignIn = model::signIn,
-                    onSignOut = model::signOut,
-                    onCancelLogin = model::cancelLogin,
-                    onOpenProviders = {
-                        model.refreshProviders()
-                        screen = RemoteScreen.Providers
-                    },
-                    onBack = { screen = RemoteScreen.ChatList },
-                )
+            // Settings and Providers present as centered panels over the
+            // split, the way the desktop app shows its modals.
+            if (screen == RemoteScreen.Settings || screen == RemoteScreen.Providers) {
+                DesktopModal(onDismiss = { screen = RemoteScreen.ChatList }) {
+                    if (screen == RemoteScreen.Settings) {
+                        BackHandler { screen = RemoteScreen.ChatList }
+                        SettingsHost(
+                            model = model,
+                            connected = connected,
+                            agentReady = agentReady,
+                            onOpenProviders = { screen = RemoteScreen.Providers },
+                            onBack = { screen = RemoteScreen.ChatList },
+                        )
+                    } else {
+                        BackHandler { screen = RemoteScreen.Settings }
+                        ProvidersHost(model = model, onBack = { screen = RemoteScreen.Settings })
+                    }
+                }
             }
+        } else {
+            when (screen) {
+                RemoteScreen.ChatList -> {
+                    ChatListScreen(
+                        chats = visibleChats,
+                        archivedCount = chats.count { it.isArchived },
+                        agentReady = agentReady,
+                        hostName = connected.host.hostName,
+                        isRefreshing = isRefreshing,
+                        onRefresh = { model.refreshEverything() },
+                        onOpenChat = openChatById,
+                        onNewChat = { showProjectPicker = true },
+                        onPin = model::setPinned,
+                        onArchive = model::setArchived,
+                        onDelete = model::deleteChat,
+                        onOpenSettings = { screen = RemoteScreen.Settings },
+                        onOpenArchived = { showArchived = true },
+                    )
+                }
 
-            RemoteScreen.Providers -> {
-                BackHandler { screen = RemoteScreen.Settings }
-                val providers by model.providers.collectAsState()
-                val models by model.models.collectAsState()
-                val loading by model.providersLoading.collectAsState()
-                val refreshFailed by model.lastProvidersRefreshFailed.collectAsState()
-                val probe by model.probeResult.collectAsState()
-                ProvidersScreen(
-                    providers = providers,
-                    models = models,
-                    isLoading = loading,
-                    lastRefreshFailed = refreshFailed,
-                    probeResult = probe?.let { "${it.name}: ${it.models.size} models" },
-                    probeSucceeded = probe != null,
-                    onConnectProvider = model::connectProvider,
-                    onDisconnectProvider = model::disconnectProvider,
-                    onProbeLocal = model::probeLocal,
-                    onAddLocal = model::addLocal,
-                    onRemoveLocal = model::removeLocal,
-                    onToggleFavorite = model::toggleFavorite,
-                    onBack = { screen = RemoteScreen.Settings },
-                )
+                RemoteScreen.Chat -> {
+                    val session = openChat
+                    if (session != null) {
+                        // Keyed so per-chat UI state (scroll position, composer
+                        // draft) resets when a different chat opens.
+                        key(session.chatId) {
+                            RemoteChatHost(model, session, onBack = {
+                                model.closeChat()
+                                screen = RemoteScreen.ChatList
+                            })
+                        }
+                    }
+                }
+
+                RemoteScreen.Settings -> {
+                    BackHandler { screen = RemoteScreen.ChatList }
+                    SettingsHost(
+                        model = model,
+                        connected = connected,
+                        agentReady = agentReady,
+                        onOpenProviders = { screen = RemoteScreen.Providers },
+                        onBack = { screen = RemoteScreen.ChatList },
+                    )
+                }
+
+                RemoteScreen.Providers -> {
+                    BackHandler { screen = RemoteScreen.Settings }
+                    ProvidersHost(model = model, onBack = { screen = RemoteScreen.Settings })
+                }
             }
+        }
+
+        if (showProjectPicker) {
+            ProjectPickerSheet(
+                projects = projects,
+                onPick = { path ->
+                    showProjectPicker = false
+                    scope.launch {
+                        val id = model.newChat(path)
+                        if (id != null && model.openChat(id)) screen = RemoteScreen.Chat
+                    }
+                },
+                onDismiss = { showProjectPicker = false },
+            )
+        }
+        if (showArchived) {
+            ArchivedChatsSheet(
+                chats = chats.filter { it.isArchived }.sortedByDescending { it.updatedAt },
+                onOpen = { id ->
+                    showArchived = false
+                    openChatById(id)
+                },
+                onUnarchive = { model.setArchived(it, false) },
+                onDelete = model::deleteChat,
+                onDismiss = { showArchived = false },
+            )
         }
 
         RemotePromptOverlays(model)
         BannerOverlay(model)
+    }
+}
+
+/** Collects settings state and renders the stateless SettingsScreen. */
+@Composable
+private fun SettingsHost(
+    model: MobileModel,
+    connected: RemoteState.Connected,
+    agentReady: Boolean,
+    onOpenProviders: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val account by model.account.collectAsState()
+    val login by model.login.collectAsState()
+    val diagnostics by model.client.diagnostics.collectAsState()
+    SettingsScreen(
+        hostName = connected.host.hostName,
+        hostKind = connected.host.hostKind,
+        connectionLabel = "Connected",
+        agentReady = agentReady,
+        account = account,
+        login = login,
+        diagnostics = diagnostics,
+        appVersion = to.eyed.spettro.mobile.BuildConfig.VERSION_NAME,
+        onDisconnect = { model.client.stop() },
+        onForget = { model.client.forget() },
+        onSignIn = model::signIn,
+        onSignOut = model::signOut,
+        onCancelLogin = model::cancelLogin,
+        onOpenProviders = {
+            model.refreshProviders()
+            onOpenProviders()
+        },
+        onBack = onBack,
+    )
+}
+
+/** Collects provider state and renders the stateless ProvidersScreen. */
+@Composable
+private fun ProvidersHost(model: MobileModel, onBack: () -> Unit) {
+    val providers by model.providers.collectAsState()
+    val models by model.models.collectAsState()
+    val loading by model.providersLoading.collectAsState()
+    val refreshFailed by model.lastProvidersRefreshFailed.collectAsState()
+    val probe by model.probeResult.collectAsState()
+    ProvidersScreen(
+        providers = providers,
+        models = models,
+        isLoading = loading,
+        lastRefreshFailed = refreshFailed,
+        probeResult = probe?.let { "${it.name}: ${it.models.size} models" },
+        probeSucceeded = probe != null,
+        onConnectProvider = model::connectProvider,
+        onDisconnectProvider = model::disconnectProvider,
+        onProbeLocal = model::probeLocal,
+        onAddLocal = model::addLocal,
+        onRemoveLocal = model::removeLocal,
+        onToggleFavorite = model::toggleFavorite,
+        onBack = onBack,
+    )
+}
+
+/**
+ * The detail pane before any chat is selected — the split-shell analog of
+ * the desktop app's welcome pane. Internal so the debug screenshot harness
+ * can render the same pane.
+ */
+@Composable
+internal fun DetailPlaceholder(onNewChat: () -> Unit) {
+    val colors = LocalSpettroColors.current
+    Box(
+        modifier = Modifier.fillMaxSize().background(colors.canvas),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
+        ) {
+            AppIconImage(size = 56.dp)
+            Text(
+                "Spettro",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                "Select a chat, or start a new one.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Dimens.spacingSm))
+            Button(
+                onClick = onNewChat,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.accent,
+                    contentColor = Color.White,
+                ),
+                shape = RoundedCornerShape(Dimens.radiusLg),
+            ) {
+                Text("New Chat", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/**
+ * Desktop-style centered panel over a scrim — how Settings and Providers
+ * present in the split shell, mirroring the PC app's fixed modal panels.
+ * Tapping the scrim dismisses; taps on the panel are consumed. Internal so
+ * the debug screenshot harness can present Settings the same way.
+ */
+@Composable
+internal fun DesktopModal(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    val colors = LocalSpettroColors.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            modifier = Modifier
+                .padding(Dimens.spacingXl)
+                .widthIn(max = 600.dp)
+                .fillMaxWidth()
+                .heightIn(max = 720.dp)
+                .fillMaxHeight()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                ),
+            shape = RoundedCornerShape(Dimens.radiusLg),
+            color = colors.canvas,
+            border = BorderStroke(1.dp, colors.hairline),
+        ) {
+            content()
+        }
     }
 }
 
@@ -337,7 +555,12 @@ private fun BannerOverlay(model: MobileModel) {
 
 /** Binds the stateless ChatScreen to a live remote ChatSession. */
 @Composable
-private fun RemoteChatHost(model: MobileModel, session: ChatSession, onBack: () -> Unit) {
+private fun RemoteChatHost(
+    model: MobileModel,
+    session: ChatSession,
+    onBack: () -> Unit,
+    showBack: Boolean = true,
+) {
     BackHandler(onBack = onBack)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -405,6 +628,7 @@ private fun RemoteChatHost(model: MobileModel, session: ChatSession, onBack: () 
         commands = commands,
         onCommandPick = { composerText = "/${it.name} " },
         onBack = onBack,
+        showBack = showBack,
         onTogglePinned = { model.setPinned(session.chatId, !isPinned) },
         onToggleArchived = { model.setArchived(session.chatId, !isArchived) },
         onDelete = {
