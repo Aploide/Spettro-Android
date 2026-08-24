@@ -136,9 +136,23 @@ an emulator or device on **Android 13+ (API 33)**.
 ./gradlew testDebugUnitTest  # JVM unit tests
 ```
 
+**The debug build installs beside a Play install rather than replacing it.**
+It carries `applicationIdSuffix = ".dev"` and is labelled *Spettro Dev*, so
+`installDebug` on a phone that already has Spettro from the Play Store adds a
+second app instead of failing on the signature mismatch — and, more to the
+point, without wiping the pairing credentials, which live in app-private
+storage with `allowBackup="false"` and cannot be recovered.
+
+That means the debug package is `to.eyed.spettro.mobile.dev` while the class
+namespace stays `to.eyed.spettro.mobile`, so anything addressing a component
+by name has to spell it out in full rather than using the `.Foo` shorthand.
+`tools/playstore-screenshots.sh` already does. Release builds are untouched:
+still `to.eyed.spettro.mobile`, still labelled *Spettro*.
+
 To actually use the app you need the Spettro desktop app running on a PC on
 the same network with remote hosting enabled — scan its pairing QR code from
-the app's pairing screen (or paste the `spettro-pair://` URL manually).
+the app's pairing screen (or paste the `spettro-pair://` URL manually). Each
+application id pairs separately, so the dev copy needs its own pairing.
 
 ## Testing
 

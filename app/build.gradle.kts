@@ -19,6 +19,25 @@ android {
     }
 
     buildTypes {
+        debug {
+            // The Play build is signed with the upload key and cannot be
+            // upgraded in place by a locally-signed one. Rather than making
+            // "run it on my phone" mean "uninstall the app you actually use"
+            // — which also destroys the host pairing, since credentials live
+            // in app-private storage and allowBackup is off — the debug build
+            // installs alongside it under its own id.
+            //
+            // Safe to do here precisely because there is nothing keyed to the
+            // application id: no google-services.json, and the manifest
+            // registers no URL scheme, so there is no FCM registration to
+            // break and no deep link for the two copies to fight over. The
+            // namespace is untouched, so BuildConfig and R stay put.
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            // The label comes from src/debug/res, not resValue(): app_name
+            // already exists in the main source set and declaring it twice is
+            // a duplicate-resource error rather than an override.
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

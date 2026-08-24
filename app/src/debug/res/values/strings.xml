@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The debug build installs beside the Play one under its own application id,
+  so it needs its own name on the launcher: two identically-labelled icons is
+  worse than no side-by-side install at all.
+-->
+<resources>
+    <string name="app_name">Spettro Dev</string>
+</resources>
