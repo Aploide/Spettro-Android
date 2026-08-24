@@ -18,6 +18,18 @@
 #   SERIAL=emulator-5558 ./tools/playstore-screenshots.sh tablet
 #   SKIP_INSTALL=1 ./tools/playstore-screenshots.sh  # reuse the installed APK
 #
+# ScreenshotActivity also serves the orchestration scenes, which are for
+# eyeballing changes to the workflow/swarm cards rather than for the listing:
+#
+#   workflow  workflow_done  workflow_failed  swarm  swarm_done
+#   orchestration            (both kinds of run mixed into a conversation)
+#   activation               (the "ultracode" highlight, composer and sent)
+#
+# Drive one directly rather than through this script:
+#
+#   adb shell am start -n to.eyed.spettro.mobile/.screenshots.ScreenshotActivity \
+#       --es scene swarm --es theme dark --es form phone
+#
 set -euo pipefail
 
 FORM="${1:-phone}"
