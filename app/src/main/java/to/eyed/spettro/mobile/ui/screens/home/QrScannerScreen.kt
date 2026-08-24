@@ -12,6 +12,7 @@ import androidx.camera.core.Preview as CameraPreview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -85,7 +86,15 @@ fun QrScannerScreen(
         if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // Opaque, and not merely for looks. The scanner is drawn *over* the
+    // pairing screen (PairingScreen composes it with matchParentSize), and
+    // until the camera permission is answered there is no preview filling the
+    // frame — so without a ground of its own the screen underneath shows
+    // through and the rationale text lands on top of the pairing steps, with
+    // both left unreadable. Black rather than the canvas: this is a viewfinder,
+    // it is black in both appearances once the preview starts, and the overlay
+    // should not change colour the moment permission is granted.
+    Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
         if (hasPermission) {
             CameraQrPreview(onResult = onResult)
             ScannerOverlay()
