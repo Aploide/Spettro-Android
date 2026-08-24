@@ -28,6 +28,19 @@ fun nowIso(): String {
 }
 
 /**
+ * [nowIso]'s inverse: epoch millis for a timestamp this app wrote, or null for
+ * anything it did not. Used to run a live clock off a tool call's start time,
+ * which the CLI sets once and never updates.
+ */
+fun epochMillisOrNull(iso: String): Long? = try {
+    val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+    fmt.timeZone = TimeZone.getTimeZone("UTC")
+    fmt.parse(iso)?.time
+} catch (_: Exception) {
+    null
+}
+
+/**
  * A chat message bubble: the user's prompt, the assistant's answer, streamed
  * reasoning, or a local system notice.
  */
@@ -271,12 +284,18 @@ data class ToolCallItem(
                 return SubAgentCall(it, argString(args, "task"))
             }
             // Title form "agent explore: task text" without parseable args.
+            // Swift's split(separator:maxSplits:omittingEmptySubsequences:)
+            // semantics, which the other front-ends also implement: an empty
+            // part before the colon means the whole remainder is the name, not
+            // that the agent is anonymous.
             if (name.startsWith("agent ")) {
                 val rest = name.removePrefix("agent ")
-                val parts = rest.split(":", limit = 2)
-                val agent = parts.firstOrNull() ?: rest
-                val task = if (parts.size > 1) parts[1].trim() else null
-                return SubAgentCall(agent, task)
+                val colon = rest.indexOf(':')
+                if (colon < 0) return SubAgentCall(rest, null)
+                val before = rest.substring(0, colon)
+                val after = rest.substring(colon + 1)
+                if (before.isEmpty()) return SubAgentCall(after, null)
+                return SubAgentCall(before, after.trim())
             }
             return SubAgentCall("agent", null)
         }

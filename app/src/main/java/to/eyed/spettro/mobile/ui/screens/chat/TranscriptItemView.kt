@@ -50,6 +50,7 @@ import to.eyed.spettro.mobile.core.B64
 import to.eyed.spettro.mobile.model.ChatMessage
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.TranscriptItem
+import to.eyed.spettro.mobile.ui.components.ActivationText
 import to.eyed.spettro.mobile.ui.components.GlareText
 import to.eyed.spettro.mobile.ui.components.SpettroCard
 import to.eyed.spettro.mobile.ui.theme.Dimens
@@ -103,10 +104,13 @@ private fun UserBubble(message: ChatMessage, modifier: Modifier) {
                 modifier = Modifier.fillMaxWidth(0.8f),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                Text(
+                // A sent message keeps its highlight: scrolling back to "why
+                // did this turn spawn twenty agents" should answer itself.
+                ActivationText(
                     text = message.text,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimary,
+                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(Dimens.radiusBubble))
                         .background(colors.userBubble)

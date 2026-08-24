@@ -50,6 +50,8 @@ import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpUsage
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.TranscriptItem
+import to.eyed.spettro.mobile.model.TranscriptRow
+import to.eyed.spettro.mobile.model.groupTranscript
 import to.eyed.spettro.mobile.ui.components.AppIconImage
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
@@ -97,6 +99,17 @@ fun ChatScreen(
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+
+    // The wire delivers a workflow or an Ultra swarm as a flat run of tool
+    // calls — a lifecycle call, one call per sub-agent, and every tool each of
+    // them runs, interleaved. Rendered literally, a twenty-agent fan-out is a
+    // wall of rows that drowns the conversation, so `groupTranscript` rebuilds
+    // the shape the run actually had.
+    //
+    // It is computed here rather than inside the transcript because the live
+    // strip needs the same answer, and the fold walks the whole transcript
+    // twice: doing it per surface would double that on every streamed chunk.
+    val rows = remember(items) { groupTranscript(items) }
 
     Scaffold(
         modifier = modifier,
@@ -211,7 +224,14 @@ fun ChatScreen(
             if (items.isEmpty()) {
                 EmptyTranscript(modifier = Modifier.weight(1f))
             } else {
-                Transcript(items = items, modifier = Modifier.weight(1f))
+                Transcript(rows = rows, modifier = Modifier.weight(1f))
+            }
+
+            // The live edge of an in-flight run, pinned where the transcript
+            // cannot scroll it away. It renders nothing when nothing is
+            // orchestrating, which is almost always.
+            ReadableColumn {
+                OrchestrationLiveStrip(rows = rows)
             }
 
             ReadableColumn {
@@ -276,22 +296,38 @@ private fun ReadableColumn(content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * The conversation, folded.
+ *
+ * The wire delivers a workflow or an Ultra swarm as a flat run of tool calls —
+ * a lifecycle call, one call per sub-agent, and every tool each of them runs,
+ * interleaved. Rendered literally, a twenty-agent fan-out is a wall of rows
+ * that drowns the conversation, so [groupTranscript] rebuilds the shape the run
+ * actually had and the list renders *rows* rather than items.
+ *
+ * The fold is memoised on [items] because it walks the whole transcript twice
+ * and this recomposes on every streamed chunk; recomputing it per frame is what
+ * makes a long session crawl.
+ */
 @Composable
-private fun Transcript(items: List<TranscriptItem>, modifier: Modifier) {
+private fun Transcript(rows: List<TranscriptRow>, modifier: Modifier) {
     // A chat opens at its newest message: seed the list state at the end so
     // the first frame is already at the bottom — no visible jump.
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = (items.size - 1).coerceAtLeast(0),
+        initialFirstVisibleItemIndex = (rows.size - 1).coerceAtLeast(0),
     )
 
     // Auto-scroll: follow the conversation only while the reader is already
     // near the bottom, so scrolling back through history isn't hijacked.
-    LaunchedEffect(items.size) {
-        if (items.isEmpty()) return@LaunchedEffect
+    // Keyed on the rows themselves rather than their count: a swarm absorbing
+    // twenty members leaves the count flat while the run is very much moving,
+    // and the view would stop following it.
+    LaunchedEffect(rows) {
+        if (rows.isEmpty()) return@LaunchedEffect
         val info = listState.layoutInfo
         val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (lastVisible >= items.size - 2) {
-            listState.animateScrollToItem(items.size - 1)
+        if (lastVisible >= rows.size - 2) {
+            listState.animateScrollToItem(rows.size - 1)
         }
     }
 
@@ -301,9 +337,9 @@ private fun Transcript(items: List<TranscriptItem>, modifier: Modifier) {
         contentPadding = androidx.compose.foundation.layout.PaddingValues(Dimens.spacingLg),
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
     ) {
-        items(items, key = { it.id }) { item ->
+        items(rows, key = { it.id }) { row ->
             ReadableColumn {
-                TranscriptItemView(item = item)
+                TranscriptRowView(row = row)
             }
         }
     }
