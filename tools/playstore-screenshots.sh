@@ -18,6 +18,19 @@
 #   SERIAL=emulator-5558 ./tools/playstore-screenshots.sh tablet
 #   SKIP_INSTALL=1 ./tools/playstore-screenshots.sh  # reuse the installed APK
 #
+# ScreenshotActivity also serves the orchestration scenes, which are for
+# eyeballing changes to the workflow/swarm cards rather than for the listing:
+#
+#   workflow  workflow_done  workflow_failed  swarm  swarm_done
+#   orchestration            (both kinds of run mixed into a conversation)
+#   activation               (the "ultracode" highlight, composer and sent)
+#
+# Drive one directly rather than through this script:
+#
+#   adb shell am start -n \
+#       to.eyed.spettro.mobile.dev/to.eyed.spettro.mobile.screenshots.ScreenshotActivity \
+#       --es scene swarm --es theme dark --es form phone
+#
 set -euo pipefail
 
 FORM="${1:-phone}"
@@ -27,8 +40,13 @@ case "$FORM" in
     tablet) SERIAL="${SERIAL:-emulator-5556}"; OUT="$ROOT/playstore/screenshots-tablet" ;;
     *) echo "usage: $0 [phone|tablet]" >&2; exit 1 ;;
 esac
-PKG=to.eyed.spettro.mobile
-ACT="$PKG/.screenshots.ScreenshotActivity"
+# The debug build installs under its own application id so it can sit beside a
+# Play install (see the debug block in app/build.gradle.kts). The class itself
+# keeps the module namespace, so the component has to be spelled out in full —
+# the ".screenshots.X" shorthand would resolve against the *suffixed* id and
+# fail to start.
+PKG=to.eyed.spettro.mobile.dev
+ACT="$PKG/to.eyed.spettro.mobile.screenshots.ScreenshotActivity"
 SETTLE="${SETTLE:-3}"
 
 adb() { command adb -s "$SERIAL" "$@"; }

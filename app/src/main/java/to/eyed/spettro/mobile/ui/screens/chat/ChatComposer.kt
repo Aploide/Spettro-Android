@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import to.eyed.spettro.mobile.core.acp.AcpCommand
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
+import to.eyed.spettro.mobile.ui.components.activationHighlight
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.MonoBody
@@ -272,6 +273,11 @@ private fun ComposerTextField(
         textStyle = MaterialTheme.typography.bodyLarge.copy(
             color = MaterialTheme.colorScheme.onSurface,
         ),
+        // "ultracode", or "use a workflow to …", silently arms multi-agent
+        // orchestration for the next turn. Lighting the phrase as it is typed
+        // is the only sign the user gets that the turn changed shape, and it is
+        // driven by the same matcher the CLI uses to decide.
+        visualTransformation = activationHighlight(tint = colors.accent),
         cursorBrush = SolidColor(colors.accent),
         interactionSource = interactionSource,
         modifier = modifier

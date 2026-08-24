@@ -31,6 +31,7 @@ import to.eyed.spettro.mobile.ui.DetailPlaceholder
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
+import to.eyed.spettro.mobile.ui.screens.chat.OrchestrationPreviewData
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
 import to.eyed.spettro.mobile.ui.screens.home.PairingScreen
 import to.eyed.spettro.mobile.ui.screens.home.ProjectPickerSheet
@@ -90,6 +91,23 @@ private fun Scene(scene: String, tablet: Boolean) {
     when (scene) {
         "chat" -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
         "chat_busy" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true)
+        // Orchestration: a workflow and an Ultra swarm, live and settled, plus
+        // a workflow whose script never started and a transcript with both
+        // kinds of run mixed into ordinary conversation.
+        "workflow" -> Shell(tablet, items = OrchestrationPreviewData.liveWorkflowTranscript, busy = true)
+        "workflow_done" -> Shell(tablet, items = OrchestrationPreviewData.settledWorkflowTranscript, busy = false)
+        "swarm" -> Shell(tablet, items = OrchestrationPreviewData.liveSwarmTranscript, busy = true)
+        "swarm_done" -> Shell(tablet, items = OrchestrationPreviewData.settledSwarmTranscript, busy = false)
+        "workflow_failed" -> Shell(tablet, items = OrchestrationPreviewData.failedScriptTranscript, busy = false)
+        "orchestration" -> Shell(tablet, items = OrchestrationPreviewData.mixedTranscript, busy = true)
+        // The phrase that arms multi-agent orchestration, lit in the composer
+        // and in the message already sent.
+        "activation" -> Shell(
+            tablet,
+            items = OrchestrationPreviewData.activationTranscript,
+            busy = false,
+            composerText = "then use a workflow to port the settings screen too",
+        )
         "list" -> if (tablet) SplitShell(items = null) else ChatList()
         "split" -> SplitShell(items = ChatPreviewData.transcript, busy = false)
         "config" -> {
@@ -146,8 +164,13 @@ private fun Shell(
     tablet: Boolean,
     items: List<to.eyed.spettro.mobile.model.TranscriptItem>,
     busy: Boolean,
+    composerText: String = "",
 ) {
-    if (tablet) SplitShell(items = items, busy = busy) else Chat(items = items, busy = busy)
+    if (tablet) {
+        SplitShell(items = items, busy = busy, composerText = composerText)
+    } else {
+        Chat(items = items, busy = busy, composerText = composerText)
+    }
 }
 
 /**
@@ -159,6 +182,7 @@ private fun Shell(
 private fun SplitShell(
     items: List<to.eyed.spettro.mobile.model.TranscriptItem>?,
     busy: Boolean = false,
+    composerText: String = "",
 ) {
     val colors = LocalSpettroColors.current
     Row(Modifier.fillMaxSize()) {
@@ -168,7 +192,7 @@ private fun SplitShell(
         VerticalDivider(color = colors.hairline)
         Box(Modifier.weight(1f).fillMaxHeight()) {
             if (items != null) {
-                Chat(items = items, busy = busy, showBack = false)
+                Chat(items = items, busy = busy, showBack = false, composerText = composerText)
             } else {
                 DetailPlaceholder(onNewChat = {})
             }
@@ -181,8 +205,9 @@ private fun Chat(
     items: List<to.eyed.spettro.mobile.model.TranscriptItem>,
     busy: Boolean,
     showBack: Boolean = true,
+    composerText: String = "",
 ) {
-    var text by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf(composerText) }
     ChatScreen(
         title = "Fix the resume crash",
         items = items,

@@ -103,6 +103,13 @@ private fun UserBubble(message: ChatMessage, modifier: Modifier) {
                 modifier = Modifier.fillMaxWidth(0.8f),
                 contentAlignment = Alignment.CenterEnd,
             ) {
+                // Deliberately plain. The activating phrase is lit in the
+                // composer, where it still tells you something you can act on;
+                // once the message is sent the run itself is the evidence, and
+                // a mark here would be decoration. It also cannot be done well:
+                // this text is white on a saturated accent, so there is no
+                // headroom above it and any "highlight" can only darken the
+                // words, which reads as damage rather than emphasis.
                 Text(
                     text = message.text,
                     style = MaterialTheme.typography.bodyMedium,
