@@ -50,7 +50,6 @@ import to.eyed.spettro.mobile.core.B64
 import to.eyed.spettro.mobile.model.ChatMessage
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.TranscriptItem
-import to.eyed.spettro.mobile.ui.components.ActivationText
 import to.eyed.spettro.mobile.ui.components.GlareText
 import to.eyed.spettro.mobile.ui.components.SpettroCard
 import to.eyed.spettro.mobile.ui.theme.Dimens
@@ -104,13 +103,17 @@ private fun UserBubble(message: ChatMessage, modifier: Modifier) {
                 modifier = Modifier.fillMaxWidth(0.8f),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                // A sent message keeps its highlight: scrolling back to "why
-                // did this turn spawn twenty agents" should answer itself.
-                ActivationText(
+                // Deliberately plain. The activating phrase is lit in the
+                // composer, where it still tells you something you can act on;
+                // once the message is sent the run itself is the evidence, and
+                // a mark here would be decoration. It also cannot be done well:
+                // this text is white on a saturated accent, so there is no
+                // headroom above it and any "highlight" can only darken the
+                // words, which reads as damage rather than emphasis.
+                Text(
                     text = message.text,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimary,
-                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(Dimens.radiusBubble))
                         .background(colors.userBubble)

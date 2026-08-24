@@ -109,8 +109,17 @@ fun workflowRequested(text: String): Boolean = workflowActivationSpans(text).isN
 fun workflowPreapproved(text: String): Boolean =
     ACTIVATION_PATTERNS[0].containsMatchIn(text)
 
-/** A piece of the text for rendering: the activating phrases and the prose
- *  between them, in order, covering the whole string exactly once. */
+/**
+ * A piece of the text for rendering: the activating phrases and the prose
+ * between them, in order, covering the whole string exactly once.
+ *
+ * Currently exercised only by the tests. The composer styles the spans in place
+ * through a `VisualTransformation` and has no need to cut the string up, and
+ * sent messages are drawn plain on purpose — but this is half of the matcher's
+ * ported API, its behaviour is pinned against the same vectors as the rest, and
+ * any surface that renders activation as separate runs rather than styled spans
+ * will want it.
+ */
 data class ActivationPiece(val text: String, val active: Boolean)
 
 fun splitOnActivation(text: String): List<ActivationPiece> {
