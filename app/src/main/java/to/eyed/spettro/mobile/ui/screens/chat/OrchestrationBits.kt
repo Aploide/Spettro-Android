@@ -86,17 +86,6 @@ internal const val INSTANCE_MAX = 16
 internal fun memberTint(specId: String): Color =
     LocalSpettroColors.current.modeColor(specId.ifEmpty { null })
 
-/** The colour a status reads as, everywhere. */
-@Composable
-internal fun statusColor(status: OrchStatus): Color {
-    val colors = LocalSpettroColors.current
-    return when (status) {
-        OrchStatus.DONE -> colors.diffAdded
-        OrchStatus.FAILED -> colors.diffRemoved
-        OrchStatus.RUNNING -> colors.accent
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Progress meter
 // ---------------------------------------------------------------------------

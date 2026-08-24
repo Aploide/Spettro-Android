@@ -70,7 +70,8 @@ app/src/main/java/to/eyed/spettro/mobile/
 │                              (both wire shapes), permission/question requests,
 │                              StoredSession decode, extension types
 ├── model/                     ChatSession transcript state holder, TranscriptItem,
-│                              ToolCallItem, image attachments
+│   │                          ToolCallItem, image attachments
+│   └── Orchestration.kt       folds the flat wire back into runs (see below)
 └── ui/
     ├── theme/                 Spettro colors/type — M3 Expressive with Spettro tokens
     ├── components/            shared composables (cards, chips, badges, spinners…)
@@ -78,7 +79,8 @@ app/src/main/java/to/eyed/spettro/mobile/
     │   ├── home/              PairingScreen, QR scanner, ChatListScreen,
     │   │                      DisconnectedScreen, project picker
     │   ├── chat/              ChatScreen, composer, transcript rendering,
-    │   │                      tool-call rows, markdown, config sheet, status strip
+    │   │                      tool-call rows, markdown, config sheet, status strip,
+    │   │                      workflow/swarm cards + the live run strip
     │   ├── settings/          SettingsScreen, ProvidersScreen
     │   └── sheets/            PermissionSheet, QuestionSheet
     └── AppRoot.kt             routes on RemoteState; hosts global sheets
@@ -87,6 +89,41 @@ app/src/main/java/to/eyed/spettro/mobile/
 The architecture contract the modules were built against lives in
 [`DESIGN.md`](./DESIGN.md) — package ownership, module APIs, wire-format
 gotchas, and the design tokens.
+
+### Orchestration: workflows and Ultra swarms
+
+The CLI streams a workflow run or an Ultra swarm as a **flat** sequence of tool
+calls — one long-lived lifecycle call, one call per sub-agent, and every tool
+each sub-agent runs, all interleaved in arrival order. Rendered literally that
+is a wall of near-identical rows that drowns the conversation and never says
+which agent did what.
+
+`model/Orchestration.kt` reconstructs the real shape. It is pure and memo-free
+on purpose: a session restored from disk must fold to exactly the same tree as
+the live one that produced it, so the answer may depend only on the items
+passed in. `ChatScreen` runs it once per transcript change and both the
+transcript and the live strip read the result.
+
+Three things about the wire make this harder than it looks, and all three are
+load-bearing:
+
+- **A finished run's plan is gone.** `argsJSON` is overwritten by every update
+  carrying `rawInput`, and the CLI's finish payload is a completely different
+  shape (`{run_id, workflow, agents, failed, cached, tokens}`) — no `phases`,
+  no `description`. They are mined back out of the tree the CLI rendered into
+  the call's own output. Structured args always win; the text only fills what
+  is missing.
+- **A workflow arrives as two calls with the same name.** The model's
+  invocation of the `workflow` *tool* carries the whole script as arguments;
+  the `wf-…` lifecycle trace is what the run is built from. The first is folded
+  into the second — except when it failed before any run existed, where it is
+  the only evidence a workflow was attempted at all.
+- **Swarm members carry no run id.** They can only be attached to the `ultra`
+  call they were fanned out from, by position.
+
+`OrchestrationTest` is a case-for-case port of the desktop app's suite and
+covers every one of those. Screenshots cannot catch any of it — a member
+attached to the wrong run still renders beautifully.
 
 ## Building and running
 

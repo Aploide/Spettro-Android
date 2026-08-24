@@ -142,15 +142,44 @@ assistant = full-width prose, no chrome; cards = surfaceRaised + 1dp hairline bo
 1. **RootView** — routes on RemoteState: Unpaired→Pairing, Connected→ChatNavigator, else→Disconnected (5 states with distinct copy/action). Hosts permission/question sheets globally. Mode switcher entry to Headless (Protocol A) mode.
 2. **PairingScreen** — 3-step intro, QR scan (zxing), manual paste fallback of `spettro-pair://` URL.
 3. **ChatListScreen** — sections by project folder (collapsible), pinned first, swipe pin/archive/delete, search, pull-refresh, new-chat with project picker, archived sheet, agent-down banner.
-4. **ChatScreen** — transcript (LazyColumn), status strip (run ticker/plan progress/context %), composer (attachments via PhotosPicker max 4 → JPEG longest edge 1568px q85, command palette, config summary chip, send/stop).
+4. **ChatScreen** — transcript (LazyColumn over *folded rows*, not raw items), status strip (run ticker/plan progress/context %), live orchestration strip above the composer, composer (attachments via PhotosPicker max 4 → JPEG longest edge 1568px q85, command palette, config summary chip, send/stop, `ultracode` activation highlight).
+   - **WorkflowCard / SwarmCard** — a workflow run or an Ultra swarm as one object rather than N rows. Collapsed by default (a failed run opens expanded); the collapsed header carries the meter, the ratio, the per-member cell strip and any failures, so closing the card never hides what broke.
+   - **OrchestrationLiveStrip** — the phone's answer to the desktop's docked panel and the TUI's ctrl+b side panel: one pinned line showing who is working and on what, expanding into a sheet with the whole declared plan. A finished run is held briefly and settles rather than blinking out.
 5. **ChatConfigSheet** — config options as grouped selects/toggles.
 6. **PermissionSheet** / **QuestionSheet** — per iOS behavior; never preselect recommended; unanswered questions omitted from reply.
 7. **SettingsScreen** — connection info, account (device-flow sign-in, plan badge, credits), providers link, diagnostics log, about.
 8. **ProvidersScreen** — providers, API key connect, local endpoints (probe/add/remove), model list with favorites.
 9. **HeadlessScreen(s)** — connect form (host, port, token or paste `SPETTRO_TOKEN=`), single conversation transcript + composer + approval/ask-user via same sheet components.
 
+## Orchestration derivation (`model/Orchestration.kt`)
+
+`groupTranscript` folds the flat ACP transcript back into the shape a workflow
+or Ultra swarm actually had: runs absorb their members, members absorb their own
+tool calls, everything else passes through untouched and in order. It is pure
+and memo-free by contract — a session restored from disk must fold identically
+to the live one that produced it — and it is memoised once in `ChatScreen`, not
+per surface.
+
+Three wire facts drive its design, and each has a way of being absent:
+
+| Clue | When it is missing | What we fall back to |
+|---|---|---|
+| `run_id` on a workflow member | never (workflow) / always (swarm) | the nearest open run, then the last one |
+| `phases` / `description` in args | after the finish update overwrites them, and forever once reloaded | `parseRenderedWorkflow` mines them from the CLI's own rendered tree |
+| `[instance] ` title prefix | plain delegations (the CLI only brackets names containing `#`) | the call stays a flat row rather than being guessed at |
+
+A tint note: `SpettroColors.modeColor` is the TUI's palette, and the TUI is
+always dark. On the light appearance every hue is darkened toward black so it
+clears 4.5:1 as ink; the hue is what carries the meaning and is preserved
+exactly. Status, not identity, drives the cell strip's colours — running takes
+the accent rather than the member's spec tint, because half the palette is a
+green and a `code` swarm would otherwise draw running-green beside done-green.
+
 ## Testing
 
 Unit tests (JVM) for: pairing proof vector, QR parse, JSON-RPC framing, ACP parsing of both
-config shapes, StoredSession decode, headless event decode, tool title parsing, replay suppression.
+config shapes, StoredSession decode, headless event decode, tool title parsing, replay suppression,
+`groupTranscript` (a case-for-case port of the desktop suite — screenshots cannot catch a member
+attached to the wrong run), and the `ultracode` activation matcher against the Go implementation's
+own golden span vectors.
 E2E: real `spettro --headless` on the Mac + app on device (Protocol A); macOS Spettro app host (Protocol B).
