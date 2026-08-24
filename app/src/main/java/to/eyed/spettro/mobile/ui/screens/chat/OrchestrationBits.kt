@@ -183,9 +183,14 @@ internal fun AgentCellStrip(
             val fill = when (member.status) {
                 OrchStatus.DONE -> colors.diffAdded
                 OrchStatus.FAILED -> colors.diffRemoved
-                // A running member wears its own spec's tint, so the strip
-                // also says *what kind* of agent is still working.
-                OrchStatus.RUNNING -> memberTint(member.specId)
+                // The accent, deliberately, and NOT the member's spec tint.
+                // The tint says what kind of agent this is, which is real
+                // information — but half the palette is a green, so a swarm of
+                // `code` agents drew running-green cells beside done-green
+                // ones and the one question the strip exists to answer stopped
+                // having an answer. The spec tint lives on the member's name,
+                // where it competes with nothing.
+                OrchStatus.RUNNING -> colors.accent
             }
             // A replayed member did no work this run; it is drawn hollow so a
             // resumed workflow does not look like it re-ran everything.

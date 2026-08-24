@@ -3,6 +3,7 @@ package to.eyed.spettro.mobile.ui.theme
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 
 // ---------------------------------------------------------------------------
 // Raw brand palette — ported verbatim from ../Spettro/Spettro/Design/Theme.swift.
@@ -59,21 +60,38 @@ data class SpettroColors(
      * manifest color name ("green", "cyan", ...) or a mode id ("plan",
      * "coding", ...) — the same fallback chain the TUI applies. Null or an
      * unknown name falls back to the accent.
+     *
+     * The palette is the terminal's, and the terminal is always dark. Used as
+     * ink on the light canvas these hues are far too pale — the "coding" green
+     * lands around 1.8:1 against it, which is unreadable rather than merely
+     * quiet — so on the light appearance each one is darkened toward black.
+     * That preserves the hue exactly, which is the part that carries the
+     * meaning: "coding" is still the green one, it is just a green you can
+     * read. The accent is left alone; it is already chosen per appearance.
      */
-    fun modeColor(name: String?): Color = when (name?.lowercase()) {
-        "blue" -> Color(0xFFA78BFA)
-        "green" -> Color(0xFF34D399)
-        "cyan" -> Color(0xFF60A5FA)
-        "yellow" -> Color(0xFFF59E0B)
-        "magenta" -> Color(0xFFC084FC)
-        "purple" -> Color(0xFFBD93F9)
-        "red" -> Color(0xFFEF4444)
-        // Mode-name fallbacks, as in the TUI.
-        "plan" -> Color(0xFFBD93F9)
-        "planning" -> Color(0xFFA78BFA)
-        "coding", "code" -> Color(0xFF34D399)
-        "chat", "ask" -> Color(0xFF60A5FA)
-        else -> accent
+    fun modeColor(name: String?): Color {
+        val raw = when (name?.lowercase()) {
+            "blue" -> Color(0xFFA78BFA)
+            "green" -> Color(0xFF34D399)
+            "cyan" -> Color(0xFF60A5FA)
+            "yellow" -> Color(0xFFF59E0B)
+            "magenta" -> Color(0xFFC084FC)
+            "purple" -> Color(0xFFBD93F9)
+            "red" -> Color(0xFFEF4444)
+            // Mode-name fallbacks, as in the TUI.
+            "plan" -> Color(0xFFBD93F9)
+            "planning" -> Color(0xFFA78BFA)
+            "coding", "code" -> Color(0xFF34D399)
+            "chat", "ask" -> Color(0xFF60A5FA)
+            else -> return accent
+        }
+        return if (isDark) raw else lerp(raw, Color.Black, LIGHT_MODE_DARKEN)
+    }
+
+    private companion object {
+        /** Enough to clear 4.5:1 against the light canvas for every hue in the
+         *  palette, and no more — the tints should still read as tints. */
+        const val LIGHT_MODE_DARKEN = 0.42f
     }
 }
 
