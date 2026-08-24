@@ -177,10 +177,10 @@ private fun StripLine(
 ) {
     val colors = LocalSpettroColors.current
     val accent = when {
-        settled && run.status == OrchStatus.FAILED -> colors.diffRemoved
-        settled -> colors.diffAdded
-        run is OrchRun.Swarm -> colors.agentAccent
-        else -> colors.accent
+        settled && run.status == OrchStatus.FAILED -> colors.dangerInk
+        settled -> colors.successInk
+        run is OrchRun.Swarm -> colors.agentInk
+        else -> colors.accentInk
     }
     val latest = latestActivity(run)
 
@@ -311,7 +311,7 @@ private fun LiveRunSheet(
 @Composable
 private fun LiveRunSection(run: OrchRun) {
     val colors = LocalSpettroColors.current
-    val accent = if (run is OrchRun.Swarm) colors.agentAccent else colors.accent
+    val accent = if (run is OrchRun.Swarm) colors.agentInk else colors.accentInk
 
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
         Row(
@@ -372,9 +372,9 @@ private fun LivePhase(
 ) {
     val colors = LocalSpettroColors.current
     val tint = when (state) {
-        PhaseState.RUNNING -> colors.accent
-        PhaseState.FAILED -> colors.diffRemoved
-        PhaseState.DONE -> colors.diffAdded
+        PhaseState.RUNNING -> colors.accentMark
+        PhaseState.FAILED -> colors.dangerMark
+        PhaseState.DONE -> colors.successMark
         PhaseState.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
     }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

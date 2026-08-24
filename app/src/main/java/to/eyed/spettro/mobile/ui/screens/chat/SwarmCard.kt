@@ -84,7 +84,12 @@ fun SwarmCard(
     var expanded by rememberSaveable(run.tool.id) { mutableStateOf(false) }
     var showDone by rememberSaveable(run.tool.id) { mutableStateOf(false) }
 
-    val accent = colors.agentAccent
+    // Two colours, deliberately. `accent` is ink — it has to be readable at
+    // 12sp — while the card's fill and border are a wash of the *raw* brand
+    // hue: a background is not text, darkening it to clear a text ratio only
+    // makes the card muddy without helping anyone read anything.
+    val accent = colors.agentInk
+    val wash = colors.agentAccent
     val shape = RoundedCornerShape(Dimens.radiusMd)
 
     val members = orderMembers(run.members)
@@ -104,8 +109,8 @@ fun SwarmCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(accent.copy(alpha = if (colors.isDark) 0.07f else 0.05f))
-            .border(Dimens.hairlineWidth, accent.copy(alpha = 0.25f), shape)
+            .background(wash.copy(alpha = if (colors.isDark) 0.07f else 0.05f))
+            .border(Dimens.hairlineWidth, wash.copy(alpha = 0.25f), shape)
             .animateContentSize(transcriptSpring()),
     ) {
         // ---- header -------------------------------------------------------
@@ -154,7 +159,7 @@ fun SwarmCard(
             if (run.isolation == "worktree") {
                 OrchPill(
                     text = "worktree isolation",
-                    tint = colors.accent,
+                    tint = colors.accentInk,
                     icon = Icons.Outlined.CallSplit,
                 )
             }
@@ -207,7 +212,7 @@ fun SwarmCard(
                     Text(
                         text = "… ${failed.size - FAILED_PEEK} more failed",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = colors.diffRemoved.copy(alpha = 0.85f),
+                        color = colors.dangerInk.copy(alpha = 0.85f),
                         modifier = Modifier.padding(start = 4.dp),
                     )
                 }

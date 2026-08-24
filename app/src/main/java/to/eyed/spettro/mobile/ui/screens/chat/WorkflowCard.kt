@@ -118,7 +118,15 @@ fun WorkflowCard(
     var rawOpen by rememberSaveable(run.tool.id) { mutableStateOf(false) }
 
     val elapsed = rememberElapsed(running, run.tool.timestamp)
+    // Ink and wash are separate: the first has to be readable at 12sp, the
+    // second is a background and darkening it to clear a text ratio would only
+    // make the card muddy.
     val accent = when (run.status) {
+        OrchStatus.FAILED -> colors.dangerInk
+        OrchStatus.RUNNING -> colors.accentInk
+        OrchStatus.DONE -> colors.agentInk
+    }
+    val wash = when (run.status) {
         OrchStatus.FAILED -> colors.diffRemoved
         OrchStatus.RUNNING -> colors.accent
         OrchStatus.DONE -> colors.agentAccent
@@ -145,8 +153,8 @@ fun WorkflowCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(accent.copy(alpha = if (colors.isDark) 0.06f else 0.045f))
-            .border(Dimens.hairlineWidth, accent.copy(alpha = 0.25f), shape)
+            .background(wash.copy(alpha = if (colors.isDark) 0.06f else 0.045f))
+            .border(Dimens.hairlineWidth, wash.copy(alpha = 0.25f), shape)
             .animateContentSize(transcriptSpring()),
     ) {
         // ---- header -------------------------------------------------------
@@ -317,17 +325,17 @@ private fun RunBadge(status: OrchStatus) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SpettroSpinner(size = 8.dp, color = colors.accent)
+            SpettroSpinner(size = 8.dp, color = colors.accentInk)
             Text(
                 text = "running",
                 fontSize = 9.sp,
                 lineHeight = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.3.sp,
-                color = colors.accent,
+                color = colors.accentInk,
             )
         }
-        OrchStatus.FAILED -> OrchPill(text = "failed", tint = colors.diffRemoved)
+        OrchStatus.FAILED -> OrchPill(text = "failed", tint = colors.dangerInk)
         OrchStatus.DONE -> Unit
     }
 }
@@ -357,7 +365,7 @@ private fun SummaryTail(
                 return@buildAnnotatedString
             }
             append(text.substring(0, at))
-            withStyle(SpanStyle(color = colors.diffRemoved, fontWeight = FontWeight.SemiBold)) {
+            withStyle(SpanStyle(color = colors.dangerInk, fontWeight = FontWeight.SemiBold)) {
                 append(failedTerm)
             }
             append(text.substring(at + failedTerm.length))
@@ -437,9 +445,9 @@ private fun PhaseGroup(
     }
 
     val railTint = when (state) {
-        PhaseState.RUNNING -> colors.accent
-        PhaseState.FAILED -> colors.diffRemoved
-        PhaseState.DONE -> colors.diffAdded
+        PhaseState.RUNNING -> colors.accentMark
+        PhaseState.FAILED -> colors.dangerMark
+        PhaseState.DONE -> colors.successMark
         PhaseState.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
     }
 

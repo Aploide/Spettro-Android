@@ -84,7 +84,7 @@ internal const val INSTANCE_MAX = 16
  */
 @Composable
 internal fun memberTint(specId: String): Color =
-    LocalSpettroColors.current.modeColor(specId.ifEmpty { null })
+    LocalSpettroColors.current.modeInk(specId.ifEmpty { null })
 
 // ---------------------------------------------------------------------------
 // Progress meter
@@ -128,13 +128,13 @@ internal fun OrchProgressMeter(
         if (doneFraction + failedFraction > 1f) doneFraction = 1f - failedFraction
 
         if (doneFraction > 0f) {
-            Box(Modifier.fillMaxWidth(doneFraction).height(height).background(colors.diffAdded))
+            Box(Modifier.fillMaxWidth(doneFraction).height(height).background(colors.successMark))
         }
         if (failedFraction > 0f) {
             // The remaining width is what is left of the row, so this fraction
             // is taken of that remainder rather than of the whole bar.
             val ofRemaining = (failedFraction / (1f - doneFraction)).coerceIn(0f, 1f)
-            Box(Modifier.fillMaxWidth(ofRemaining).height(height).background(colors.diffRemoved))
+            Box(Modifier.fillMaxWidth(ofRemaining).height(height).background(colors.dangerMark))
         }
     }
 }
@@ -170,8 +170,8 @@ internal fun AgentCellStrip(
     ) {
         members.forEach { member ->
             val fill = when (member.status) {
-                OrchStatus.DONE -> colors.diffAdded
-                OrchStatus.FAILED -> colors.diffRemoved
+                OrchStatus.DONE -> colors.successMark
+                OrchStatus.FAILED -> colors.dangerMark
                 // The accent, deliberately, and NOT the member's spec tint.
                 // The tint says what kind of agent this is, which is real
                 // information — but half the palette is a green, so a swarm of
@@ -179,7 +179,7 @@ internal fun AgentCellStrip(
                 // ones and the one question the strip exists to answer stopped
                 // having an answer. The spec tint lives on the member's name,
                 // where it competes with nothing.
-                OrchStatus.RUNNING -> colors.accent
+                OrchStatus.RUNNING -> colors.accentMark
             }
             // A replayed member did no work this run; it is drawn hollow so a
             // resumed workflow does not look like it re-ran everything.
@@ -261,19 +261,19 @@ internal fun OrchStatusGlyph(
     when (status) {
         OrchStatus.RUNNING -> SpettroSpinner(
             size = size,
-            color = runningTint ?: colors.accent,
+            color = runningTint ?: colors.accentMark,
             modifier = modifier,
         )
         OrchStatus.DONE -> Icon(
             imageVector = Icons.Outlined.CheckCircle,
             contentDescription = "done",
-            tint = colors.diffAdded,
+            tint = colors.successMark,
             modifier = modifier.size(size),
         )
         OrchStatus.FAILED -> Icon(
             imageVector = Icons.Outlined.Cancel,
             contentDescription = "failed",
-            tint = colors.diffRemoved,
+            tint = colors.dangerMark,
             modifier = modifier.size(size),
         )
     }
@@ -324,7 +324,7 @@ internal fun OrchCountsLabel(
                 fontSize = fontSize,
                 fontWeight = if (term.failed) FontWeight.SemiBold else FontWeight.Medium,
                 fontFamily = null,
-                color = if (term.failed) colors.diffRemoved else muted,
+                color = if (term.failed) colors.dangerInk else muted,
                 maxLines = 1,
             )
         }
@@ -512,7 +512,7 @@ internal fun MemberRow(
             Text(
                 text = reason.replace("\n", " "),
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
-                color = colors.diffRemoved,
+                color = colors.dangerInk,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 22.dp, end = 4.dp, bottom = 3.dp),
@@ -599,14 +599,15 @@ internal fun ScriptCallRow(
     val reason = script.error.ifEmpty { script.tool.output.trim() }
     val hasSource = script.source.isNotEmpty() || script.returned.isNotEmpty()
     val shape = RoundedCornerShape(Dimens.radiusMd)
-    val tint = if (script.status == OrchStatus.FAILED) colors.diffRemoved else colors.accent
+    val tint = if (script.status == OrchStatus.FAILED) colors.dangerInk else colors.accentInk
+    val wash = if (script.status == OrchStatus.FAILED) colors.diffRemoved else colors.accent
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(tint.copy(alpha = if (colors.isDark) 0.07f else 0.05f))
-            .border(Dimens.hairlineWidth, tint.copy(alpha = 0.25f), shape)
+            .background(wash.copy(alpha = if (colors.isDark) 0.07f else 0.05f))
+            .border(Dimens.hairlineWidth, wash.copy(alpha = 0.25f), shape)
             .animateContentSize(transcriptSpring()),
     ) {
         Column(
@@ -645,7 +646,7 @@ internal fun ScriptCallRow(
                     text = reason.split("\n").first(),
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = if (script.status == OrchStatus.FAILED) {
-                        colors.diffRemoved
+                        colors.dangerInk
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
