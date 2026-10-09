@@ -1,6 +1,20 @@
 package to.eyed.spettro.mobile.ui
 
 import android.content.Context
+import androidx.compose.animation.core.Animatable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import to.eyed.spettro.mobile.ui.components.ButtonStyle
+import to.eyed.spettro.mobile.ui.components.ConfirmDialog
+import to.eyed.spettro.mobile.ui.components.SpettroButton
+import to.eyed.spettro.mobile.ui.components.SpettroToast
+import to.eyed.spettro.mobile.ui.components.ToastTone
+import to.eyed.spettro.mobile.ui.theme.Elevation
+import to.eyed.spettro.mobile.ui.theme.SpettroMotion
+import to.eyed.spettro.mobile.ui.theme.floatingShadow
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -30,13 +44,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
@@ -53,9 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
@@ -73,8 +81,6 @@ import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.model.ChatSession
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.ImageProcessing
-import to.eyed.spettro.mobile.ui.components.AppIconImage
-import to.eyed.spettro.mobile.ui.components.SpettroCard
 import to.eyed.spettro.mobile.ui.components.StatusDot
 import to.eyed.spettro.mobile.ui.components.rememberLocalNetworkPermission
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
@@ -350,6 +356,7 @@ private fun RemoteNavigator(
                         onOpenArchived = { showArchived = true },
                         selectedChatId = openChat?.chatId,
                         needsYou = needsYou,
+                        inSidebar = true,
                     )
                 }
                 VerticalDivider(color = colors.hairline)
@@ -495,22 +502,23 @@ private fun ReconnectingPill(visible: Boolean) {
             exit = fadeOut() + slideOutVertically { -it / 2 },
             modifier = Modifier.padding(top = 64.dp),
         ) {
+            val shape = RoundedCornerShape(50)
             Surface(
-                shape = RoundedCornerShape(50),
+                modifier = Modifier.floatingShadow(Elevation.Medium, shape),
+                shape = shape,
                 color = colors.surfaceRaised,
                 border = BorderStroke(1.dp, colors.hairline),
-                shadowElevation = 2.dp,
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    StatusDot(color = colors.modeColor("yellow"), pulsing = true)
+                    StatusDot(color = colors.warning, pulsing = true)
                     Text(
                         "Reconnecting…",
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = colors.textPrimary,
                     )
                 }
             }
@@ -536,11 +544,14 @@ private fun PairingLinkPrompt(
 ) {
     val payload = remember(link) { RemotePairing.parse(link) }
     if (payload == null) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("That link didn’t work") },
-            text = { Text("It doesn’t look like a Spettro pairing link. Copy it again on your computer.") },
-            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+        ConfirmDialog(
+            title = "That link didn’t work",
+            message = "It doesn’t look like a Spettro pairing link. Copy it again on your computer.",
+            confirmLabel = "OK",
+            onConfirm = onDismiss,
+            onDismiss = onDismiss,
+            destructive = false,
+            dismissLabel = null,
         )
         return
     }
@@ -560,45 +571,37 @@ private fun PairingLinkPrompt(
         }
     }
     SideEffect { shown = true }
-    AlertDialog(
+    ConfirmDialog(
+        title = "Pair with “${payload.hostName}”?",
+        message = when {
+            pairing -> "Pairing with “${payload.hostName}”…"
+            error != null -> error!!
+            replacing ->
+                "This phone is paired with “${pairedHostName ?: "another computer"}”. Pairing with " +
+                    "“${payload.hostName}” replaces it."
+            else -> "This phone will pair with it again, replacing its old pairing."
+        },
+        confirmLabel = if (error != null) "Try again" else "Pair",
+        onConfirm = {
+            scope.launch {
+                pairing = true
+                error = null
+                try {
+                    onPair(payload)
+                    onDismiss()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    error = e.message ?: "Pairing didn’t finish. Copy a new link and try again."
+                } finally {
+                    pairing = false
+                }
+            }
+        },
         // Not while it runs: the old pairing is already let go of.
-        onDismissRequest = { if (!pairing) onDismiss() },
-        title = { Text("Pair with “${payload.hostName}”?") },
-        text = {
-            Text(
-                when {
-                    pairing -> "Pairing with “${payload.hostName}”…"
-                    error != null -> error!!
-                    replacing ->
-                        "This phone is paired with “${pairedHostName ?: "another computer"}”. Pairing with " +
-                            "“${payload.hostName}” replaces it."
-                    else -> "This phone will pair with it again, replacing its old pairing."
-                },
-            )
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !pairing,
-                onClick = {
-                    scope.launch {
-                        pairing = true
-                        error = null
-                        try {
-                            onPair(payload)
-                            onDismiss()
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            error = e.message ?: "Pairing didn’t finish. Copy a new link and try again."
-                        } finally {
-                            pairing = false
-                        }
-                    }
-                },
-            ) { Text(if (error != null) "Try again" else "Pair") }
-        },
-        dismissButton = {
-            TextButton(enabled = !pairing, onClick = onDismiss) { Text("Cancel") }
-        },
+        onDismiss = { if (!pairing) onDismiss() },
+        destructive = false,
+        icon = null,
+        enabled = !pairing,
     )
 }
 
@@ -688,33 +691,25 @@ internal fun DetailPlaceholder(onNewChat: () -> Unit) {
         modifier = Modifier.fillMaxSize().background(colors.canvas),
         contentAlignment = Alignment.Center,
     ) {
+        // The desktop's new-session greeting: one line of welcome in 28sp,
+        // a sentence of what to do, and the pane's one accent action.
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            modifier = Modifier.padding(Dimens.spacingXl),
         ) {
-            AppIconImage(size = 56.dp)
             Text(
-                "Spettro",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                "What should we build?",
+                style = MaterialTheme.typography.headlineSmall,
+                color = colors.textPrimary,
             )
             Text(
-                "Select a chat, or start a new one.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "Pick a chat on the left, or start a new one.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = colors.textSecondary,
             )
-            Spacer(Modifier.height(Dimens.spacingSm))
-            Button(
-                onClick = onNewChat,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.accent,
-                    contentColor = Color.White,
-                ),
-                shape = RoundedCornerShape(Dimens.radiusLg),
-            ) {
-                Text("New Chat", fontWeight = FontWeight.SemiBold)
-            }
+            Spacer(Modifier.height(Dimens.spacingMd))
+            SpettroButton("New chat", onClick = onNewChat, style = ButtonStyle.Prominent)
         }
     }
 }
@@ -728,10 +723,16 @@ internal fun DetailPlaceholder(onNewChat: () -> Unit) {
 @Composable
 internal fun DesktopModal(onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val colors = LocalSpettroColors.current
+    // The desktop's modal entrance: the scrim fades in over 140ms while the
+    // panel rises 14dp into place over 160ms, both quiet ease-outs.
+    val shown = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { shown.animateTo(1f, SpettroMotion.modal()) }
+    val density = LocalDensity.current
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.45f))
+            .graphicsLayer { alpha = shown.value }
+            .background(colors.scrim)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -739,6 +740,7 @@ internal fun DesktopModal(onDismiss: () -> Unit, content: @Composable () -> Unit
             ),
         contentAlignment = Alignment.Center,
     ) {
+        val shape = RoundedCornerShape(Dimens.radiusMd)
         Surface(
             modifier = Modifier
                 .padding(Dimens.spacingXl)
@@ -746,12 +748,14 @@ internal fun DesktopModal(onDismiss: () -> Unit, content: @Composable () -> Unit
                 .fillMaxWidth()
                 .heightIn(max = 720.dp)
                 .fillMaxHeight()
+                .graphicsLayer { translationY = with(density) { 14.dp.toPx() } * (1f - shown.value) }
+                .floatingShadow(Elevation.Large, shape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = {},
                 ),
-            shape = RoundedCornerShape(Dimens.radiusLg),
+            shape = shape,
             color = colors.canvas,
             border = BorderStroke(1.dp, colors.hairline),
         ) {
@@ -820,34 +824,34 @@ private fun RemotePromptOverlays(model: MobileModel) {
     }
 }
 
+/**
+ * The model's one-line notes, as the desktop's toast: top centre, raised,
+ * with an icon by tone. Errors stay up longer (6s) than news (4s); a tap
+ * dismisses.
+ */
 @Composable
 private fun BannerOverlay(model: MobileModel) {
     val banner by model.banner.collectAsState()
-    val colors = LocalSpettroColors.current
-    AnimatedVisibility(
-        visible = banner != null,
-        enter = slideInVertically { -it } + fadeIn(),
-        exit = slideOutVertically { -it } + fadeOut(),
-        modifier = Modifier.statusBarsPadding(),
-    ) {
-        val current = banner ?: return@AnimatedVisibility
-        LaunchedEffect(current) {
-            kotlinx.coroutines.delay(4000)
-            model.dismissBanner()
-        }
-        SpettroCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
-                .clickable { model.dismissBanner() },
+    Box(Modifier.fillMaxWidth().statusBarsPadding(), contentAlignment = Alignment.TopCenter) {
+        AnimatedVisibility(
+            visible = banner != null,
+            enter = slideInVertically(SpettroMotion.toast()) { -it / 4 } + fadeIn(SpettroMotion.toast()),
+            exit = fadeOut(SpettroMotion.quick()),
         ) {
-            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    current.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (current.isError) colors.danger else MaterialTheme.colorScheme.onSurface,
-                )
+            val current = banner ?: return@AnimatedVisibility
+            LaunchedEffect(current) {
+                kotlinx.coroutines.delay(if (current.isError) 6000 else 4000)
+                model.dismissBanner()
             }
+            SpettroToast(
+                title = current.text,
+                tone = if (current.isError) ToastTone.Error else ToastTone.Info,
+                icon = if (current.isError) Icons.Outlined.ErrorOutline else Icons.Outlined.Info,
+                onClose = { model.dismissBanner() },
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .clickable { model.dismissBanner() },
+            )
         }
     }
 }

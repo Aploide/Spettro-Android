@@ -243,7 +243,7 @@ private fun SplitShell(
     val colors = LocalSpettroColors.current
     Row(Modifier.fillMaxSize()) {
         Box(Modifier.width(320.dp).fillMaxHeight()) {
-            ChatList(selectedChatId = if (items != null) "1" else null)
+            ChatList(selectedChatId = if (items != null) "1" else null, inSidebar = true)
         }
         VerticalDivider(color = colors.hairline)
         Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -312,7 +312,7 @@ private fun Chat(
 }
 
 @Composable
-private fun ChatList(selectedChatId: String? = null) {
+private fun ChatList(selectedChatId: String? = null, inSidebar: Boolean = false) {
     ChatListScreen(
         chats = listChats(),
         selectedChatId = selectedChatId,
@@ -328,6 +328,8 @@ private fun ChatList(selectedChatId: String? = null) {
         onDelete = {},
         onOpenSettings = {},
         onOpenArchived = {},
+        inSidebar = inSidebar,
+        needsYou = setOf("4"),
     )
 }
 

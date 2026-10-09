@@ -202,8 +202,9 @@ fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     destructive: Boolean = true,
-    dismissLabel: String = "Cancel",
+    dismissLabel: String? = "Cancel",
     icon: ImageVector? = if (destructive) Icons.Outlined.ErrorOutline else Icons.Outlined.WarningAmber,
+    enabled: Boolean = true,
 ) {
     SpettroDialog(onDismiss = onDismiss) {
         val colors = LocalSpettroColors.current
@@ -227,11 +228,14 @@ fun ConfirmDialog(
         }
         Spacer(Modifier.height(20.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-            SpettroButton(dismissLabel, onClick = onDismiss)
+            if (dismissLabel != null) {
+                SpettroButton(dismissLabel, onClick = onDismiss, enabled = enabled)
+            }
             SpettroButton(
                 confirmLabel,
                 onClick = onConfirm,
                 style = if (destructive) ButtonStyle.DestructiveFill else ButtonStyle.Prominent,
+                enabled = enabled,
             )
         }
     }

@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import to.eyed.spettro.mobile.core.remote.ChatSummary
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
+import to.eyed.spettro.mobile.ui.components.EmptyState
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
@@ -46,10 +48,7 @@ fun ArchivedChatsSheet(
     onDelete: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = LocalSpettroColors.current.surfaceRaised,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         ArchivedChatsContent(
             chats = chats,
             onOpen = onOpen,
@@ -70,7 +69,7 @@ private fun ArchivedChatsContent(
         Text(
             "Archived",
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
+            color = LocalSpettroColors.current.textPrimary,
             modifier = Modifier.padding(
                 start = Dimens.spacingLg,
                 end = Dimens.spacingLg,
@@ -79,11 +78,10 @@ private fun ArchivedChatsContent(
         )
         HairlineDivider()
         if (chats.isEmpty()) {
-            Text(
-                "Nothing archived.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(Dimens.spacingXl).align(Alignment.CenterHorizontally),
+            EmptyState(
+                title = "Nothing archived yet",
+                message = "Archive a chat by swiping it left in the list.",
+                modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         } else {
             LazyColumn(Modifier.weight(1f, fill = false)) {
@@ -128,24 +126,23 @@ private fun ArchivedRow(
             ) {
                 Text(
                     chat.title.ifBlank { "Untitled chat" },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                    color = colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Text(
                     relativeTimeLabel(chat.updatedAt),
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+                    color = colors.textTertiary,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal, fontFeatureSettings = TabularNums),
                 )
             }
             if (chat.preview.isNotBlank()) {
                 Text(
                     chat.preview,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textTertiary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -156,7 +153,7 @@ private fun ArchivedRow(
                 Icons.Outlined.Unarchive,
                 contentDescription = "Unarchive",
                 modifier = Modifier.size(18.dp),
-                tint = colors.accent,
+                tint = colors.textSecondary,
             )
         }
         IconButton(onClick = onDelete) {
@@ -172,7 +169,7 @@ private fun ArchivedRow(
 
 // MARK: - Previews (content only — the sheet itself is a window)
 
-@Preview(name = "Archived", showBackground = true, backgroundColor = 0xFF1C1C1C)
+@Preview(name = "Archived", showBackground = true, backgroundColor = 0xFF2C2C2E)
 @Composable
 private fun ArchivedChatsPreview() {
     SpettroTheme(darkTheme = true) {
