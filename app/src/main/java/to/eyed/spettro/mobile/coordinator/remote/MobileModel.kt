@@ -24,13 +24,16 @@ import to.eyed.spettro.mobile.core.acp.AcpProvidersList
 import to.eyed.spettro.mobile.core.acp.AcpQuestionAnswer
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
 import to.eyed.spettro.mobile.core.remote.ChatSummary
+import to.eyed.spettro.mobile.core.remote.InboundNotification
 import to.eyed.spettro.mobile.core.remote.RemoteApi
 import to.eyed.spettro.mobile.core.remote.RemoteClient
+import to.eyed.spettro.mobile.core.remote.RemoteFeature
 import to.eyed.spettro.mobile.core.remote.RemoteNotification
 import to.eyed.spettro.mobile.core.remote.RemoteProject
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.rpc.RpcException
 import to.eyed.spettro.mobile.model.ChatSession
+import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.model.ImageAttachment
 
 /** A permission or question the host is waiting on, addressed by prompt id. */
@@ -62,7 +65,7 @@ class MobileModel(
     private val scope: CoroutineScope,
 ) {
     constructor(client: RemoteClient, scope: CoroutineScope) :
-        this(client, RemoteApi(client::request), scope)
+        this(client, RemoteApi(client), scope)
 
     private val _chats = MutableStateFlow<List<ChatSummary>>(emptyList())
     val chats: StateFlow<List<ChatSummary>> = _chats.asStateFlow()
@@ -111,6 +114,12 @@ class MobileModel(
 
     private var loginPollJob: Job? = null
 
+    /** Holds the updates of a chat whose snapshot is still on its way. */
+    private val openBuffer = ChatOpenBuffer()
+
+    /** Whether the last state seen was Connected — to tell a reconnect from an agent flip. */
+    private var wasConnected = false
+
     /** Chats the list screen shows: non-archived, pinned first, newest first. */
     val visibleChats: List<ChatSummary>
         get() = _chats.value.filter { !it.isArchived }
@@ -126,19 +135,27 @@ class MobileModel(
                     is RemoteState.Connected -> {
                         _agentReady.value = state.agentReady
                         refreshEverything()
+                        // Back after a drop: the open chat missed whatever
+                        // streamed meanwhile, so fetch it again rather than
+                        // carry on from a stale transcript.
+                        if (!wasConnected) reopenChat()
+                        wasConnected = true
                     }
                     else -> {
+                        wasConnected = false
                         // The socket owns pending prompts: a prompt can't
-                        // outlive the connection that delivered it.
+                        // outlive the connection that delivered it. (Hosts
+                        // with pendingReplay re-send the live ones on auth.)
                         _pendingPermissions.value = emptyList()
                         _pendingQuestions.value = emptyList()
+                        openBuffer.cancel()
                         loginPollJob?.cancel()
                     }
                 }
             }
         }
         scope.launch {
-            client.notifications.collect(::handle)
+            client.inbound.collect(::handle)
         }
     }
 
@@ -148,18 +165,33 @@ class MobileModel(
 
     // MARK: Notification routing
 
-    private fun handle(notification: RemoteNotification) {
+    private fun handle(item: InboundNotification) {
+        val notification = item.note
+        // The list is the host's, open or not; only the session part waits.
+        if (notification is RemoteNotification.ChatState) upsertChat(notification.chat)
+        if (openBuffer.hold(item)) return
         when (notification) {
-            is RemoteNotification.Hello -> Unit
-            is RemoteNotification.ChatUpdate -> {
+            is RemoteNotification.ChatUpdate,
+            is RemoteNotification.ChatUser,
+            is RemoteNotification.ChatState,
+            -> {
                 val session = _openChat.value ?: return
+                applyToSession(session, notification)
+            }
+            else -> handleHostNotification(notification)
+        }
+    }
+
+    /** Applies a chat-level notification to [session], when it is about that chat. */
+    private fun applyToSession(session: ChatSession, notification: RemoteNotification) {
+        when (notification) {
+            is RemoteNotification.ChatUpdate -> {
                 if (session.chatId != notification.chatID) return
                 AcpParser.parseSessionUpdate(notification.update)?.let(session::apply)
             }
             is RemoteNotification.ChatUser -> {
                 // Another client submitted a prompt; the host already excludes
                 // us, so anything arriving here is genuinely someone else's.
-                val session = _openChat.value ?: return
                 if (session.chatId != notification.chatID) return
                 session.appendUserMessage(
                     notification.text,
@@ -168,8 +200,6 @@ class MobileModel(
                 session.beginRun()
             }
             is RemoteNotification.ChatState -> {
-                upsertChat(notification.chat)
-                val session = _openChat.value ?: return
                 if (session.chatId != notification.chat.id) return
                 session.setTitle(notification.chat.title)
                 session.setPinned(notification.chat.isPinned)
@@ -180,11 +210,22 @@ class MobileModel(
                 notification.notice?.takeIf { it.text.isNotEmpty() }
                     ?.let { session.appendNotice(it.text, it.isError) }
             }
+            else -> Unit
+        }
+    }
+
+    private fun handleHostNotification(notification: RemoteNotification) {
+        when (notification) {
+            is RemoteNotification.Hello,
+            is RemoteNotification.ChatUpdate,
+            is RemoteNotification.ChatUser,
+            is RemoteNotification.ChatState,
+            -> Unit
             is RemoteNotification.ChatRemoved -> {
                 _chats.value = _chats.value.filterNot { it.id == notification.chatID }
                 if (_openChat.value?.chatId == notification.chatID) {
                     _openChat.value = null
-                    _banner.value = Banner("This chat was deleted on the PC")
+                    _banner.value = Banner("This chat was deleted on your computer")
                 }
             }
             is RemoteNotification.HostState -> {
@@ -242,13 +283,29 @@ class MobileModel(
         }
     }
 
-    suspend fun openChat(chatID: String): Boolean {
+    suspend fun openChat(chatID: String): Boolean = loadChat(chatID, isReopen = false)
+
+    /** Fetches the open chat again after a reconnect and swaps the fresh session in. */
+    private fun reopenChat() {
+        val current = _openChat.value ?: return
+        scope.launch { loadChat(current.chatId, isReopen = true) }
+    }
+
+    private suspend fun loadChat(chatID: String, isReopen: Boolean): Boolean {
+        openBuffer.begin(chatID)
         return try {
-            val result = api.chatsOpen(chatID)
+            val (result, mark) = api.chatsOpenMarked(chatID)
             // A long transcript is a lot of JSON; parsing it on Main janks
             // the open animation.
             val stored = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 AcpParser.parseStoredSession(result.chat)
+            }
+            // Another chat was opened while this one loaded: that one wins.
+            if (openBuffer.opening != chatID) return false
+            // A reload that lands after the user left the chat has nothing to refresh.
+            if (isReopen && _openChat.value?.chatId != chatID) {
+                openBuffer.cancel()
+                return false
             }
             val session = ChatSession(chatId = chatID)
             session.restoreFrom(stored)
@@ -259,16 +316,30 @@ class MobileModel(
             (result.plan as? JsonArray)?.let { session.setPlan(AcpParser.parsePlan(it)) }
             session.setUsage(AcpParser.parseUsage(result.usage))
             if (result.isBusy) session.beginRun()
+            // What streamed in after the snapshot was taken, before the
+            // session is visible — so it never shows a half-applied state.
+            openBuffer.finish(chatID, mark).forEach { applyToSession(session, it) }
             _openChat.value = session
             true
         } catch (e: Exception) {
-            note("Couldn't open chat: ${e.message}", isError = true)
+            openBuffer.cancel()
+            if (isReopen) {
+                if (e is RpcException && e.code == NO_SUCH_CHAT) {
+                    _openChat.value = null
+                    note("This chat is no longer on your computer")
+                }
+                // Otherwise keep the transcript on screen; the next
+                // reconnect tries again.
+            } else {
+                note("Couldn't open chat: ${e.message}", isError = true)
+            }
             false
         }
     }
 
     fun closeChat() {
         val id = _openChat.value?.chatId
+        openBuffer.cancel()
         _openChat.value = null
         if (id != null) scope.launch { runCatching { api.chatsClose(id) } }
     }
@@ -334,19 +405,55 @@ class MobileModel(
 
     fun setConfigValue(configID: String, value: String) {
         val session = _openChat.value ?: return
-        session.applyLocalConfigValue(configID, value)
-        scope.launch {
-            runCatching { api.config(session.chatId, configID, stringValue = value) }
-                .onFailure { note("Couldn't change setting: ${it.message}", isError = true) }
-        }
+        scope.launch { applyConfig(session, configID, ConfigValue.Str(value)) }
     }
 
     fun setConfigValue(configID: String, value: Boolean) {
         val session = _openChat.value ?: return
+        scope.launch { applyConfig(session, configID, ConfigValue.Bool(value)) }
+    }
+
+    /**
+     * Sets one option, showing it at once. A host with
+     * [RemoteFeature.CONFIG_RESULT] answers when the set is done: success
+     * carries the options as they now are (other options can move with
+     * it), and a refusal means it already rolled back, so the phone does
+     * too. An older host answers before trying, so the optimistic value is
+     * all there is. Returns whether the host took it — sequenced changes
+     * (thinking, then Ultra) wait on this.
+     */
+    suspend fun applyConfig(session: ChatSession, configID: String, value: ConfigValue): Boolean {
+        val connected = client.state.value as? RemoteState.Connected
+        val awaitsResult = connected?.has(RemoteFeature.CONFIG_RESULT) == true
+        val before = session.configOptions.value
         session.applyLocalConfigValue(configID, value)
-        scope.launch {
-            runCatching { api.config(session.chatId, configID, boolValue = value) }
-                .onFailure { note("Couldn't change setting: ${it.message}", isError = true) }
+        return try {
+            val result = api.config(
+                session.chatId,
+                configID,
+                stringValue = (value as? ConfigValue.Str)?.value,
+                boolValue = (value as? ConfigValue.Bool)?.value,
+            )
+            if (awaitsResult) {
+                (result.configOptions as? JsonArray)?.let {
+                    session.applyConfigUpdate(AcpParser.parseConfigOptionsStored(it))
+                }
+            }
+            true
+        } catch (e: RpcException) {
+            if (awaitsResult && e.code != RpcException.CONNECTION_CLOSED) {
+                session.applyConfigUpdate(before)
+                // With notices the same sentence lands in the transcript.
+                if (connected?.has(RemoteFeature.NOTICES) != true) {
+                    note(e.message ?: "Couldn't change that setting.", isError = true)
+                }
+            } else {
+                note("Couldn't change setting: ${e.message}", isError = true)
+            }
+            false
+        } catch (e: Exception) {
+            note("Couldn't change setting: ${e.message}", isError = true)
+            false
         }
     }
 
@@ -429,7 +536,7 @@ class MobileModel(
             } catch (e: RpcException) {
                 _lastProvidersRefreshFailed.value = true
                 if (e.code == RpcException.METHOD_NOT_FOUND) {
-                    note("Update the spettro CLI on your PC to manage providers from here")
+                    note("Update the spettro CLI on your computer to manage providers from here")
                 }
             } catch (_: Exception) {
                 _lastProvidersRefreshFailed.value = true
@@ -542,7 +649,12 @@ class MobileModel(
     }
 
     private fun relayErrorText(e: RpcException, prefix: String): String =
-        if (e.code == RpcException.METHOD_NOT_FOUND) "Update the spettro CLI on your PC" else "$prefix: ${e.message}"
+        if (e.code == RpcException.METHOD_NOT_FOUND) "Update the spettro CLI on your computer" else "$prefix: ${e.message}"
+
+    private companion object {
+        /** `chats/open` for a chat the host doesn't have (deleted meanwhile). */
+        const val NO_SUCH_CHAT = -32001
+    }
 
     private fun textBlock(text: String): JsonObject = buildJsonObject {
         put("type", "text")

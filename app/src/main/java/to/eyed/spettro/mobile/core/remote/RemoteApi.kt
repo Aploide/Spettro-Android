@@ -14,9 +14,17 @@ import to.eyed.spettro.mobile.core.SpettroJson
  * where the data is the host's, and raw [JsonElement]s where it is the
  * agent's (parsed by `core.acp`).
  */
-class RemoteApi(private val requester: suspend (method: String, params: JsonObject) -> JsonElement) {
+class RemoteApi(
+    private val requester: suspend (method: String, params: JsonObject) -> JsonElement,
+    /** Like [requester], plus where on the wire the reply sat; null when the transport can't say. */
+    private val markedRequester: suspend (method: String, params: JsonObject) -> Pair<JsonElement, FrameMark?> =
+        { method, params -> requester(method, params) to null },
+) {
 
-    constructor(client: RemoteClient) : this({ method, params -> client.request(method, params) })
+    constructor(client: RemoteClient) : this(
+        requester = { method, params -> client.request(method, params) },
+        markedRequester = { method, params -> client.requestMarked(method, params) },
+    )
 
     // MARK: Handshake
 
@@ -31,11 +39,17 @@ class RemoteApi(private val requester: suspend (method: String, params: JsonObje
     suspend fun chatsList(): List<ChatSummary> =
         decode(requester(RemoteMethod.CHATS_LIST, EMPTY), ChatListResult.serializer()).chats
 
-    suspend fun chatsOpen(chatID: String): ChatOpenResult =
-        decode(
-            requester(RemoteMethod.CHATS_OPEN, buildJsonObject { put("chatID", chatID) }),
-            ChatOpenResult.serializer(),
-        )
+    suspend fun chatsOpen(chatID: String): ChatOpenResult = chatsOpenMarked(chatID).first
+
+    /**
+     * [chatsOpen], also returning the reply's place on the wire: the
+     * snapshot already holds every update that arrived before it, and none
+     * that arrived after.
+     */
+    suspend fun chatsOpenMarked(chatID: String): Pair<ChatOpenResult, FrameMark?> {
+        val (result, mark) = markedRequester(RemoteMethod.CHATS_OPEN, buildJsonObject { put("chatID", chatID) })
+        return decode(result, ChatOpenResult.serializer()) to mark
+    }
 
     suspend fun chatsClose(chatID: String) {
         requester(RemoteMethod.CHATS_CLOSE, buildJsonObject { put("chatID", chatID) })
@@ -79,9 +93,19 @@ class RemoteApi(private val requester: suspend (method: String, params: JsonObje
         requester(RemoteMethod.CHATS_CANCEL, buildJsonObject { put("chatID", chatID) })
     }
 
-    /** Exactly one of [stringValue]/[boolValue] should be set, matching the option's kind. */
-    suspend fun config(chatID: String, configID: String, stringValue: String? = null, boolValue: Boolean? = null) {
-        requester(
+    /**
+     * Exactly one of [stringValue]/[boolValue] should be set, matching the
+     * option's kind. A host with [RemoteFeature.CONFIG_RESULT] answers once
+     * the set is done, with the chat's options after it (or an error, having
+     * rolled back); an older one answers `null` at once, before trying.
+     */
+    suspend fun config(
+        chatID: String,
+        configID: String,
+        stringValue: String? = null,
+        boolValue: Boolean? = null,
+    ): ChatConfigResult {
+        val result = requester(
             RemoteMethod.CHATS_CONFIG,
             buildJsonObject {
                 put("chatID", chatID)
@@ -90,6 +114,7 @@ class RemoteApi(private val requester: suspend (method: String, params: JsonObje
                 boolValue?.let { put("boolValue", it) }
             },
         )
+        return if (result is JsonObject) decode(result, ChatConfigResult.serializer()) else ChatConfigResult()
     }
 
     // MARK: Blocking prompts
