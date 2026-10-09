@@ -79,6 +79,7 @@ import to.eyed.spettro.mobile.ui.components.StatusDot
 import to.eyed.spettro.mobile.ui.components.rememberLocalNetworkPermission
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
+import to.eyed.spettro.mobile.ui.screens.chat.workflowGate
 import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
 import to.eyed.spettro.mobile.ui.screens.home.DisconnectReason
@@ -935,6 +936,8 @@ private fun RemoteChatHost(
         onToggleArchived = { model.setArchived(session.chatId, !isArchived) },
         waitingFor = waitingFor,
         onReviewPrompt = { model.bringBackPrompts(session.chatId) },
+        workflowGate = workflowGate(configOptions),
+        onSwitchPermission = { model.setConfigValue("permission", "restricted") },
         onDelete = {
             model.deleteChat(session.chatId)
             onBack()

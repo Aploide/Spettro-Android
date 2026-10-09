@@ -72,6 +72,9 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * @param waitingFor what a prompt the user swiped away is waiting for
  *   ("Spettro is waiting for your approval"), shown above the composer with
  *   a way back to it; null when nothing is set aside.
+ * @param workflowGate what the chat's options say about workflows, so the
+ *   composer can light a "+500k" budget and say when Ask first holds a
+ *   workflow back; [onSwitchPermission] is that hint's way out.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,6 +110,8 @@ fun ChatScreen(
     showBack: Boolean = true,
     waitingFor: String? = null,
     onReviewPrompt: () -> Unit = {},
+    workflowGate: WorkflowGate = WorkflowGate(),
+    onSwitchPermission: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -267,6 +272,8 @@ fun ChatScreen(
                     onConfigTap = onConfigTap,
                     commands = commands,
                     onCommandPick = onCommandPick,
+                    workflowGate = workflowGate,
+                    onSwitchPermission = onSwitchPermission,
                 )
             }
         }

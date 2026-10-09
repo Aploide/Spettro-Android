@@ -24,7 +24,8 @@
 #   workflow  workflow_done  workflow_paused  workflow_continued
 #   workflow_stopped  workflow_failed
 #   orchestration            (two runs mixed into a conversation)
-#   activation               (the "ultracode" highlight, composer and sent)
+#   activation               (the "ultracode" and "+500k" highlight, and the budget line)
+#   activation_askfirst      (the same under Ask first: muted, with the way out)
 #   permission_edit          (an approval with a diff, beside the listed command one)
 #
 # Drive one directly rather than through this script:

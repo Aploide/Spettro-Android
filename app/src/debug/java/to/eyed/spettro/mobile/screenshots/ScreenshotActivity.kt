@@ -31,6 +31,7 @@ import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.chat.OrchestrationPreviewData
+import to.eyed.spettro.mobile.ui.screens.chat.WorkflowGate
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
 import to.eyed.spettro.mobile.ui.screens.home.DisconnectReason
 import to.eyed.spettro.mobile.ui.screens.home.DisconnectedScreen
@@ -128,13 +129,22 @@ private fun Scene(scene: String, tablet: Boolean) {
         "workflow_stopped" -> Shell(tablet, items = OrchestrationPreviewData.stoppedWorkflowTranscript, busy = false)
         "workflow_failed" -> Shell(tablet, items = OrchestrationPreviewData.failedScriptTranscript, busy = false)
         "orchestration" -> Shell(tablet, items = OrchestrationPreviewData.mixedTranscript, busy = true)
-        // The phrase that arms multi-agent orchestration, lit in the composer
-        // and in the message already sent.
+        // The phrase that arms multi-agent orchestration lit in the composer,
+        // with a "+500k" budget beside it and the line that names the budget;
+        // then the same under Ask first, muted, with the way out.
         "activation" -> Shell(
             tablet,
             items = OrchestrationPreviewData.activationTranscript,
             busy = false,
-            composerText = "then use a workflow to port the settings screen too",
+            composerText = "then use a workflow +500k to port the settings screen too",
+            workflowGate = WorkflowGate(ultraOn = false, askFirst = false, canRestrict = true),
+        )
+        "activation_askfirst" -> Shell(
+            tablet,
+            items = OrchestrationPreviewData.activationTranscript,
+            busy = false,
+            composerText = "ultracode: port the settings screen too",
+            workflowGate = WorkflowGate(ultraOn = false, askFirst = true, canRestrict = true),
         )
         "list" -> if (tablet) SplitShell(items = null) else ChatList()
         "split" -> SplitShell(items = ChatPreviewData.transcript, busy = false)
@@ -204,11 +214,12 @@ private fun Shell(
     items: List<to.eyed.spettro.mobile.model.TranscriptItem>,
     busy: Boolean,
     composerText: String = "",
+    workflowGate: WorkflowGate = WorkflowGate(),
 ) {
     if (tablet) {
-        SplitShell(items = items, busy = busy, composerText = composerText)
+        SplitShell(items = items, busy = busy, composerText = composerText, workflowGate = workflowGate)
     } else {
-        Chat(items = items, busy = busy, composerText = composerText)
+        Chat(items = items, busy = busy, composerText = composerText, workflowGate = workflowGate)
     }
 }
 
@@ -222,6 +233,7 @@ private fun SplitShell(
     items: List<to.eyed.spettro.mobile.model.TranscriptItem>?,
     busy: Boolean = false,
     composerText: String = "",
+    workflowGate: WorkflowGate = WorkflowGate(),
 ) {
     val colors = LocalSpettroColors.current
     Row(Modifier.fillMaxSize()) {
@@ -231,7 +243,13 @@ private fun SplitShell(
         VerticalDivider(color = colors.hairline)
         Box(Modifier.weight(1f).fillMaxHeight()) {
             if (items != null) {
-                Chat(items = items, busy = busy, showBack = false, composerText = composerText)
+                Chat(
+                    items = items,
+                    busy = busy,
+                    showBack = false,
+                    composerText = composerText,
+                    workflowGate = workflowGate,
+                )
             } else {
                 DetailPlaceholder(onNewChat = {})
             }
@@ -245,6 +263,7 @@ private fun Chat(
     busy: Boolean,
     showBack: Boolean = true,
     composerText: String = "",
+    workflowGate: WorkflowGate = WorkflowGate(),
 ) {
     var text by remember { mutableStateOf(composerText) }
     ChatScreen(
@@ -276,6 +295,8 @@ private fun Chat(
         onToggleArchived = {},
         onDelete = {},
         showBack = showBack,
+        workflowGate = workflowGate,
+        onSwitchPermission = {},
     )
 }
 

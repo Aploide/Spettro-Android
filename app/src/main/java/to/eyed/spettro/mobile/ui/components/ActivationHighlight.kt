@@ -12,11 +12,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import to.eyed.spettro.mobile.core.workflowActivationSpans
+import to.eyed.spettro.mobile.core.workflowInputSpans
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
@@ -29,6 +30,14 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * that matched (internal/tui/glow.go) and the desktop with the same idea in
  * CSS; this is the Compose version, driven by the same matcher the CLI uses so
  * the highlight can never promise a mode the run will not enter.
+ *
+ * A "+500k" budget directive lights the same way, but only when it would be
+ * honoured — when workflows are on for the message (`budgetDirectivesLive`) —
+ * so the highlight never promises a budget nobody enforces. Under the "Ask
+ * first" permission level workflows do not run at all, so the phrase is still
+ * marked — it is still what the user asked for — but muted: the field's quiet
+ * ink, underlined, never the accent; the composer says why underneath
+ * (`WorkflowHint`).
  *
  * One surface, deliberately: [activationHighlight], a [VisualTransformation]
  * for the live composer. Compose can style a text field's contents directly,
@@ -59,25 +68,29 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  *
  * @param tint the accent the phrase is drawn in; everything else keeps the
  *   field's own colour.
+ * @param budgets light "+500k" directives too (they would be honoured).
+ * @param muted workflows cannot run right now (Ask first): mark, but quietly.
  */
 @Composable
 fun activationHighlight(
     tint: Color = LocalSpettroColors.current.accent,
+    budgets: Boolean = false,
+    muted: Boolean = false,
 ): VisualTransformation {
-    return remember(tint) {
+    val quiet = MaterialTheme.colorScheme.onSurfaceVariant
+    return remember(tint, budgets, muted, quiet) {
+        val style = if (muted) {
+            SpanStyle(color = quiet, fontWeight = FontWeight.SemiBold, textDecoration = TextDecoration.Underline)
+        } else {
+            SpanStyle(color = tint, fontWeight = FontWeight.SemiBold)
+        }
         VisualTransformation { text ->
-            val spans = workflowActivationSpans(text.text)
+            val spans = workflowInputSpans(text.text, budgets)
             if (spans.isEmpty()) {
                 return@VisualTransformation TransformedText(text, OffsetMapping.Identity)
             }
             val styled = AnnotatedString.Builder(text.text).apply {
-                for (span in spans) {
-                    addStyle(
-                        SpanStyle(color = tint, fontWeight = FontWeight.SemiBold),
-                        span.start,
-                        span.end,
-                    )
-                }
+                for (span in spans) addStyle(style, span.start, span.end)
             }.toAnnotatedString()
             // The transform only recolours: every character keeps its index, so
             // the identity mapping is exact and the caret cannot drift.
@@ -94,7 +107,7 @@ private typealias OffsetMapping = androidx.compose.ui.text.input.OffsetMapping
 @Composable
 private fun ActivationHighlightPreview() {
     SpettroTheme(darkTheme = true) {
-        val transform = activationHighlight()
+        val transform = activationHighlight(budgets = true)
         Column(
             modifier = Modifier.padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -102,7 +115,7 @@ private fun ActivationHighlightPreview() {
             // What the composer draws: the matched phrase in the accent, the
             // rest in the field's own colour. The third line must stay quiet.
             listOf(
-                "ultracode — review the changes on this branch",
+                "ultracode +500k — review the changes on this branch",
                 "I'm testing the workflow tool, so use workflows",
                 "our deploy workflow is broken — check .github/workflows",
             ).forEach { line ->

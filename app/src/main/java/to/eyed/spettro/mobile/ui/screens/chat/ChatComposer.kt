@@ -88,8 +88,11 @@ fun ChatComposer(
     commands: List<AcpCommand>,
     onCommandPick: (AcpCommand) -> Unit,
     modifier: Modifier = Modifier,
+    workflowGate: WorkflowGate = WorkflowGate(),
+    onSwitchPermission: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
+    val workflow = remember(text, workflowGate) { workflowDraft(text, workflowGate) }
     var plusMenuOpen by remember { mutableStateOf(false) }
     var commandsOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -160,6 +163,8 @@ fun ChatComposer(
                     text = text,
                     onTextChange = onTextChange,
                     enabled = enabled,
+                    budgets = workflow.budgets,
+                    muted = workflow.muted,
                     modifier = Modifier.weight(1f),
                 )
 
@@ -170,6 +175,10 @@ fun ChatComposer(
                     onStop = onStop,
                 )
             }
+            WorkflowHint(
+                draft = workflow,
+                onSwitchPermission = onSwitchPermission?.takeIf { workflowGate.canRestrict },
+            )
         }
     }
 
@@ -258,6 +267,8 @@ private fun ComposerTextField(
     text: String,
     onTextChange: (String) -> Unit,
     enabled: Boolean,
+    budgets: Boolean,
+    muted: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
@@ -277,8 +288,10 @@ private fun ComposerTextField(
         // "ultracode", or "use a workflow to …", silently arms multi-agent
         // orchestration for the next turn. Lighting the phrase as it is typed
         // is the only sign the user gets that the turn changed shape, and it is
-        // driven by the same matcher the CLI uses to decide.
-        visualTransformation = activationHighlight(tint = colors.accent),
+        // driven by the same matcher the CLI uses to decide. A "+500k" budget
+        // lights beside it when it would be honoured; under Ask first both are
+        // muted, since no workflow will run.
+        visualTransformation = activationHighlight(tint = colors.accent, budgets = budgets, muted = muted),
         cursorBrush = SolidColor(colors.accent),
         interactionSource = interactionSource,
         modifier = modifier
