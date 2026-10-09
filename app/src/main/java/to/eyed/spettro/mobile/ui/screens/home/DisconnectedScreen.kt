@@ -111,6 +111,8 @@ fun DisconnectedScreen(
     onForget: () -> Unit,
     modifier: Modifier = Modifier,
     hasRemoteHost: Boolean = false,
+    /** Asks for the local-network permission; shown for [DisconnectReason.NoLocalNetwork]. */
+    onAllowLocalNetwork: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
     val host = hostName ?: "your computer"
@@ -132,7 +134,7 @@ fun DisconnectedScreen(
         DisconnectReason.HostAsleep, DisconnectReason.Unreachable -> "Can’t reach $host"
         DisconnectReason.Transport -> "Lost the connection to $host"
         DisconnectReason.SharingOff -> "Sharing is off"
-        DisconnectReason.NoLocalNetwork -> "Can’t see the local network"
+        DisconnectReason.NoLocalNetwork -> "Allow local network access"
         DisconnectReason.TurnedAway -> "$host turned the connection down"
         DisconnectReason.VersionMismatch -> "Update Spettro"
         DisconnectReason.Revoked -> "This phone was removed"
@@ -150,7 +152,11 @@ fun DisconnectedScreen(
         DisconnectReason.SharingOff ->
             "Turn it back on in Settings › Remote on your computer. This screen updates by itself once it’s on."
         DisconnectReason.NoLocalNetwork ->
-            "Spettro needs to see devices on your Wi-Fi to find $host. Check that Wi-Fi is on and that this app is allowed to use the local network in system settings."
+            if (hasRemoteHost) {
+                "On the same Wi-Fi, Spettro talks to $host directly, and Android asks before an app can reach devices on your local network. Over the internet it didn’t answer either."
+            } else {
+                "Spettro talks to $host directly over your Wi-Fi, and Android asks before an app can reach devices on your local network."
+            }
         DisconnectReason.TurnedAway ->
             "It answered, but didn’t let this phone in just now. Your pairing is fine — Spettro keeps trying."
         DisconnectReason.VersionMismatch ->
@@ -210,6 +216,12 @@ fun DisconnectedScreen(
                         label = "Pair again",
                         icon = Icons.Outlined.QrCodeScanner,
                         onClick = onPairAgain,
+                    )
+                reason == DisconnectReason.NoLocalNetwork && onAllowLocalNetwork != null ->
+                    PrimaryActionButton(
+                        label = "Allow access",
+                        icon = Icons.Outlined.Wifi,
+                        onClick = onAllowLocalNetwork,
                     )
                 else ->
                     PrimaryActionButton(

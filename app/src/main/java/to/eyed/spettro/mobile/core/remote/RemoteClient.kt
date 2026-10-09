@@ -350,6 +350,8 @@ class RemoteClient(
                     lastError is WrongHostException -> "That code belongs to a different computer."
                     !environment.localNetworkAllowed && payload.remoteHost == null ->
                         "Allow Spettro to reach devices on your local network, then scan again."
+                    !environment.localNetworkAllowed ->
+                        "Couldn't reach that computer over the internet. To pair on this Wi-Fi, allow Spettro to reach devices on your local network."
                     payload.remoteHost != null ->
                         "Couldn't reach that computer, here or over the internet. Check that it's awake, then show a new code."
                     else ->

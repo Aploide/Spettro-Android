@@ -62,6 +62,7 @@ import kotlinx.coroutines.withContext
 import to.eyed.spettro.mobile.coordinator.AppContainer
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
 import to.eyed.spettro.mobile.core.remote.OfflineReason
+import to.eyed.spettro.mobile.core.remote.PairPayload
 import to.eyed.spettro.mobile.core.remote.RemotePairing
 import to.eyed.spettro.mobile.core.remote.RemoteRoute
 import to.eyed.spettro.mobile.core.remote.RemoteState
@@ -71,6 +72,7 @@ import to.eyed.spettro.mobile.model.ImageProcessing
 import to.eyed.spettro.mobile.ui.components.AppIconImage
 import to.eyed.spettro.mobile.ui.components.SpettroCard
 import to.eyed.spettro.mobile.ui.components.StatusDot
+import to.eyed.spettro.mobile.ui.components.rememberLocalNetworkPermission
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
@@ -161,26 +163,42 @@ fun AppRoot(container: AppContainer) {
         is RemoteState.Unpaired -> {
             var isPairing by remember { mutableStateOf(false) }
             var error by remember { mutableStateOf<String?>(null) }
+            // A scanned code waiting on the local-network question.
+            var awaitingPermission by remember { mutableStateOf<PairPayload?>(null) }
+            val startPairing: (PairPayload) -> Unit = { payload ->
+                scope.launch {
+                    isPairing = true
+                    error = null
+                    try {
+                        client.pair(payload)
+                    } catch (e: Exception) {
+                        error = e.message ?: "Pairing failed"
+                    } finally {
+                        isPairing = false
+                    }
+                }
+            }
+            val localNetwork = rememberLocalNetworkPermission { granted ->
+                if (granted) client.start()
+                // Pair either way: without the permission a code with an
+                // internet address can still go over the tunnel, and the
+                // client says what's missing when nothing works.
+                awaitingPermission?.let(startPairing)
+                awaitingPermission = null
+            }
             val pair: (String) -> Unit = pair@{ text ->
                 // A second scan result while one attempt is in flight would
                 // tear the first down mid-auth and strand the host's pairing
                 // window — one attempt at a time.
-                if (isPairing) return@pair
+                if (isPairing || awaitingPermission != null) return@pair
                 val payload = RemotePairing.parse(text)
                 if (payload == null) {
                     error = "That doesn't look like a Spettro pairing code."
+                } else if (!localNetwork.isGranted && (payload.address != null || payload.remoteHost == null)) {
+                    awaitingPermission = payload
+                    localNetwork.request()
                 } else {
-                    scope.launch {
-                        isPairing = true
-                        error = null
-                        try {
-                            client.pair(payload)
-                        } catch (e: Exception) {
-                            error = e.message ?: "Pairing failed"
-                        } finally {
-                            isPairing = false
-                        }
-                    }
+                    startPairing(payload)
                 }
             }
             PairingScreen(
@@ -194,6 +212,10 @@ fun AppRoot(container: AppContainer) {
         else -> {
             val credential by client.credential.collectAsState()
             val reason = DisconnectReason.from(state)
+            val localNetwork = rememberLocalNetworkPermission { granted ->
+                // start() begins browsing now that it may, and retries at once.
+                if (granted) client.start()
+            }
             DisconnectedScreen(
                 reason = reason,
                 hostName = credential?.hostName,
@@ -201,6 +223,7 @@ fun AppRoot(container: AppContainer) {
                 onPairAgain = { client.forget() },
                 onForget = { client.forget() },
                 hasRemoteHost = credential?.remoteHost != null,
+                onAllowLocalNetwork = localNetwork::request,
             )
         }
     }
