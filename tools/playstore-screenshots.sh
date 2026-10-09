@@ -24,6 +24,7 @@
 #   workflow  workflow_done  workflow_failed  swarm  swarm_done
 #   orchestration            (both kinds of run mixed into a conversation)
 #   activation               (the "ultracode" highlight, composer and sent)
+#   permission_edit          (an approval with a diff, beside the listed command one)
 #
 # Drive one directly rather than through this script:
 #

@@ -17,11 +17,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import to.eyed.spettro.mobile.BuildConfig
 import to.eyed.spettro.mobile.core.acp.AcpAccountStatus
 import to.eyed.spettro.mobile.core.acp.AcpPermissionRequest
+import to.eyed.spettro.mobile.core.acp.AcpToolContent
 import to.eyed.spettro.mobile.core.acp.AcpQuestionItem
 import to.eyed.spettro.mobile.core.acp.AcpQuestionOption
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
@@ -148,6 +147,15 @@ private fun Scene(scene: String, tablet: Boolean) {
             PermissionSheet(
                 request = permissionRequest,
                 chatTitle = "Fix the resume crash",
+                onSelect = {},
+                onDismiss = {},
+            )
+        }
+        "permission_edit" -> {
+            Shell(tablet, items = ChatPreviewData.transcript, busy = true)
+            PermissionSheet(
+                request = editPermissionRequest,
+                chatTitle = null,
                 onSelect = {},
                 onDismiss = {},
             )
@@ -382,17 +390,40 @@ private fun listChats(): List<ChatSummary> = listOf(
     ),
 )
 
+// As the CLI sends an approval attached to the card it is drawing: no
+// title, no kind of its own — the card supplies those (Prompts.describedBy).
 private val permissionRequest = AcpPermissionRequest(
     sessionId = "s-1",
-    title = "Run a shell command",
+    title = "Run a command",
     toolKind = "execute",
-    rawInput = buildJsonObject {
-        put("command", "./gradlew :app:testDebugUnitTest --tests '*RemoteClientTest*'")
-    },
+    toolCallId = "call-3",
+    texts = listOf(
+        "```sh\n./gradlew :app:testDebugUnitTest --tests '*RemoteClientTest*'\n```",
+        "non-whitelisted command requires approval",
+    ),
     options = listOf(
         AcpPermissionRequest.Option("allow", "Allow", "allow_once"),
-        AcpPermissionRequest.Option("always", "Always Allow", "allow_always", isRecommended = true),
-        AcpPermissionRequest.Option("reject", "Reject", "reject_once"),
+        AcpPermissionRequest.Option("always", "Always allow ./gradlew", "allow_always", isRecommended = true),
+        AcpPermissionRequest.Option("reject", "Deny", "reject_once"),
+    ),
+)
+
+private val editPermissionRequest = AcpPermissionRequest(
+    sessionId = "s-1",
+    title = "Edit RemoteClient.kt",
+    toolKind = "edit",
+    toolCallId = "call-4",
+    texts = listOf("outside the project folder"),
+    diffs = listOf(
+        AcpToolContent.Diff(
+            path = "/home/dev/spettro-android/app/src/main/java/core/remote/RemoteClient.kt",
+            oldText = "private const val LAN_TIMEOUT_MS = 3_000L\nprivate const val BACKOFF_MAX_MS = 30_000L",
+            newText = "private const val LAN_TIMEOUT_MS = 2_500L\nprivate const val BACKOFF_MAX_MS = 30_000L",
+        ),
+    ),
+    options = listOf(
+        AcpPermissionRequest.Option("allow", "Allow", "allow_once"),
+        AcpPermissionRequest.Option("reject", "Deny", "reject_once"),
     ),
 )
 
