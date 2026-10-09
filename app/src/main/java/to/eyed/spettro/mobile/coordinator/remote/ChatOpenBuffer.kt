@@ -53,10 +53,15 @@ internal class ChatOpenBuffer {
         return replay
     }
 
-    /** Abandons the open (it failed, or the connection went). */
+    /** Abandons the open (the connection went, or the chat was closed). */
     fun cancel() {
         chatID = null
         held.clear()
+    }
+
+    /** Abandons the open of [chatID] (it failed); an open of another chat carries on. */
+    fun cancel(chatID: String) {
+        if (this.chatID == chatID) cancel()
     }
 
     companion object {

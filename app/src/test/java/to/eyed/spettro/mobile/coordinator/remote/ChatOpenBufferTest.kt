@@ -99,4 +99,21 @@ class ChatOpenBufferTest {
         assertNull(buffer.opening)
         assertTrue(buffer.finish("c-1", reply = FrameMark(1, 1)).isEmpty())
     }
+
+    @Test
+    fun `a failed open of one chat leaves the open of another alone`() {
+        // Open A fails after the user went on to open B (two panes):
+        // cancelling A must not take B's held updates with it.
+        val buffer = ChatOpenBuffer()
+        buffer.begin("a")
+        buffer.begin("b")
+        buffer.hold(update("b", 3))
+        buffer.cancel("a")
+        assertEquals("b", buffer.opening)
+        assertEquals(1, buffer.finish("b", reply = FrameMark(1, 1)).size)
+
+        buffer.begin("c")
+        buffer.cancel("c")
+        assertNull(buffer.opening)
+    }
 }

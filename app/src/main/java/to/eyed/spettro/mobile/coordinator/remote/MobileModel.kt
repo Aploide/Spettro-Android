@@ -120,6 +120,9 @@ class MobileModel(
     /** Whether the last state seen was Connected — to tell a reconnect from an agent flip. */
     private var wasConnected = false
 
+    /** The host the last connection was to; a different one starts from nothing. */
+    private var lastHostID: String? = null
+
     /** Chats the list screen shows: non-archived, pinned first, newest first. */
     val visibleChats: List<ChatSummary>
         get() = _chats.value.filter { !it.isArchived }
@@ -133,6 +136,8 @@ class MobileModel(
             client.state.collect { state ->
                 when (state) {
                     is RemoteState.Connected -> {
+                        if (lastHostID != null && lastHostID != state.host.hostID) forgetHostState()
+                        lastHostID = state.host.hostID
                         _agentReady.value = state.agentReady
                         refreshEverything()
                         // Back after a drop: the open chat missed whatever
@@ -157,6 +162,20 @@ class MobileModel(
         scope.launch {
             client.inbound.collect(::handle)
         }
+    }
+
+    /**
+     * Paired with another computer: the last one's chats and projects mean
+     * nothing here, and its open chat must not be "reopened" on this one.
+     */
+    private fun forgetHostState() {
+        openBuffer.cancel()
+        _openChat.value = null
+        _chats.value = emptyList()
+        _projects.value = emptyList()
+        _providers.value = null
+        _models.value = null
+        _account.value = null
     }
 
     fun dismissBanner() {
@@ -322,9 +341,10 @@ class MobileModel(
             _openChat.value = session
             true
         } catch (e: Exception) {
-            openBuffer.cancel()
+            // Only this open's buffer: another chat may be opening by now.
+            openBuffer.cancel(chatID)
             if (isReopen) {
-                if (e is RpcException && e.code == NO_SUCH_CHAT) {
+                if (e is RpcException && e.code == NO_SUCH_CHAT && _openChat.value?.chatId == chatID) {
                     _openChat.value = null
                     note("This chat is no longer on your computer")
                 }
