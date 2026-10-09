@@ -8,9 +8,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -76,42 +73,34 @@ fun rememberLocalNetworkPermission(onResult: (Boolean) -> Unit): LocalNetworkPer
     }
 
     if (rationaleVisible) {
-        AlertDialog(
-            // Waved away (back, a tap outside) is an answer too: whoever
-            // asked is waiting on one, and must not wait forever.
-            onDismissRequest = {
+        // Waved away (back, a tap outside) is an answer too: whoever asked
+        // is waiting on one, and must not wait forever.
+        ConfirmDialog(
+            title = "Let Spettro reach your computer",
+            message = if (refusedForGood) {
+                "On the same Wi-Fi, Spettro talks to your computer directly, and Android needs your OK " +
+                    "for that. In Spettro’s settings, under Permissions, allow Nearby devices."
+            } else {
+                "On the same Wi-Fi, Spettro talks to your computer directly. Android asks before an " +
+                    "app can reach devices on your local network, so it will ask you next."
+            },
+            confirmLabel = if (refusedForGood) "Open settings" else "Continue",
+            dismissLabel = "Not now",
+            destructive = false,
+            icon = null,
+            onConfirm = {
+                rationaleVisible = false
+                val permission = LocalNetworkAccess.permission
+                when {
+                    permission == null -> currentOnResult(true)
+                    refusedForGood ->
+                        if (context.openAppSettings()) awaitingSettings = true else currentOnResult(false)
+                    else -> launcher.launch(permission)
+                }
+            },
+            onDismiss = {
                 rationaleVisible = false
                 currentOnResult(LocalNetworkAccess.isGranted(context))
-            },
-            title = { Text("Let Spettro reach your computer") },
-            text = {
-                Text(
-                    if (refusedForGood) {
-                        "On the same Wi-Fi, Spettro talks to your computer directly, and Android needs your OK " +
-                            "for that. In Spettro’s settings, under Permissions, allow Nearby devices."
-                    } else {
-                        "On the same Wi-Fi, Spettro talks to your computer directly. Android asks before an " +
-                            "app can reach devices on your local network, so it will ask you next."
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    rationaleVisible = false
-                    val permission = LocalNetworkAccess.permission
-                    when {
-                        permission == null -> currentOnResult(true)
-                        refusedForGood ->
-                            if (context.openAppSettings()) awaitingSettings = true else currentOnResult(false)
-                        else -> launcher.launch(permission)
-                    }
-                }) { Text(if (refusedForGood) "Open settings" else "Continue") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    rationaleVisible = false
-                    currentOnResult(false)
-                }) { Text("Not now") }
             },
         )
     }

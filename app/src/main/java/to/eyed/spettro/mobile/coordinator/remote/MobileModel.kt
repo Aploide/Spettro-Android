@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import to.eyed.spettro.mobile.core.humanizeError
 import to.eyed.spettro.mobile.core.acp.AcpAccountStatus
 import to.eyed.spettro.mobile.core.acp.AcpExtensionMethod
 import to.eyed.spettro.mobile.core.acp.AcpLocalProbeResult
@@ -84,8 +85,12 @@ fun promptsShownWith(
     return permissions.filter { here(it.chatID) } to questions.filter { here(it.chatID) }
 }
 
-/** A transient, dismissible message shown above the chat UI. */
-data class Banner(val text: String, val isError: Boolean = false)
+/**
+ * A transient, dismissible message shown above the chat UI, as the desktop's
+ * toast: a short [text] title and, for errors, a [detail] sentence saying
+ * what to do.
+ */
+data class Banner(val text: String, val isError: Boolean = false, val detail: String? = null)
 
 /**
  * The Protocol B coordinator: owns the mirror of the PC host's state and
@@ -386,7 +391,7 @@ class MobileModel(
         scope.launch {
             _isRefreshing.value = true
             runCatching { _chats.value = api.chatsList() }
-                .onFailure { note("Couldn't load chats: ${it.message}", isError = true) }
+                .onFailure { noteError("Couldn’t load your chats", it.message) }
             runCatching { _projects.value = api.projectsList() }
             runCatching { _account.value = AcpAccountStatus.parse(api.agentCall(AcpExtensionMethod.ACCOUNT_STATUS)) }
             _isRefreshing.value = false
@@ -446,7 +451,7 @@ class MobileModel(
                 // Otherwise keep the transcript on screen; the next
                 // reconnect tries again.
             } else {
-                note("Couldn't open chat: ${e.message}", isError = true)
+                noteError("Couldn’t open the chat", e.message)
             }
             false
         }
@@ -464,7 +469,7 @@ class MobileModel(
         upsertChat(summary)
         summary.id
     } catch (e: Exception) {
-        note("Couldn't create chat: ${e.message}", isError = true)
+        noteError("Couldn’t start a chat", e.message)
         null
     }
 
@@ -473,7 +478,7 @@ class MobileModel(
         if (_openChat.value?.chatId == chatID) _openChat.value = null
         scope.launch {
             runCatching { api.chatsDelete(chatID) }
-                .onFailure { note("Couldn't delete chat: ${it.message}", isError = true) }
+                .onFailure { noteError("Couldn’t delete the chat", it.message) }
         }
     }
 
@@ -577,11 +582,11 @@ class MobileModel(
                     note(e.message ?: "Couldn't change that setting.", isError = true)
                 }
             } else {
-                note("Couldn't change setting: ${e.message}", isError = true)
+                noteError("Couldn’t change that setting", e.message)
             }
             false
         } catch (e: Exception) {
-            note("Couldn't change setting: ${e.message}", isError = true)
+            noteError("Couldn’t change that setting", e.message)
             false
         }
     }
@@ -697,10 +702,14 @@ class MobileModel(
                 }
             } catch (e: RpcException) {
                 _login.value = null
-                note(relayErrorText(e, "Sign-in failed"), isError = true)
+                if (e.code == RpcException.METHOD_NOT_FOUND) {
+                    note("Update Spettro on your computer to sign in from here", isError = true)
+                } else {
+                    noteError("Couldn’t sign in", e.message)
+                }
             } catch (e: Exception) {
                 _login.value = null
-                note("Sign-in failed: ${e.message}", isError = true)
+                noteError("Couldn’t sign in", e.message)
             }
         }
     }
@@ -715,7 +724,7 @@ class MobileModel(
     fun signOut() {
         scope.launch {
             runCatching { _account.value = AcpAccountStatus.parse(api.agentCall(AcpExtensionMethod.ACCOUNT_LOGOUT)) }
-                .onFailure { note("Sign-out failed: ${it.message}", isError = true) }
+                .onFailure { noteError("Couldn’t sign out", it.message) }
         }
     }
 
@@ -731,7 +740,7 @@ class MobileModel(
             } catch (e: RpcException) {
                 _lastProvidersRefreshFailed.value = true
                 if (e.code == RpcException.METHOD_NOT_FOUND) {
-                    note("Update the spettro CLI on your computer to manage providers from here")
+                    note("Update Spettro on your computer to manage providers from here")
                 }
             } catch (_: Exception) {
                 _lastProvidersRefreshFailed.value = true
@@ -753,7 +762,7 @@ class MobileModel(
                     },
                 )
             }.onSuccess { refreshProviders() }
-                .onFailure { note("Couldn't connect provider: ${it.message}", isError = true) }
+                .onFailure { noteError("Couldn’t connect the provider", it.message) }
         }
     }
 
@@ -766,7 +775,7 @@ class MobileModel(
                         buildJsonObject { put("providerId", providerId) },
                     ),
                 )
-            }.onFailure { note("Couldn't disconnect: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t disconnect the provider", it.message) }
         }
     }
 
@@ -786,7 +795,7 @@ class MobileModel(
                         },
                     ),
                 )
-            }.onFailure { note("Probe failed: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t check that server", it.message) }
         }
     }
 
@@ -803,7 +812,7 @@ class MobileModel(
                     ),
                 )
                 _probeResult.value = null
-            }.onFailure { note("Couldn't add server: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t add the server", it.message) }
         }
     }
 
@@ -816,7 +825,7 @@ class MobileModel(
                         buildJsonObject { put("endpoint", endpoint) },
                     ),
                 )
-            }.onFailure { note("Couldn't remove server: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t remove the server", it.message) }
         }
     }
 
@@ -833,7 +842,7 @@ class MobileModel(
                         },
                     ),
                 )
-            }.onFailure { note("Couldn't update favorite: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t update your favorites", it.message) }
         }
     }
 
@@ -843,8 +852,19 @@ class MobileModel(
         _banner.value = Banner(text, isError)
     }
 
-    private fun relayErrorText(e: RpcException, prefix: String): String =
-        if (e.code == RpcException.METHOD_NOT_FOUND) "Update the spettro CLI on your computer" else "$prefix: ${e.message}"
+    /**
+     * A failure, said the desktop's way (core/Humanize): a recognised error
+     * becomes its plain title and what to do; anything else keeps [what]
+     * failed as the title, with the message as the detail.
+     */
+    private fun noteError(what: String, message: String?) {
+        val human = humanizeError(message)
+        _banner.value = if (human.known) {
+            Banner(human.title, isError = true, detail = human.detail)
+        } else {
+            Banner(what, isError = true, detail = human.detail)
+        }
+    }
 
     private companion object {
         /** `chats/open` for a chat the host doesn't have (deleted meanwhile). */

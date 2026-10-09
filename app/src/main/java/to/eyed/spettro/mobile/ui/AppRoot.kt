@@ -845,6 +845,7 @@ private fun BannerOverlay(model: MobileModel) {
             }
             SpettroToast(
                 title = current.text,
+                detail = current.detail,
                 tone = if (current.isError) ToastTone.Error else ToastTone.Info,
                 icon = if (current.isError) Icons.Outlined.ErrorOutline else Icons.Outlined.Info,
                 onClose = { model.dismissBanner() },
