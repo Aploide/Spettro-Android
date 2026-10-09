@@ -1,5 +1,14 @@
 package to.eyed.spettro.mobile.ui.screens.home
 
+import to.eyed.spettro.mobile.ui.components.SpettroLink
+import to.eyed.spettro.mobile.ui.components.SpettroCard
+import to.eyed.spettro.mobile.ui.components.SpettroButton
+import to.eyed.spettro.mobile.ui.components.SectionHeader
+import to.eyed.spettro.mobile.ui.components.RingSpinner
+import to.eyed.spettro.mobile.ui.components.ConfirmDialog
+import to.eyed.spettro.mobile.ui.components.ButtonStyle
+import to.eyed.spettro.mobile.ui.components.ButtonSize
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -183,17 +192,20 @@ fun DisconnectedScreen(
     ) {
         Spacer(Modifier.weight(1f))
 
+        // A quiet tile, not an accent disc: the desktop keeps the accent for
+        // the one action that resolves things.
         Box(
             modifier = Modifier
-                .size(72.dp)
-                .background(colors.accent.copy(alpha = 0.12f), CircleShape),
+                .size(64.dp)
+                .background(colors.surfaceRaised, CircleShape)
+                .border(Dimens.hairlineWidth, colors.hairline, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                modifier = Modifier.size(32.dp),
-                tint = if (isWorking) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp),
+                tint = colors.textSecondary,
             )
         }
 
@@ -201,16 +213,16 @@ fun DisconnectedScreen(
         Text(
             title,
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
+            color = colors.textPrimary,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(Dimens.spacingSm))
         Text(
             detail,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+            color = colors.textSecondary,
             textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(max = 320.dp),
+            modifier = Modifier.widthIn(max = 360.dp),
         )
 
         Spacer(Modifier.height(Dimens.spacingXl))
@@ -220,7 +232,7 @@ fun DisconnectedScreen(
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
         ) {
             when {
-                isWorking -> SpettroSpinner(size = 20.dp)
+                isWorking -> RingSpinner(size = 20.dp)
                 reason == DisconnectReason.Revoked ->
                     // Retrying is pointless here — the computer answered and
                     // said no. Pairing is the only way forward.
@@ -245,19 +257,12 @@ fun DisconnectedScreen(
             // Over the internet it didn't answer, and the LAN was never
             // tried: on the same Wi-Fi as the computer, this is the way in.
             if (reason == DisconnectReason.Unreachable && localNetworkMissing && onAllowLocalNetwork != null) {
-                TextButton(onClick = onAllowLocalNetwork) {
-                    Text("On the same Wi-Fi? Allow local network access")
-                }
+                SpettroLink("On the same Wi-Fi? Allow local network access", onClick = onAllowLocalNetwork)
             }
             // Settings is only reachable once connected, so this screen is
             // the sole way out of a stale pairing — offer it in every state,
             // even while retries run in the background.
-            TextButton(
-                onClick = { confirmingForget = true },
-                colors = ButtonDefaults.textButtonColors(contentColor = colors.danger),
-            ) {
-                Text("Forget this computer")
-            }
+            SpettroLink("Forget this computer…", onClick = { confirmingForget = true }, color = colors.danger)
         }
 
         Spacer(Modifier.weight(1f))
@@ -269,25 +274,17 @@ fun DisconnectedScreen(
             reason == DisconnectReason.SharingOff ||
             reason == DisconnectReason.Transport
         ) {
-            Surface(
-                shape = RoundedCornerShape(Dimens.radiusMd),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+            SpettroCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(Dimens.spacingMd),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
                 ) {
-                    Text(
-                        "On your computer",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    SectionHeader("On your computer")
                     Text(
                         "Open Spettro, then go to Settings › Remote and turn on sharing.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textSecondary,
                         textAlign = TextAlign.Center,
                     )
                 }
@@ -297,22 +294,15 @@ fun DisconnectedScreen(
     }
 
     if (confirmingForget) {
-        AlertDialog(
-            onDismissRequest = { confirmingForget = false },
-            title = { Text("Forget $host?") },
-            text = { Text("You’ll scan a new pairing code to connect again.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmingForget = false
-                        onForget()
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = colors.danger),
-                ) { Text("Forget") }
+        ConfirmDialog(
+            title = "Forget “$host”?",
+            message = "You’ll scan a new pairing code to connect again.",
+            confirmLabel = "Forget",
+            onConfirm = {
+                confirmingForget = false
+                onForget()
             },
-            dismissButton = {
-                TextButton(onClick = { confirmingForget = false }) { Text("Cancel") }
-            },
+            onDismiss = { confirmingForget = false },
         )
     }
 }
@@ -323,20 +313,14 @@ private fun PrimaryActionButton(
     icon: ImageVector,
     onClick: () -> Unit,
 ) {
-    val colors = LocalSpettroColors.current
-    Button(
+    SpettroButton(
+        text = label,
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = colors.accent,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
-        shape = RoundedCornerShape(Dimens.radiusLg),
-        modifier = Modifier.widthIn(min = 180.dp).height(48.dp),
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.size(Dimens.spacingSm))
-        Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-    }
+        style = ButtonStyle.Prominent,
+        size = ButtonSize.Large,
+        icon = icon,
+        modifier = Modifier.widthIn(min = 200.dp),
+    )
 }
 
 // MARK: - Previews
@@ -354,34 +338,34 @@ private fun DisconnectedPreview(reason: DisconnectReason, darkTheme: Boolean = t
     }
 }
 
-@Preview(name = "Searching", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Searching", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun SearchingPreview() = DisconnectedPreview(DisconnectReason.Searching)
 
-@Preview(name = "Host asleep", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Host asleep", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun HostAsleepPreview() = DisconnectedPreview(DisconnectReason.HostAsleep)
 
-@Preview(name = "Sharing off — light", showBackground = true, backgroundColor = 0xFFF9F9F7)
+@Preview(name = "Sharing off — light", showBackground = true, backgroundColor = 0xFFFAFAFA)
 @Composable
 private fun SharingOffPreview() = DisconnectedPreview(DisconnectReason.SharingOff, darkTheme = false)
 
-@Preview(name = "No local network", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "No local network", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun NoLocalNetworkPreview() = DisconnectedPreview(DisconnectReason.NoLocalNetwork)
 
-@Preview(name = "Revoked", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Revoked", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun RevokedPreview() = DisconnectedPreview(DisconnectReason.Revoked)
 
-@Preview(name = "Unreachable over the internet", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Unreachable over the internet", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun UnreachablePreview() = DisconnectedPreview(DisconnectReason.Unreachable)
 
-@Preview(name = "Turned away", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Turned away", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun TurnedAwayPreview() = DisconnectedPreview(DisconnectReason.TurnedAway)
 
-@Preview(name = "Version mismatch", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Version mismatch", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun VersionMismatchPreview() = DisconnectedPreview(DisconnectReason.VersionMismatch)

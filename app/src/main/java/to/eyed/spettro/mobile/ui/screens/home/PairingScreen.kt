@@ -1,5 +1,20 @@
 package to.eyed.spettro.mobile.ui.screens.home
 
+import to.eyed.spettro.mobile.ui.theme.floatingShadow
+import to.eyed.spettro.mobile.ui.theme.TabularNums
+import to.eyed.spettro.mobile.ui.theme.Elevation
+import to.eyed.spettro.mobile.ui.components.SpettroTextField
+import to.eyed.spettro.mobile.ui.components.SpettroLink
+import to.eyed.spettro.mobile.ui.components.SpettroDialog
+import to.eyed.spettro.mobile.ui.components.SpettroCard
+import to.eyed.spettro.mobile.ui.components.SpettroButton
+import to.eyed.spettro.mobile.ui.components.RingSpinner
+import to.eyed.spettro.mobile.ui.components.CardVariant
+import to.eyed.spettro.mobile.ui.components.ButtonStyle
+import to.eyed.spettro.mobile.ui.components.ButtonSize
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -54,9 +69,10 @@ import to.eyed.spettro.mobile.ui.theme.MonoSmall
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
- * The one-time setup screen: point the phone at the pairing QR code on the
- * PC. Port of the iOS `PairingView` intro, with the camera handled by the
- * in-app CameraX + ML Kit [QrScannerScreen].
+ * The one-time setup screen: point the phone at the pairing code on the
+ * computer. Laid out as the desktop's setup step — one centred column, a
+ * 24sp title, a sentence of what this is, the steps, and one accent action —
+ * with the camera handled by the in-app CameraX + ML Kit [QrScannerScreen].
  *
  * Stateless: the caller drives [isPairing] and [errorText]; scans and manual
  * pastes flow up through [onScanned] / [onManualEntry] as the raw string for
@@ -88,26 +104,27 @@ fun PairingScreen(
         ) {
             Spacer(Modifier.weight(1f))
 
-            AppIconImage(size = 72.dp)
-            Spacer(Modifier.height(Dimens.spacingLg))
+            AppIconImage(size = 64.dp)
+            Spacer(Modifier.height(Dimens.spacingXl))
             Text(
-                "Spettro Remote",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
+                "Pair with your computer",
+                style = MaterialTheme.typography.titleLarge,
+                color = colors.textPrimary,
+                textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(Dimens.spacingSm))
             Text(
-                "Drive the agent on your computer from this phone — same chats, live.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "Drive Spettro on your computer from this phone — the same chats, live.",
+                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+                color = colors.textSecondary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 340.dp),
+                modifier = Modifier.widthIn(max = 360.dp),
             )
 
             Spacer(Modifier.height(Dimens.spacingXl))
             Column(
-                modifier = Modifier.widthIn(max = 340.dp),
-                verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
+                modifier = Modifier.widthIn(max = 360.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 PairingStep(1, "Open Spettro on your computer.")
                 PairingStep(2, "Go to Settings › Remote and turn on sharing.")
@@ -125,36 +142,26 @@ fun PairingScreen(
                 )
             }
 
-            Button(
+            SpettroButton(
+                text = "Scan the code",
                 onClick = { showScanner = true },
                 enabled = !isPairing,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.accent,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(Dimens.radiusLg),
-            ) {
-                Icon(
-                    Icons.Outlined.QrCodeScanner,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.size(Dimens.spacingSm))
-                Text("Scan QR Code", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            }
-
-            TextButton(onClick = { showManualEntry = true }, enabled = !isPairing) {
-                Text("Enter code manually", color = colors.accent)
-            }
+                style = ButtonStyle.Prominent,
+                size = ButtonSize.Large,
+                icon = Icons.Outlined.QrCodeScanner,
+                modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
+            )
+            Spacer(Modifier.height(Dimens.spacingXs))
+            SpettroLink("Paste a pairing link instead", onClick = { showManualEntry = true }, enabled = !isPairing)
 
             Spacer(Modifier.height(Dimens.spacingSm))
             Text(
-                "You only do this once. After that your phone reconnects on its own whenever your computer is sharing.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "You only do this once. After that your phone reconnects on its own whenever your computer is " +
+                    "sharing. Pair on the same Wi-Fi as your computer, unless it allows pairing over the internet.",
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 17.sp),
+                color = colors.textTertiary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 320.dp),
+                modifier = Modifier.widthIn(max = 340.dp),
             )
         }
 
@@ -188,22 +195,27 @@ fun PairingScreen(
 @Composable
 private fun PairingStep(number: Int, text: String) {
     val colors = LocalSpettroColors.current
-    Row(horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd)) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Box(
-            modifier = Modifier.size(22.dp).background(colors.accent, CircleShape),
+            modifier = Modifier
+                .size(24.dp)
+                .background(colors.surfaceRaised, CircleShape)
+                .border(Dimens.hairlineWidth, colors.hairline, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 "$number",
-                color = MaterialTheme.colorScheme.onPrimary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                color = colors.textSecondary,
+                style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = TabularNums),
             )
         }
         Text(
             text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+            color = colors.textPrimary,
             modifier = Modifier.weight(1f),
         )
     }
@@ -215,7 +227,7 @@ private fun PairingOverlay(modifier: Modifier = Modifier) {
     val colors = LocalSpettroColors.current
     Box(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(colors.scrim)
             // Swallow taps so nothing underneath is reachable mid-pair.
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -224,18 +236,20 @@ private fun PairingOverlay(modifier: Modifier = Modifier) {
             ),
         contentAlignment = Alignment.Center,
     ) {
+        val shape = RoundedCornerShape(Dimens.radiusMd)
         Surface(
-            shape = RoundedCornerShape(Dimens.radiusMd),
+            modifier = Modifier.floatingShadow(Elevation.Large, shape),
+            shape = shape,
             color = colors.surfaceRaised,
             border = BorderStroke(Dimens.hairlineWidth, colors.hairline),
         ) {
             Row(
-                modifier = Modifier.padding(Dimens.spacingXl),
+                modifier = Modifier.padding(horizontal = Dimens.spacingXl, vertical = Dimens.spacingLg),
                 horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                SpettroSpinner(size = 24.dp)
-                Text("Pairing…", style = MaterialTheme.typography.bodyLarge)
+                RingSpinner(size = 18.dp)
+                Text("Pairing…", style = MaterialTheme.typography.bodyLarge, color = colors.textPrimary)
             }
         }
     }
@@ -246,43 +260,44 @@ private fun ManualEntryDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val colors = LocalSpettroColors.current
     var text by rememberSaveable { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Enter pairing code") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd)) {
-                Text(
-                    "On your computer choose Copy link, then paste it here — or open the link on this phone and it comes straight to Spettro.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    placeholder = { Text("spettro-pair://pair?v=1&h=…", style = MonoSmall) },
-                    textStyle = MonoSmall,
-                    minLines = 2,
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = text.isNotBlank(),
+    SpettroDialog(onDismiss = onDismiss) {
+        Text("Paste a pairing link", style = MaterialTheme.typography.titleSmall, color = colors.textPrimary)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "On your computer choose Copy link, then paste it here — or open the link on this phone and it comes straight to Spettro.",
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
+            color = colors.textSecondary,
+        )
+        Spacer(Modifier.height(Dimens.spacingMd))
+        SpettroTextField(
+            value = text,
+            onValueChange = { text = it },
+            placeholder = "spettro-pair://pair?v=1&h=…",
+            mono = true,
+            singleLine = false,
+            minLines = 2,
+            maxLines = 4,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(20.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+            SpettroButton("Cancel", onClick = onDismiss)
+            SpettroButton(
+                "Pair",
                 onClick = { onConfirm(text.trim()) },
-            ) { Text("Pair") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
+                enabled = text.isNotBlank(),
+                style = ButtonStyle.Prominent,
+            )
+        }
+    }
 }
 
 /**
- * A dismissible inline error: diffRemoved-tinted card, shared by the pairing
- * and CLI-connect forms. Pass a null [onDismiss] to drop the close button.
+ * A dismissible inline error, as the desktop's error card: a danger-tinted
+ * ground and border, the icon in danger, the sentence in the primary ink.
+ * Pass a null [onDismiss] to drop the close button.
  */
 @Composable
 internal fun ErrorCard(
@@ -291,12 +306,7 @@ internal fun ErrorCard(
     onDismiss: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(Dimens.radiusMd),
-        color = colors.danger.copy(alpha = 0.12f),
-        contentColor = colors.danger,
-    ) {
+    SpettroCard(modifier = modifier, variant = CardVariant.Error) {
         Row(
             modifier = Modifier.padding(
                 start = Dimens.spacingMd,
@@ -304,11 +314,19 @@ internal fun ErrorCard(
                 bottom = Dimens.spacingSm,
                 end = Dimens.spacingXs,
             ),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Icon(
+                Icons.Outlined.ErrorOutline,
+                contentDescription = null,
+                tint = colors.danger,
+                modifier = Modifier.size(16.dp),
+            )
             Text(
                 text,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 19.sp),
+                color = colors.textPrimary,
                 modifier = Modifier.weight(1f).padding(vertical = Dimens.spacingXs),
             )
             if (onDismiss != null) {
@@ -316,6 +334,7 @@ internal fun ErrorCard(
                     Icon(
                         Icons.Outlined.Close,
                         contentDescription = "Dismiss",
+                        tint = colors.textTertiary,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -326,7 +345,7 @@ internal fun ErrorCard(
 
 // MARK: - Previews
 
-@Preview(name = "Pairing dark", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Pairing dark", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun PairingScreenPreview() {
     SpettroTheme(darkTheme = true) {
@@ -339,7 +358,7 @@ private fun PairingScreenPreview() {
     }
 }
 
-@Preview(name = "Pairing light + error", showBackground = true, backgroundColor = 0xFFF9F9F7)
+@Preview(name = "Pairing light + error", showBackground = true, backgroundColor = 0xFFFAFAFA)
 @Composable
 private fun PairingScreenErrorPreview() {
     SpettroTheme(darkTheme = false) {
@@ -352,7 +371,7 @@ private fun PairingScreenErrorPreview() {
     }
 }
 
-@Preview(name = "Pairing in flight", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Pairing in flight", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun PairingScreenBusyPreview() {
     SpettroTheme(darkTheme = true) {
