@@ -97,7 +97,7 @@ fun PairingScreen(
             )
             Spacer(Modifier.height(Dimens.spacingSm))
             Text(
-                "Drive the agent on your PC from this phone — same chats, live.",
+                "Drive the agent on your computer from this phone — same chats, live.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -109,9 +109,9 @@ fun PairingScreen(
                 modifier = Modifier.widthIn(max = 340.dp),
                 verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             ) {
-                PairingStep(1, "Open Spettro on your PC.")
-                PairingStep(2, "Settings → Remote Access → turn on sharing.")
-                PairingStep(3, "Scan the QR code.")
+                PairingStep(1, "Open Spettro on your computer.")
+                PairingStep(2, "Go to Settings › Remote and turn on sharing.")
+                PairingStep(3, "Choose Pair a device, then scan the code.")
             }
 
             Spacer(Modifier.weight(1f))
@@ -150,7 +150,7 @@ fun PairingScreen(
 
             Spacer(Modifier.height(Dimens.spacingSm))
             Text(
-                "You only do this once. After that the app reconnects on its own whenever your PC is sharing.",
+                "You only do this once. After that your phone reconnects on its own whenever your computer is sharing.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -253,7 +253,7 @@ private fun ManualEntryDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd)) {
                 Text(
-                    "Paste the spettro-pair:// link from your PC — or just the part after the “?”.",
+                    "On your computer choose Copy link, then paste it here — or open the link on this phone and it comes straight to Spettro.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

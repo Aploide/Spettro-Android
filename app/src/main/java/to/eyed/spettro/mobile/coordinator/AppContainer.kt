@@ -8,6 +8,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
 import to.eyed.spettro.mobile.core.remote.AndroidNetworkEnvironment
 import to.eyed.spettro.mobile.core.remote.RemoteClient
@@ -31,6 +32,9 @@ class AppContainer private constructor(context: Context) {
         environment = AndroidNetworkEnvironment(context),
     )
     val model = MobileModel(client, scope)
+
+    /** A pairing link opened from outside the app, waiting for the UI to act on it. */
+    val pendingPairingLink = MutableStateFlow<String?>(null)
 
     init {
         // The connection follows the app, not an activity: rotating, or a

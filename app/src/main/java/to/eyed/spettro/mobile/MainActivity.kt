@@ -1,10 +1,12 @@
 package to.eyed.spettro.mobile
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import to.eyed.spettro.mobile.coordinator.AppContainer
+import to.eyed.spettro.mobile.core.remote.RemotePairing
 import to.eyed.spettro.mobile.ui.AppRoot
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
@@ -15,10 +17,26 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         container = AppContainer.get(this)
+        // A recreated activity has already handed its link over.
+        if (savedInstanceState == null) takePairingLink(intent)
         setContent {
             SpettroTheme {
                 AppRoot(container)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takePairingLink(intent)
+    }
+
+    /** A `spettro-pair://pair?…` link opened from elsewhere: AppRoot takes it from here. */
+    private fun takePairingLink(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val link = intent.dataString ?: return
+        if (link.startsWith("${RemotePairing.SCHEME}://", ignoreCase = true)) {
+            container.pendingPairingLink.value = link
         }
     }
 

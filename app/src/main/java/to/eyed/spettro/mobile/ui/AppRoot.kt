@@ -30,11 +30,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
@@ -140,6 +142,23 @@ fun AppRoot(container: AppContainer) {
         }
     }
 
+    val pendingLink by container.pendingPairingLink.collectAsState()
+    if (state !is RemoteState.Unpaired) {
+        pendingLink?.let { link ->
+            PairingLinkPrompt(
+                link = link,
+                state = state,
+                pairedHostID = client.credential.value?.hostID,
+                pairedHostName = client.credential.value?.hostName,
+                onConfirm = {
+                    // Unpaired takes the link from here (below).
+                    client.forget()
+                },
+                onDismiss = { container.pendingPairingLink.value = null },
+            )
+        }
+    }
+
     // One call site for the navigator, whether live or riding out a drop, so
     // going from one to the other recomposes it instead of remounting it.
     val navigatorConnection = (state as? RemoteState.Connected)
@@ -200,6 +219,12 @@ fun AppRoot(container: AppContainer) {
                 } else {
                     startPairing(payload)
                 }
+            }
+            // A pairing link opened from another app pairs as if scanned.
+            LaunchedEffect(pendingLink) {
+                val link = pendingLink ?: return@LaunchedEffect
+                container.pendingPairingLink.value = null
+                pair(link)
             }
             PairingScreen(
                 isPairing = isPairing,
@@ -465,6 +490,53 @@ private fun ReconnectingPill(visible: Boolean) {
             }
         }
     }
+}
+
+/**
+ * A pairing link arrived while this phone is already paired. Pairing again
+ * replaces the current computer, so that is asked first — except for a
+ * link from the computer it's already connected to, which changes nothing.
+ */
+@Composable
+private fun PairingLinkPrompt(
+    link: String,
+    state: RemoteState,
+    pairedHostID: String?,
+    pairedHostName: String?,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val payload = remember(link) { RemotePairing.parse(link) }
+    if (payload == null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("That link didn’t work") },
+            text = { Text("It doesn’t look like a Spettro pairing link. Copy it again on your computer.") },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
+        )
+        return
+    }
+    if (payload.hostID == pairedHostID && state is RemoteState.Connected) {
+        LaunchedEffect(link) { onDismiss() }
+        return
+    }
+    val replacing = payload.hostID != pairedHostID
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pair with “${payload.hostName}”?") },
+        text = {
+            Text(
+                if (replacing) {
+                    "This phone is paired with “${pairedHostName ?: "another computer"}”. Pairing with " +
+                        "“${payload.hostName}” replaces it."
+                } else {
+                    "This phone will pair with it again, replacing its old pairing."
+                },
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Pair") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Collects settings state and renders the stateless SettingsScreen. */

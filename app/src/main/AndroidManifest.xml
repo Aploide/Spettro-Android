@@ -34,11 +34,26 @@
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Spettro"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The desktop offers "Copy link" for when the QR can't be
+                 scanned; opening that link on the phone lands in pairing.
+                 singleTask so it reaches the running app, not a second copy
+                 stacked on whatever app the link was tapped in. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="pair"
+                    android:scheme="spettro-pair" />
             </intent-filter>
         </activity>
     </application>

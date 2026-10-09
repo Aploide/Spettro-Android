@@ -28,9 +28,10 @@ android {
             // installs alongside it under its own id.
             //
             // Safe to do here precisely because there is nothing keyed to the
-            // application id: no google-services.json, and the manifest
-            // registers no URL scheme, so there is no FCM registration to
-            // break and no deep link for the two copies to fight over. The
+            // application id: no google-services.json, so there is no FCM
+            // registration to break. Both copies do register the
+            // spettro-pair:// link, so with both installed Android asks which
+            // one should open it — the right outcome for a developer. The
             // namespace is untouched, so BuildConfig and R stay put.
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
