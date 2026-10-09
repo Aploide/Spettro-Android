@@ -233,9 +233,10 @@ internal object ChatPreviewData {
                     AcpConfigOption.OptionGroup(
                         name = null,
                         options = listOf(
-                            AcpConfigOption.Opt("Ask every time", "ask"),
-                            AcpConfigOption.Opt("Auto-approve edits", "edits"),
-                            AcpConfigOption.Opt("YOLO", "yolo", "Never ask; run everything"),
+                            // As the CLI names them; the sheet says them the desktop's way.
+                            AcpConfigOption.Opt("Ask first", "ask-first", "Ask before every tool call"),
+                            AcpConfigOption.Opt("Restricted", "restricted", "Auto-approve inside the project"),
+                            AcpConfigOption.Opt("YOLO", "yolo", "Automatically approve all tool, path, and command requests"),
                         ),
                     ),
                 ),

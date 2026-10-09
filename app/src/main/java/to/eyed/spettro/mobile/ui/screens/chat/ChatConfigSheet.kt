@@ -506,6 +506,30 @@ private fun saturated(accent: Color, fraction: Float): Color {
     return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
+/**
+ * The permission levels in the desktop's words (SessionSettingsPopover):
+ * a short name a first-time user can act on — never the CLI's "YOLO" — and
+ * what each level means in practice, ahead of the CLI's own description. A
+ * level this app doesn't know keeps the CLI's name and description.
+ */
+internal object PermissionCopy {
+    private val NAMES = mapOf(
+        "ask-first" to "Ask first",
+        "restricted" to "Restricted",
+        "yolo" to "Don’t ask",
+    )
+
+    private val DESCRIPTIONS = mapOf(
+        "ask-first" to "Spettro asks you before it changes a file or runs anything — safest, slowest.",
+        "restricted" to "Spettro works in your project on its own and asks before anything risky.",
+        "yolo" to "Spettro does everything without asking — fastest, least safe.",
+    )
+
+    fun name(value: String?): String? = NAMES[value]
+
+    fun description(value: String?): String? = DESCRIPTIONS[value]
+}
+
 /** A compact flat choice — the N-way horizontal toggle (mode, permission). */
 @Composable
 private fun SegmentedSection(
@@ -517,6 +541,7 @@ private fun SegmentedSection(
     val colors = LocalSpettroColors.current
     val current = currentValue(kind, pending)
     val choices = kind.groups.flatMap { it.options }
+    val isPermission = option.id == "permission"
     Column {
         SectionLabel(option)
         // The desktop's segmented control: a tinted track with the active
@@ -525,12 +550,13 @@ private fun SegmentedSection(
             options = choices,
             selected = choices.firstOrNull { it.value == current } ?: choices.first(),
             onSelect = { onSelect(it.value) },
-            label = { it.name },
+            label = { choice -> PermissionCopy.name(choice.value)?.takeIf { isPermission } ?: choice.name },
             modifier = Modifier.fillMaxWidth(),
         )
         // Segments have no room for descriptions; explain the active choice below.
         val active = choices.firstOrNull { it.value == current }
-        (active?.description ?: option.description)?.takeIf { it.isNotEmpty() }?.let { text ->
+        val described = PermissionCopy.description(active?.value)?.takeIf { isPermission }
+        (described ?: active?.description ?: option.description)?.takeIf { it.isNotEmpty() }?.let { text ->
             Text(
                 text = text,
                 style = MaterialTheme.typography.bodySmall,

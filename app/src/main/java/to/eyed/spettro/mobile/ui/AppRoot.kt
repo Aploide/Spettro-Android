@@ -93,6 +93,7 @@ import to.eyed.spettro.mobile.ui.components.rememberLocalNetworkPermission
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.chat.NewSessionScreen
+import to.eyed.spettro.mobile.ui.screens.chat.PermissionCopy
 import to.eyed.spettro.mobile.ui.screens.chat.workflowGate
 import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
@@ -1078,18 +1079,11 @@ private fun configSummary(options: List<to.eyed.spettro.mobile.core.acp.AcpConfi
         val option = options.firstOrNull { it.id == id } ?: return@mapNotNull null
         // The desktop's one name per permission level — never "YOLO".
         val value = (option.kind as? to.eyed.spettro.mobile.core.acp.AcpConfigOption.Kind.Select)?.current
-        PERMISSION_NAMES[value]?.takeIf { id == "permission" }
+        PermissionCopy.name(value)?.takeIf { id == "permission" }
             ?: option.currentLabel?.takeIf { it.isNotBlank() }
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
-
-/** The permission levels by their short names, as the desktop's Settings shows them. */
-private val PERMISSION_NAMES = mapOf(
-    "ask-first" to "Ask first",
-    "restricted" to "Restricted",
-    "yolo" to "Don’t ask",
-)
 
 private fun loadAttachment(context: Context, uri: android.net.Uri): ImageAttachment? = try {
     context.contentResolver.openInputStream(uri)?.use { stream ->
