@@ -185,9 +185,11 @@ plus this app on a device.
 - base64url **unpadded** for pairing material; standard padded base64 for
   image attachments.
 - Async state is coroutines + `StateFlow`/`SharedFlow` everywhere.
-- Design tokens mirror the desktop design system: accent `#526FFF` light /
-  `#6073CC` dark, canvas `#F9F9F7` / `#0E0E0E`, hairline borders instead of
-  shadows, user bubble = solid accent, assistant = full-width prose.
+- Design tokens mirror the desktop design system: a Lilac (`#7A66C6` light /
+  `#B9A3F5` dark) or Monochrome accent, chosen on the phone, on true neutral
+  greys (canvas `#FAFAFA` / `#1C1C1E`); flat hairline cards, with shadows only
+  on floating layers (composer, menus, sheets, toasts); a neutral user
+  bubble, assistant = full-width prose. See `DESIGN.md`.
 
 ## Related repositories
 
