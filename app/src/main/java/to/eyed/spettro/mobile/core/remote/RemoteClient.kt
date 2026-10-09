@@ -270,7 +270,13 @@ class RemoteClient(
         holdReason = null
         teardown()
         discovery.stop()
-        _state.value = if (store.credential.value != null) RemoteState.Searching else RemoteState.Unpaired
+        _state.value = when {
+            store.credential.value == null -> RemoteState.Unpaired
+            // A goodbye outlasts the background: start() re-checks it
+            // quietly instead of telling a network-fault story.
+            _state.value == RemoteState.Offline(OfflineReason.HostStopped) -> _state.value
+            else -> RemoteState.Searching
+        }
     }
 
     /**
@@ -452,7 +458,12 @@ class RemoteClient(
 
     private fun launchConnectLoop() {
         if (connectJob?.isActive == true) return
-        connectJob = scope.launch { connectLoop() }
+        connectJob = scope.launch {
+            // A fresh loop tries at once; a poke left over from before it
+            // ran would only cut its first wait short.
+            retrySignal.tryReceive()
+            connectLoop()
+        }
     }
 
     private suspend fun connectLoop() {
@@ -742,7 +753,10 @@ class RemoteClient(
             if (knowsTunnel) {
                 holdReason = OfflineReason.HostStopped
                 connectJob = scope.launch {
-                    delay(HOST_STOPPED_POLL_MS)
+                    // The same wait the loop uses, so rediscovery, coming to
+                    // the foreground or Try again cut it short.
+                    retrySignal.tryReceive()
+                    awaitRetry(slow = true)
                     connectLoop()
                 }
             }
