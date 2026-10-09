@@ -232,9 +232,12 @@ fun AppRoot(container: AppContainer) {
                     startPairing(payload)
                 }
             }
-            // A pairing link opened from another app pairs as if scanned.
-            LaunchedEffect(pendingLink) {
+            // A pairing link opened from another app pairs as if scanned —
+            // once the attempt in hand (or its local-network question) is
+            // over, rather than being taken and dropped meanwhile.
+            LaunchedEffect(pendingLink, isPairing, awaitingPermission) {
                 val link = pendingLink ?: return@LaunchedEffect
+                if (isPairing || awaitingPermission != null) return@LaunchedEffect
                 container.pendingPairingLink.value = null
                 pair(link)
             }

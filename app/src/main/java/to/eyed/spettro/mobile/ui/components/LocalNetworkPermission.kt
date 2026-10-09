@@ -20,6 +20,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import to.eyed.spettro.mobile.core.remote.LocalNetworkAccess
 
 /**
@@ -42,7 +44,9 @@ class LocalNetworkPermissionRequest internal constructor(
 
 /**
  * @param onResult called with whether the permission is held once the user
- *        has answered — or straight away, when it already is.
+ *        has answered — or straight away, when it already is. Every
+ *        request gets exactly one answer: waving the explanation away
+ *        counts, and a trip to system settings answers on the way back.
  */
 @Composable
 fun rememberLocalNetworkPermission(onResult: (Boolean) -> Unit): LocalNetworkPermissionRequest {
@@ -51,6 +55,15 @@ fun rememberLocalNetworkPermission(onResult: (Boolean) -> Unit): LocalNetworkPer
     var rationaleVisible by remember { mutableStateOf(false) }
     // Survives rotation: "refused for good" is only knowable right after a refusal.
     var refusedForGood by rememberSaveable { mutableStateOf(false) }
+    // Sent to system settings: the answer is whatever holds on the way back.
+    var awaitingSettings by rememberSaveable { mutableStateOf(false) }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (awaitingSettings) {
+            awaitingSettings = false
+            currentOnResult(LocalNetworkAccess.isGranted(context))
+        }
+    }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (!granted) {
@@ -64,7 +77,12 @@ fun rememberLocalNetworkPermission(onResult: (Boolean) -> Unit): LocalNetworkPer
 
     if (rationaleVisible) {
         AlertDialog(
-            onDismissRequest = { rationaleVisible = false },
+            // Waved away (back, a tap outside) is an answer too: whoever
+            // asked is waiting on one, and must not wait forever.
+            onDismissRequest = {
+                rationaleVisible = false
+                currentOnResult(LocalNetworkAccess.isGranted(context))
+            },
             title = { Text("Let Spettro reach your computer") },
             text = {
                 Text(
@@ -83,7 +101,8 @@ fun rememberLocalNetworkPermission(onResult: (Boolean) -> Unit): LocalNetworkPer
                     val permission = LocalNetworkAccess.permission
                     when {
                         permission == null -> currentOnResult(true)
-                        refusedForGood -> context.openAppSettings()
+                        refusedForGood ->
+                            if (context.openAppSettings()) awaitingSettings = true else currentOnResult(false)
                         else -> launcher.launch(permission)
                     }
                 }) { Text(if (refusedForGood) "Open settings" else "Continue") }
@@ -113,8 +132,9 @@ private fun Context.findActivity(): Activity? {
     return null
 }
 
-private fun Context.openAppSettings() {
+/** Opens Spettro's page in system settings; false when there was none to open. */
+private fun Context.openAppSettings(): Boolean {
     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    runCatching { startActivity(intent) }
+    return runCatching { startActivity(intent) }.isSuccess
 }
