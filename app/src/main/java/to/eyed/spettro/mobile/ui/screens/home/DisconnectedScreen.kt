@@ -15,10 +15,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.PersonRemove
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
@@ -42,25 +44,63 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import to.eyed.spettro.mobile.core.remote.OfflineReason
+import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.ui.components.SpettroSpinner
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
- * Why the app can't reach the PC right now — each case is a different thing
- * to tell the user, mapped from `core.remote`'s state by the router:
- * Searching (still looking / connecting), HostAsleep (found nothing at the
- * address), SharingOff (host said it stopped), NoLocalNetwork (discovery is
- * blocked), Revoked (host no longer recognises this device), and Transport
- * (the socket dropped for an unnamed reason).
+ * Why the app can't reach the computer right now — each case is a different
+ * thing to tell the user, mapped from `core.remote`'s state by [from]:
+ * Searching (still looking / connecting), HostAsleep (not on this network),
+ * Unreachable (not here, and its internet tunnel didn't answer either),
+ * SharingOff (host said it stopped), NoLocalNetwork (Android withholds the
+ * local network), TurnedAway (the host refused the handshake for now),
+ * VersionMismatch (the two can't talk), Revoked (the host no longer knows
+ * this phone), and Transport (the socket dropped for an unnamed reason).
+ *
+ * Only Revoked invites pairing again: the others leave a working pairing
+ * alone, and forgetting it over a passing refusal would throw it away.
  */
-enum class DisconnectReason { Searching, HostAsleep, SharingOff, NoLocalNetwork, Revoked, Transport }
+enum class DisconnectReason {
+    Searching,
+    HostAsleep,
+    Unreachable,
+    SharingOff,
+    NoLocalNetwork,
+    TurnedAway,
+    VersionMismatch,
+    Revoked,
+    Transport,
+    ;
+
+    companion object {
+        /** The reason to show for a non-connected [state]. */
+        fun from(state: RemoteState): DisconnectReason = when (state) {
+            is RemoteState.Offline -> when (state.reason) {
+                OfflineReason.HostNotFound -> HostAsleep
+                OfflineReason.TunnelUnreachable -> Unreachable
+                OfflineReason.Rejected -> TurnedAway
+                OfflineReason.VersionMismatch -> VersionMismatch
+                OfflineReason.NotRecognised -> Revoked
+                OfflineReason.HostStopped -> SharingOff
+                OfflineReason.NoLocalNetwork -> NoLocalNetwork
+                OfflineReason.Transport -> Transport
+            }
+            else -> Searching
+        }
+    }
+}
 
 /**
- * The resting screen whenever the PC isn't reachable — deliberately calm,
- * because the fix is usually on the other device. Port of the iOS
+ * The resting screen whenever the computer isn't reachable — deliberately
+ * calm, because the fix is usually on the other device. Port of the iOS
  * `DisconnectedView`, minus the router that decides when to show it.
+ *
+ * [hasRemoteHost] says the computer has an internet tunnel, so "be on the
+ * same Wi-Fi" is no longer the advice.
  */
 @Composable
 fun DisconnectedScreen(
@@ -70,35 +110,51 @@ fun DisconnectedScreen(
     onPairAgain: () -> Unit,
     onForget: () -> Unit,
     modifier: Modifier = Modifier,
+    hasRemoteHost: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
-    val host = hostName ?: "your PC"
+    val host = hostName ?: "your computer"
     val isWorking = reason == DisconnectReason.Searching
     var confirmingForget by rememberSaveable { mutableStateOf(false) }
 
     val icon: ImageVector = when (reason) {
         DisconnectReason.Searching -> Icons.Outlined.Wifi
         DisconnectReason.HostAsleep, DisconnectReason.Transport -> Icons.Outlined.Computer
+        DisconnectReason.Unreachable -> Icons.Outlined.CloudOff
         DisconnectReason.SharingOff -> Icons.Outlined.Block
         DisconnectReason.NoLocalNetwork -> Icons.Outlined.WarningAmber
+        DisconnectReason.TurnedAway -> Icons.Outlined.WarningAmber
+        DisconnectReason.VersionMismatch -> Icons.Outlined.SystemUpdate
         DisconnectReason.Revoked -> Icons.Outlined.PersonRemove
     }
     val title = when (reason) {
         DisconnectReason.Searching -> "Looking for $host…"
-        DisconnectReason.HostAsleep, DisconnectReason.Transport -> "Can't reach $host"
-        DisconnectReason.SharingOff -> "Sharing was turned off"
-        DisconnectReason.NoLocalNetwork -> "Can't see the local network"
-        DisconnectReason.Revoked -> "This device was removed"
+        DisconnectReason.HostAsleep, DisconnectReason.Unreachable -> "Can’t reach $host"
+        DisconnectReason.Transport -> "Lost the connection to $host"
+        DisconnectReason.SharingOff -> "Sharing is off"
+        DisconnectReason.NoLocalNetwork -> "Can’t see the local network"
+        DisconnectReason.TurnedAway -> "$host turned the connection down"
+        DisconnectReason.VersionMismatch -> "Update Spettro"
+        DisconnectReason.Revoked -> "This phone was removed"
     }
     val detail = when (reason) {
         DisconnectReason.Searching ->
-            "Make sure your PC is awake and on the same network."
-        DisconnectReason.HostAsleep, DisconnectReason.Transport ->
-            "It isn't reachable right now. This screen updates by itself the moment it comes back."
+            if (hasRemoteHost) "Make sure it’s awake and sharing is on."
+            else "Make sure it’s awake and on the same Wi-Fi as this phone."
+        DisconnectReason.HostAsleep ->
+            "It isn’t on this network right now. This screen updates by itself the moment it’s back."
+        DisconnectReason.Unreachable ->
+            "It isn’t on this network, and it didn’t answer over the internet either. This screen updates by itself the moment it’s back."
+        DisconnectReason.Transport ->
+            "Spettro keeps trying, and this screen updates by itself the moment it’s back."
         DisconnectReason.SharingOff ->
-            "Turn it back on in Spettro on your PC."
+            "Turn it back on in Settings › Remote on your computer. This screen updates by itself once it’s on."
         DisconnectReason.NoLocalNetwork ->
             "Spettro needs to see devices on your Wi-Fi to find $host. Check that Wi-Fi is on and that this app is allowed to use the local network in system settings."
+        DisconnectReason.TurnedAway ->
+            "It answered, but didn’t let this phone in just now. Your pairing is fine — Spettro keeps trying."
+        DisconnectReason.VersionMismatch ->
+            "This phone and $host run versions of Spettro that can’t talk to each other. Update whichever is older, then try again."
         DisconnectReason.Revoked ->
             "$host no longer recognises this phone. Pair again to reconnect."
     }
@@ -148,16 +204,16 @@ fun DisconnectedScreen(
             when {
                 isWorking -> SpettroSpinner(size = 20.dp)
                 reason == DisconnectReason.Revoked ->
-                    // Retrying is pointless here — the PC answered and said
-                    // no. Pairing is the only way forward.
+                    // Retrying is pointless here — the computer answered and
+                    // said no. Pairing is the only way forward.
                     PrimaryActionButton(
-                        label = "Pair Again",
+                        label = "Pair again",
                         icon = Icons.Outlined.QrCodeScanner,
                         onClick = onPairAgain,
                     )
                 else ->
                     PrimaryActionButton(
-                        label = "Try Again",
+                        label = "Try again",
                         icon = Icons.Outlined.Refresh,
                         onClick = onRetry,
                     )
@@ -169,7 +225,7 @@ fun DisconnectedScreen(
                 onClick = { confirmingForget = true },
                 colors = ButtonDefaults.textButtonColors(contentColor = colors.diffRemoved),
             ) {
-                Text("Forget This PC")
+                Text("Forget this computer")
             }
         }
 
@@ -178,6 +234,7 @@ fun DisconnectedScreen(
         // The instruction that actually resolves these states lives on the
         // other device, so say it here.
         if (reason == DisconnectReason.HostAsleep ||
+            reason == DisconnectReason.Unreachable ||
             reason == DisconnectReason.SharingOff ||
             reason == DisconnectReason.Transport
         ) {
@@ -192,12 +249,12 @@ fun DisconnectedScreen(
                     verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
                 ) {
                     Text(
-                        "On your PC",
+                        "On your computer",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "Open Spettro and turn on Remote Access, or run /remote in the terminal.",
+                        "Open Spettro, then go to Settings › Remote and turn on sharing.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -212,7 +269,7 @@ fun DisconnectedScreen(
         AlertDialog(
             onDismissRequest = { confirmingForget = false },
             title = { Text("Forget $host?") },
-            text = { Text("You'll scan a new pairing code to connect again.") },
+            text = { Text("You’ll scan a new pairing code to connect again.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -285,3 +342,15 @@ private fun NoLocalNetworkPreview() = DisconnectedPreview(DisconnectReason.NoLoc
 @Preview(name = "Revoked", showBackground = true, backgroundColor = 0xFF0E0E0E)
 @Composable
 private fun RevokedPreview() = DisconnectedPreview(DisconnectReason.Revoked)
+
+@Preview(name = "Unreachable over the internet", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Composable
+private fun UnreachablePreview() = DisconnectedPreview(DisconnectReason.Unreachable)
+
+@Preview(name = "Turned away", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Composable
+private fun TurnedAwayPreview() = DisconnectedPreview(DisconnectReason.TurnedAway)
+
+@Preview(name = "Version mismatch", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Composable
+private fun VersionMismatchPreview() = DisconnectedPreview(DisconnectReason.VersionMismatch)

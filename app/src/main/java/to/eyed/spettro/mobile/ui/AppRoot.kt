@@ -63,6 +63,7 @@ import to.eyed.spettro.mobile.coordinator.AppContainer
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.RemotePairing
+import to.eyed.spettro.mobile.core.remote.RemoteRoute
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.model.ChatSession
 import to.eyed.spettro.mobile.model.ImageAttachment
@@ -192,24 +193,14 @@ fun AppRoot(container: AppContainer) {
 
         else -> {
             val credential by client.credential.collectAsState()
-            val reason = when (val st = state) {
-                is RemoteState.Searching, is RemoteState.Connecting -> DisconnectReason.Searching
-                is RemoteState.Offline -> when (st.reason) {
-                    OfflineReason.HostNotFound, OfflineReason.TunnelUnreachable -> DisconnectReason.HostAsleep
-                    OfflineReason.Rejected, OfflineReason.VersionMismatch -> DisconnectReason.Revoked
-                    OfflineReason.NotRecognised -> DisconnectReason.Revoked
-                    OfflineReason.HostStopped -> DisconnectReason.SharingOff
-                    OfflineReason.NoLocalNetwork -> DisconnectReason.NoLocalNetwork
-                    OfflineReason.Transport -> DisconnectReason.Transport
-                }
-                else -> DisconnectReason.Searching
-            }
+            val reason = DisconnectReason.from(state)
             DisconnectedScreen(
                 reason = reason,
                 hostName = credential?.hostName,
                 onRetry = { client.start() },
                 onPairAgain = { client.forget() },
                 onForget = { client.forget() },
+                hasRemoteHost = credential?.remoteHost != null,
             )
         }
     }
@@ -318,6 +309,7 @@ private fun RemoteNavigator(
                         SettingsHost(
                             model = model,
                             connected = connected,
+                            reconnecting = reconnecting,
                             agentReady = agentReady,
                             onDisconnect = onDisconnect,
                             onOpenProviders = { screen = RemoteScreen.Providers },
@@ -368,6 +360,7 @@ private fun RemoteNavigator(
                     SettingsHost(
                         model = model,
                         connected = connected,
+                        reconnecting = reconnecting,
                         agentReady = agentReady,
                         onDisconnect = onDisconnect,
                         onOpenProviders = { screen = RemoteScreen.Providers },
@@ -456,6 +449,7 @@ private fun ReconnectingPill(visible: Boolean) {
 private fun SettingsHost(
     model: MobileModel,
     connected: RemoteState.Connected,
+    reconnecting: Boolean,
     agentReady: Boolean,
     onDisconnect: () -> Unit,
     onOpenProviders: () -> Unit,
@@ -464,10 +458,17 @@ private fun SettingsHost(
     val account by model.account.collectAsState()
     val login by model.login.collectAsState()
     val diagnostics by model.client.diagnostics.collectAsState()
+    val credential by model.client.credential.collectAsState()
     SettingsScreen(
         hostName = connected.host.hostName,
         hostKind = connected.host.hostKind,
-        connectionLabel = "Connected",
+        connectionLabel = when {
+            reconnecting -> "Reconnecting…"
+            connected.via == RemoteRoute.Internet -> "Connected over the internet"
+            else -> "Connected via Wi-Fi"
+        },
+        isConnected = !reconnecting,
+        remoteHost = credential?.remoteHost,
         agentReady = agentReady,
         account = account,
         login = login,

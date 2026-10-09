@@ -33,6 +33,8 @@ import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.chat.OrchestrationPreviewData
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
+import to.eyed.spettro.mobile.ui.screens.home.DisconnectReason
+import to.eyed.spettro.mobile.ui.screens.home.DisconnectedScreen
 import to.eyed.spettro.mobile.ui.screens.home.PairingScreen
 import to.eyed.spettro.mobile.ui.screens.home.ProjectPickerSheet
 import to.eyed.spettro.mobile.ui.screens.home.previewProjects
@@ -88,6 +90,21 @@ class ScreenshotActivity : ComponentActivity() {
 
 @Composable
 private fun Scene(scene: String, tablet: Boolean) {
+    // disconnected_<reason>, e.g. disconnected_turnedaway — one per DisconnectReason.
+    if (scene.startsWith("disconnected")) {
+        val reason = DisconnectReason.entries.firstOrNull {
+            it.name.equals(scene.substringAfter('_', ""), ignoreCase = true)
+        } ?: DisconnectReason.HostAsleep
+        DisconnectedScreen(
+            reason = reason,
+            hostName = "Carlo's MacBook Pro",
+            onRetry = {},
+            onPairAgain = {},
+            onForget = {},
+            hasRemoteHost = true,
+        )
+        return
+    }
     when (scene) {
         "chat" -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
         "chat_busy" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true)
@@ -154,6 +171,8 @@ private fun Scene(scene: String, tablet: Boolean) {
         } else {
             Settings()
         }
+        // Settings while connected through the computer's internet tunnel.
+        "tunnel" -> Settings(overInternet = true)
         else -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
     }
 }
@@ -261,11 +280,12 @@ private fun ChatList(selectedChatId: String? = null) {
 }
 
 @Composable
-private fun Settings() {
+private fun Settings(overInternet: Boolean = false) {
     SettingsScreen(
         hostName = "Carlo's MacBook Pro",
         hostKind = "mac",
-        connectionLabel = "Connected",
+        connectionLabel = if (overInternet) "Connected over the internet" else "Connected via Wi-Fi",
+        remoteHost = if (overInternet) "spettro.example.com" else null,
         agentReady = true,
         account = AcpAccountStatus(
             signedIn = true,

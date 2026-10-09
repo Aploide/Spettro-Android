@@ -43,6 +43,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -89,6 +90,10 @@ fun SettingsScreen(
     onOpenProviders: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Whether [connectionLabel] describes a live connection (green) or a pending one. */
+    isConnected: Boolean = true,
+    /** The computer's public hostname, when it can be reached over the internet. */
+    remoteHost: String? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -120,6 +125,8 @@ fun SettingsScreen(
                 hostName = hostName,
                 hostKind = hostKind,
                 connectionLabel = connectionLabel,
+                isConnected = isConnected,
+                remoteHost = remoteHost,
                 agentReady = agentReady,
                 onDisconnect = onDisconnect,
                 onForget = onForget,
@@ -159,7 +166,7 @@ fun SettingsScreen(
                 }
             }
             Text(
-                "Provider keys are stored on your PC, never on this device.",
+                "Provider keys are stored on your computer, never on this device.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(start = Dimens.spacingXs),
@@ -228,17 +235,18 @@ private fun ConnectionCard(
     hostName: String?,
     hostKind: String?,
     connectionLabel: String,
+    isConnected: Boolean,
+    remoteHost: String?,
     agentReady: Boolean,
     onDisconnect: () -> Unit,
     onForget: () -> Unit,
 ) {
     val colors = LocalSpettroColors.current
-    val connected = connectionLabel.equals("connected", ignoreCase = true)
     SpettroCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Dimens.spacingMd),
+                .padding(start = Dimens.spacingMd, end = Dimens.spacingMd, top = Dimens.spacingMd, bottom = Dimens.spacingXs),
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -258,15 +266,47 @@ private fun ConnectionCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+        }
+        // The route on a line of its own: "Connected over the internet"
+        // doesn't fit beside a long computer name.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // Under the name, past the 20 dp icon.
+                .padding(start = Dimens.spacingMd + 20.dp + Dimens.spacingMd, end = Dimens.spacingMd, bottom = Dimens.spacingMd),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             StatusDot(
-                color = if (connected) colors.diffAdded else colors.modeColor("yellow"),
-                pulsing = !connected,
+                color = if (isConnected) colors.diffAdded else colors.modeColor("yellow"),
+                pulsing = !isConnected,
             )
             Text(
                 text = connectionLabel,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium,
             )
+        }
+        if (remoteHost != null) {
+            HairlineDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(Dimens.spacingMd),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Internet address", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    remoteHost,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         HairlineDivider()
         Row(
@@ -304,7 +344,7 @@ private fun ConnectionCard(
         HairlineDivider()
         SettingsRow(onClick = onForget) {
             Text(
-                "Forget This PC",
+                "Forget this computer",
                 color = colors.diffRemoved,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -414,7 +454,7 @@ private fun SignedInRows(account: AcpAccountStatus, onSignOut: () -> Unit) {
 }
 
 /**
- * The device-flow sign-in, inline: the CLI runs the flow on the PC and
+ * The device-flow sign-in, inline: the CLI runs the flow on the computer and
  * pushes state; this only mirrors it, shows the URL in copyable form for when
  * the browser doesn't open on its own, and lets the user cancel.
  */
@@ -563,7 +603,8 @@ private fun SettingsPreviewSignedIn() {
         SettingsScreen(
             hostName = "Carlo's MacBook Pro",
             hostKind = "mac",
-            connectionLabel = "Connected",
+            connectionLabel = "Connected over the internet",
+            remoteHost = "spettro.example.com",
             agentReady = true,
             account = AcpAccountStatus(
                 signedIn = true,
@@ -594,7 +635,8 @@ private fun SettingsPreviewLoginPending() {
         SettingsScreen(
             hostName = "Carlo's MacBook Pro",
             hostKind = "mac",
-            connectionLabel = "Connecting",
+            connectionLabel = "Reconnecting…",
+            isConnected = false,
             agentReady = false,
             account = AcpAccountStatus(signedIn = false),
             login = AcpLoginStatus(
