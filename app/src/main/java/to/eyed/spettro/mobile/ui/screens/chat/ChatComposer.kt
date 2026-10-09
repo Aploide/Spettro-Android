@@ -48,7 +48,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.compositeOver
@@ -82,8 +81,8 @@ import to.eyed.spettro.mobile.ui.theme.floatingShadow
  * toolbar inside it: a plus menu (photos, slash commands), the chat's
  * settings in one quiet chip, and the send button, an ink circle that
  * becomes an ink Stop square mid-turn, with an ink Guide pill beside it
- * once there is something to steer with. A 28dp fade above lets the
- * transcript slide under it.
+ * once there is something to steer with. (The transcript's fade into it
+ * is drawn by ChatScreen, under the live strip rather than over it.)
  *
  * Stateless: text, attachments, and busy state are owned by the caller; only
  * ephemeral chrome (menus, the command sheet) lives here.
@@ -114,22 +113,11 @@ fun ChatComposer(
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     val shape = RoundedCornerShape(Dimens.radiusLg)
-    val fade = colors.canvas
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(colors.canvas)
-            // The transcript fades out under the card rather than meeting a
-            // hard edge (the desktop's 28px fade above .composer-wrap).
-            .drawBehind {
-                val height = 28.dp.toPx()
-                drawRect(
-                    brush = Brush.verticalGradient(listOf(fade.copy(alpha = 0f), fade), startY = -height, endY = 0f),
-                    topLeft = Offset(0f, -height),
-                    size = Size(size.width, height),
-                )
-            }
             .padding(start = Dimens.spacingMd, end = Dimens.spacingMd, top = 2.dp, bottom = Dimens.spacingSm),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {

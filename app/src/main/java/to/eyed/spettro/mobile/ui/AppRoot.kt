@@ -1,5 +1,8 @@
 package to.eyed.spettro.mobile.ui
 
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.WindowInsets
 import android.content.Context
 import androidx.compose.animation.core.Animatable
 import androidx.compose.material.icons.Icons
@@ -759,7 +762,11 @@ internal fun DesktopModal(onDismiss: () -> Unit, content: @Composable () -> Unit
             color = colors.canvas,
             border = BorderStroke(1.dp, colors.hairline),
         ) {
-            content()
+            // The panel floats clear of the system bars, so the screens in it
+            // must not pad for them again.
+            Box(Modifier.consumeWindowInsets(WindowInsets.systemBars)) {
+                content()
+            }
         }
     }
 }

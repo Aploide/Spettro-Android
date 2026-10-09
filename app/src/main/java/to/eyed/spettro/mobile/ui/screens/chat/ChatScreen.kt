@@ -1,5 +1,7 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.foundation.border
 import to.eyed.spettro.mobile.ui.components.StatusDot
@@ -212,7 +214,19 @@ fun ChatScreen(
             if (items.isEmpty()) {
                 EmptyTranscript(modifier = Modifier.weight(1f))
             } else {
-                Transcript(rows = rows, modifier = Modifier.weight(1f))
+                Box(Modifier.weight(1f)) {
+                    Transcript(rows = rows, modifier = Modifier.fillMaxSize())
+                    // The transcript fades out above the composer rather than
+                    // meeting a hard edge (the desktop's 28px fade above
+                    // .composer-wrap).
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(28.dp)
+                            .background(Brush.verticalGradient(listOf(colors.canvas.copy(alpha = 0f), colors.canvas))),
+                    )
+                }
             }
 
             // The live edge of an in-flight run, pinned where the transcript
