@@ -18,9 +18,10 @@ import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
- * A small mode-tinted chip: the mode's color at a low-opacity fill with the
- * label in the full color, so "coding" reads green and "plan" reads purple
- * everywhere, exactly as in the TUI and the desktop app.
+ * A small mode-tinted chip (the desktop's `config-chip--tinted`): the mode's
+ * colour at 12% under the label in the full colour, on an 8dp radius, so
+ * "coding" reads green and "plan" reads lilac everywhere. Monochrome turns
+ * the three mode tints into greys.
  *
  * @param colorName a manifest color name ("green", "cyan", ...) or a mode id
  *   ("plan", "coding", ...); null falls back to the accent.
@@ -34,19 +35,19 @@ fun ModeChip(
     val tint = LocalSpettroColors.current.modeColor(colorName)
     Row(
         modifier = modifier
-            .background(tint.copy(alpha = 0.14f), RoundedCornerShape(Dimens.radiusLg))
+            .background(tint.copy(alpha = 0.12f), RoundedCornerShape(Dimens.radiusSm))
             .padding(horizontal = Dimens.spacingSm, vertical = Dimens.spacingXs),
         horizontalArrangement = Arrangement.Center,
     ) {
         Text(
             text = label,
             color = tint,
-            style = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+            style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
         )
     }
 }
 
-@Preview(name = "Mode chips", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Mode chips", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun ModeChipPreview() {
     SpettroTheme(darkTheme = true) {

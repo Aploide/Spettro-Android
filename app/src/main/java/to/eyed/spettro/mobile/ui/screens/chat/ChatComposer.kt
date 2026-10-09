@@ -291,7 +291,7 @@ private fun ComposerTextField(
         // driven by the same matcher the CLI uses to decide. A "+500k" budget
         // lights beside it when it would be honoured; under Ask first both are
         // muted, since no workflow will run.
-        visualTransformation = activationHighlight(tint = colors.accent, budgets = budgets, muted = muted),
+        visualTransformation = activationHighlight(budgets = budgets, muted = muted),
         cursorBrush = SolidColor(colors.accent),
         interactionSource = interactionSource,
         modifier = modifier

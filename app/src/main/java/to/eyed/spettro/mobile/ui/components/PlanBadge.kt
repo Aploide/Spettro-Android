@@ -52,20 +52,20 @@ fun PlanBadge(
     }
 
     val colors = LocalSpettroColors.current
-    // The TUI's pastel tier colors are tuned for a dark background; the light
-    // scheme swaps in darker variants of the same hues.
+    // The desktop's plan tokens: tuned per scheme, and in Monochrome PRO and
+    // PLUS turn to ink (MAX keeps its rainbow, as Ultra keeps its fire).
     val tierColor = when (normalized) {
-        null -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-        "lite" -> MaterialTheme.colorScheme.onSurface
-        "plus" -> if (colors.isDark) Color(0xFF86EFAC) else Color(0xFF16A34A)
-        "pro" -> if (colors.isDark) Color(0xFFC4B5FD) else Color(0xFF7C3AED)
-        else -> Color(0xFF9CA3AF) // free and unknown tiers
+        null -> colors.textTertiary
+        "lite" -> colors.textPrimary
+        "plus" -> colors.planPlus
+        "pro" -> colors.planPro
+        else -> colors.planMuted // free and unknown tiers
     }
     Text(
         text = (normalized ?: "no plan").uppercase(),
         modifier = modifier,
         color = tierColor,
-        style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.Bold),
+        style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.Bold, letterSpacing = fontSize * 0.02f),
     )
 }
 
@@ -121,11 +121,11 @@ private fun RainbowText(
     Text(
         text = text,
         modifier = modifier,
-        style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.Bold, brush = brush),
+        style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.Bold, letterSpacing = fontSize * 0.02f, brush = brush),
     )
 }
 
-@Preview(name = "Tiers", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Tiers", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun PlanBadgePreview() {
     SpettroTheme(darkTheme = true) {
@@ -144,7 +144,7 @@ private fun PlanBadgePreview() {
     }
 }
 
-@Preview(name = "Tiers light", showBackground = true, backgroundColor = 0xFFF9F9F7)
+@Preview(name = "Tiers light", showBackground = true, backgroundColor = 0xFFFAFAFA)
 @Composable
 private fun PlanBadgePreviewLight() {
     SpettroTheme(darkTheme = false) {
