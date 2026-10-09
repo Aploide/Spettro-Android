@@ -250,7 +250,7 @@ fun ProvidersScreen(
                             }
                         }
                         Text(
-                            "An OpenAI-compatible server on your PC's network, like LM Studio or Ollama.",
+                            "An OpenAI-compatible server on your computer’s network, like LM Studio or Ollama.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(start = Dimens.spacingXs),
@@ -630,7 +630,7 @@ internal fun ConnectProviderSheetContent(
             Switch(checked = activate, onCheckedChange = { activate = it })
         }
         Text(
-            "Sent straight to your PC and stored in the CLI's encrypted key store. " +
+            "Sent straight to your computer and stored in the CLI's encrypted key store. " +
                 "It is never kept on this device.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
@@ -737,7 +737,7 @@ internal fun AddLocalServerSheetContent(
             textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
         )
         Text(
-            "The address as your PC sees it — localhost here means your PC, not this phone.",
+            "The address as your computer sees it — localhost here means your computer, not this phone.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )

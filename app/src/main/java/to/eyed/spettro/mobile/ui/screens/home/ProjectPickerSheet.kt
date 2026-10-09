@@ -94,7 +94,7 @@ private fun ProjectPickerContent(
         HairlineDivider()
         if (ordered.isEmpty()) {
             Text(
-                "No folders yet — open a project on your PC first.",
+                "No folders yet — open a project on your computer first.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(Dimens.spacingXl).align(Alignment.CenterHorizontally),

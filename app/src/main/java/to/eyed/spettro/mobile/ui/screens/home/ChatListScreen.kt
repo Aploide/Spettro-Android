@@ -468,7 +468,7 @@ private fun AgentDownBanner(hostName: String?) {
     ) {
         StatusDot(color = amber, pulsing = true)
         Text(
-            "Agent starting on ${hostName ?: "your PC"}… you can read chats but not send yet.",
+            "Agent starting on ${hostName ?: "your computer"}… you can read chats but not send yet.",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -535,7 +535,7 @@ private fun EmptyState(onNewChat: () -> Unit) {
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            "Start one here, or on your PC.",
+            "Start one here, or on your computer.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

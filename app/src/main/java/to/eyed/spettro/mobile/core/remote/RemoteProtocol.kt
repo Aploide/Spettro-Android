@@ -340,7 +340,7 @@ data class ChatConfigResult(
 @Serializable
 data class PromptResolvedParams(
     val promptID: String,
-    /** Who resolved it, for a short "answered on the PC" note. */
+    /** Who resolved it, for a short "answered on the computer" note. */
     val resolvedBy: String? = null,
 )
 
