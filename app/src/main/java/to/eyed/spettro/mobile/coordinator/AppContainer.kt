@@ -56,7 +56,10 @@ class AppContainer private constructor(context: Context) {
 
             override fun onStop(owner: LifecycleOwner) {
                 // Background: the credential is the durable thing, not the
-                // connection — let it go, but not straight away.
+                // connection — let it go, but not straight away. A delete
+                // still in its Undo window goes now, while the socket is
+                // up: the app may not come back to carry it out.
+                model.flushDeletes()
                 client.stopSoon()
             }
         })

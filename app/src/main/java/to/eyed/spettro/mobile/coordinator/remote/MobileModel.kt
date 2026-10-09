@@ -132,7 +132,21 @@ class MobileModel(
         this(client, RemoteApi(client), scope)
 
     private val _chats = MutableStateFlow<List<ChatSummary>>(emptyList())
-    val chats: StateFlow<List<ChatSummary>> = _chats.asStateFlow()
+
+    /** Deleted chats still inside their Undo window ([deleteChat]). */
+    private val deletes = DeleteScheduler { delayMs, run ->
+        val job = scope.launch {
+            delay(delayMs)
+            run()
+        }
+        return@DeleteScheduler { job.cancel() }
+    }
+
+    /** Every chat on the computer, less those on their way out (see [deleteChat]). */
+    val chats: StateFlow<List<ChatSummary>> =
+        combine(_chats, deletes.pending) { chats, leaving ->
+            if (leaving.isEmpty()) chats else chats.filterNot { it.id in leaving }
+        }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     private val _projects = MutableStateFlow<List<RemoteProject>>(emptyList())
     val projects: StateFlow<List<RemoteProject>> = _projects.asStateFlow()
@@ -204,11 +218,11 @@ class MobileModel(
 
     /** Chats the list screen shows: non-archived, pinned first, newest first. */
     val visibleChats: List<ChatSummary>
-        get() = _chats.value.filter { !it.isArchived }
+        get() = chats.value.filter { !it.isArchived }
             .sortedWith(compareByDescending<ChatSummary> { it.isPinned }.thenByDescending { it.updatedAt })
 
     val archivedChats: List<ChatSummary>
-        get() = _chats.value.filter { it.isArchived }.sortedByDescending { it.updatedAt }
+        get() = chats.value.filter { it.isArchived }.sortedByDescending { it.updatedAt }
 
     init {
         scope.launch {
@@ -249,6 +263,7 @@ class MobileModel(
      * nothing here, and its open chat must not be "reopened" on this one.
      */
     private fun forgetHostState() {
+        deletes.cancelAll()
         openBuffer.cancel()
         _openChat.value = null
         _chats.value = emptyList()
@@ -327,6 +342,8 @@ class MobileModel(
             is RemoteNotification.ChatState,
             -> Unit
             is RemoteNotification.ChatRemoved -> {
+                // Gone already: nothing left for a pending delete to do.
+                deletes.undo(notification.chatID)
                 _chats.value = _chats.value.filterNot { it.id == notification.chatID }
                 if (_openChat.value?.chatId == notification.chatID) {
                     _openChat.value = null
@@ -499,14 +516,33 @@ class MobileModel(
         null
     }
 
+    /**
+     * Deletes a chat the desktop's way (the UI has already asked): it leaves
+     * the list at once and a toast offers Undo for [UNDO_WINDOW_MS]; only
+     * then is the computer told. Undo puts it back — and back on screen, if
+     * it was on screen. A delete the computer refuses brings the row back.
+     */
     fun deleteChat(chatID: String) {
-        _chats.value = _chats.value.filterNot { it.id == chatID }
-        if (_openChat.value?.chatId == chatID) _openChat.value = null
-        scope.launch {
-            runCatching { api.chatsDelete(chatID) }
-                .onFailure { noteError("Couldn’t delete the chat", it.message) }
+        val title = _chats.value.firstOrNull { it.id == chatID }?.title?.ifBlank { null } ?: "Untitled chat"
+        val wasOpen = _openChat.value?.chatId == chatID
+        if (wasOpen) closeChat()
+        val undo = BannerAction("Undo", run = {
+            if (deletes.undo(chatID) && wasOpen) scope.launch { openChat(chatID) }
+        })
+        deletes.schedule(chatID) {
+            // Once it has really happened, its Undo goes with it.
+            if (_banner.value?.action === undo) _banner.value = null
+            scope.launch {
+                runCatching { api.chatsDelete(chatID) }
+                    .onSuccess { _chats.value = _chats.value.filterNot { it.id == chatID } }
+                    .onFailure { noteError("Couldn’t delete the chat", it.message) }
+            }
         }
+        _banner.value = Banner("Deleted “$title”", action = undo)
     }
+
+    /** Carries out every delete still in its Undo window: the app is going away. */
+    fun flushDeletes() = deletes.flush()
 
     fun setPinned(chatID: String, pinned: Boolean) = flagChat(chatID, isPinned = pinned)
 

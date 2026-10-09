@@ -10,7 +10,7 @@ import to.eyed.spettro.mobile.ui.components.SpettroMenuSeparator
 import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
 import to.eyed.spettro.mobile.ui.components.SpettroMenu
 import to.eyed.spettro.mobile.ui.components.SpettroButton
-import to.eyed.spettro.mobile.ui.components.ConfirmDialog
+import to.eyed.spettro.mobile.ui.screens.home.DeleteChatDialog
 import to.eyed.spettro.mobile.ui.components.ButtonSize
 import to.eyed.spettro.mobile.ui.components.BarIconButton
 import androidx.compose.foundation.background
@@ -265,15 +265,9 @@ fun ChatScreen(
     }
 
     if (confirmingDelete) {
-        val name = title.ifBlank { "Untitled chat" }
-        ConfirmDialog(
-            title = "Delete this chat?",
-            message = if (isBusy) {
-                "Spettro is still working in “$name”. Deleting it stops that work and removes the conversation from Spettro."
-            } else {
-                "“$name” will be removed from Spettro. Files it changed in your project stay as they are."
-            },
-            confirmLabel = "Delete",
+        DeleteChatDialog(
+            title = title,
+            isBusy = isBusy,
             onConfirm = {
                 confirmingDelete = false
                 onDelete()

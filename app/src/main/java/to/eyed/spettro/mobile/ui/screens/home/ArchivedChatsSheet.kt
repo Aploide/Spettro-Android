@@ -19,6 +19,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +69,19 @@ private fun ArchivedChatsContent(
     onUnarchive: (String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
+    // The chat whose trash button was tapped, waiting on "Delete this chat?".
+    var confirmingDelete by remember { mutableStateOf<ChatSummary?>(null) }
+    confirmingDelete?.let { chat ->
+        DeleteChatDialog(
+            title = chat.title,
+            isBusy = chat.isBusy,
+            onConfirm = {
+                confirmingDelete = null
+                onDelete(chat.id)
+            },
+            onDismiss = { confirmingDelete = null },
+        )
+    }
     Column(Modifier.fillMaxWidth().padding(bottom = Dimens.spacingXl)) {
         Text(
             "Archived",
@@ -90,7 +107,7 @@ private fun ArchivedChatsContent(
                         chat = chat,
                         onOpen = { onOpen(chat.id) },
                         onUnarchive = { onUnarchive(chat.id) },
-                        onDelete = { onDelete(chat.id) },
+                        onDelete = { confirmingDelete = chat },
                     )
                 }
             }

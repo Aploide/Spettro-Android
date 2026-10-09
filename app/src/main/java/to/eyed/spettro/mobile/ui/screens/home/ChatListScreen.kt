@@ -142,6 +142,8 @@ fun ChatListScreen(
     // starts open — what you want when a chat is created somewhere you
     // weren't already looking.
     var collapsed by remember { mutableStateOf(setOf<String>()) }
+    // The chat whose Delete was tapped, waiting on "Delete this chat?".
+    var confirmingDelete by remember { mutableStateOf<ChatSummary?>(null) }
 
     val visible = chats.filter { !it.isArchived }
     val filtered = if (search.isBlank()) {
@@ -242,7 +244,7 @@ fun ChatListScreen(
                                 ground = ground,
                                 onPinToggle = { onPin(chat.id, !chat.isPinned) },
                                 onArchive = { onArchive(chat.id, true) },
-                                onDelete = { onDelete(chat.id) },
+                                onDelete = { confirmingDelete = chat },
                                 modifier = Modifier.animateItem(),
                             ) {
                                 ChatRow(
@@ -267,6 +269,18 @@ fun ChatListScreen(
                 }
             }
         }
+    }
+
+    confirmingDelete?.let { chat ->
+        DeleteChatDialog(
+            title = chat.title,
+            isBusy = chat.isBusy,
+            onConfirm = {
+                confirmingDelete = null
+                onDelete(chat.id)
+            },
+            onDismiss = { confirmingDelete = null },
+        )
     }
 }
 
