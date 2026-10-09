@@ -242,32 +242,61 @@ internal object ChatPreviewData {
                 ),
             ),
         ),
-        AcpConfigOption(
-            id = "thinking",
-            name = "Thinking",
-            category = "thinking",
-            kind = AcpConfigOption.Kind.Select(
-                current = "medium",
-                groups = listOf(
-                    AcpConfigOption.OptionGroup(
-                        name = null,
-                        options = listOf(
-                            AcpConfigOption.Opt("Low", "low"),
-                            AcpConfigOption.Opt("Medium", "medium"),
-                            AcpConfigOption.Opt("High", "high"),
-                        ),
+        thinkingOption("high"),
+        ultraOption(on = false),
+    )
+
+    /** The CLI's thinking option (internal/acp/config_options.go): Off, Low … Max. */
+    fun thinkingOption(current: String) = AcpConfigOption(
+        id = "thinking",
+        name = "Thinking",
+        description = "Extended-thinking effort",
+        category = "thought_level",
+        kind = AcpConfigOption.Kind.Select(
+            current = current,
+            groups = listOf(
+                AcpConfigOption.OptionGroup(
+                    name = null,
+                    options = listOf(
+                        AcpConfigOption.Opt("Off", "off"),
+                        AcpConfigOption.Opt("Low", "low"),
+                        AcpConfigOption.Opt("Medium", "medium"),
+                        AcpConfigOption.Opt("High", "high"),
+                        AcpConfigOption.Opt("X-High", "x-high"),
+                        AcpConfigOption.Opt("Max", "max"),
                     ),
                 ),
             ),
         ),
-        AcpConfigOption(
-            id = "ultra",
-            name = "Ultra",
-            description = "Burn credits for the strongest available reasoning.",
-            category = "ultra",
-            kind = AcpConfigOption.Kind.Bool(current = false),
-        ),
     )
+
+    /** The CLI's ultracode switch, with the note it carries when Ask first suspends it. */
+    fun ultraOption(on: Boolean, suspended: Boolean = false) = AcpConfigOption(
+        id = "ultra",
+        name = "Ultra",
+        description = if (suspended) {
+            "Ultracode: substantive tasks run as dynamic workflows (suspended under Ask first — workflows need Restricted or YOLO)"
+        } else {
+            "Ultracode: substantive tasks run as dynamic workflows"
+        },
+        kind = AcpConfigOption.Kind.Bool(current = on),
+    )
+
+    /**
+     * [configOptions] with thinking at [thinking], Ultra [ultra] and the
+     * permission at [permission] — the thinking slider's harness scenes.
+     */
+    fun configOptionsWith(thinking: String, ultra: Boolean, permission: String = "yolo"): List<AcpConfigOption> =
+        configOptions.map { option ->
+            when (option.id) {
+                "thinking" -> thinkingOption(thinking)
+                "ultra" -> ultraOption(on = ultra, suspended = ultra && permission == "ask-first")
+                "permission" -> option.copy(
+                    kind = (option.kind as AcpConfigOption.Kind.Select).copy(current = permission),
+                )
+                else -> option
+            }
+        }
 
     const val CONFIG_SUMMARY = "Coding · GPT-5 · Don’t ask"
 }

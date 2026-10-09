@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CompletableDeferred
 import to.eyed.spettro.mobile.core.acp.AcpCommand
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.ui.components.SpettroMenu
@@ -66,6 +67,9 @@ import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
 import to.eyed.spettro.mobile.ui.components.SpettroSheet
 import to.eyed.spettro.mobile.ui.components.SpettroTextField
 import to.eyed.spettro.mobile.ui.components.activationHighlight
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingChip
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingFrame
 import to.eyed.spettro.mobile.ui.theme.ComposerText
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.Elevation
@@ -78,11 +82,12 @@ import to.eyed.spettro.mobile.ui.theme.floatingShadow
 /**
  * The composer, as the desktop draws it: a floating card — raised, a
  * hairline, 20dp corners, the composer shadow — with the text on top and a
- * toolbar inside it: a plus menu (photos, slash commands), the chat's
- * settings in one quiet chip, and the send button, an ink circle that
- * becomes an ink Stop square mid-turn, with an ink Guide pill beside it
- * once there is something to steer with. (The transcript's fade into it
- * is drawn by ChatScreen, under the live strip rather than over it.)
+ * toolbar inside it: a plus menu (photos, slash commands), the thinking
+ * chip, the chat's other settings in one quiet chip, and the send button,
+ * an ink circle that becomes an ink Stop square mid-turn, with an ink Guide
+ * pill beside it once there is something to steer with. (The transcript's
+ * fade into it is drawn by ChatScreen, under the live strip rather than
+ * over it.)
  *
  * Stateless: text, attachments, and busy state are owned by the caller; only
  * ephemeral chrome (menus, the command sheet) lives here.
@@ -105,6 +110,8 @@ fun ChatComposer(
     modifier: Modifier = Modifier,
     workflowGate: WorkflowGate = WorkflowGate(),
     onSwitchPermission: (() -> Unit)? = null,
+    thinking: ThinkingControl? = null,
+    thinkingFrame: ThinkingFrame? = null,
 ) {
     val colors = LocalSpettroColors.current
     val workflow = remember(text, workflowGate) { workflowDraft(text, workflowGate) }
@@ -202,11 +209,31 @@ fun ChatComposer(
                         }
                     }
                 }
-                // The chip keeps its own width and only shortens when the
-                // send buttons need the room.
-                Box(Modifier.weight(1f)) {
+                // The desktop's ConfigBar order: how hard the model thinks
+                // (its own chip, opening the slider), then the rest of the
+                // chat's settings in one chip. The settings chip keeps its
+                // own width and only shortens when the send buttons need the
+                // room.
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (thinking != null) {
+                        ThinkingChip(
+                            control = thinking,
+                            enabled = enabled,
+                            startOpen = thinkingFrame != null,
+                            frame = thinkingFrame,
+                        )
+                    }
                     if (configSummary != null) {
-                        ConfigChip(summary = configSummary, enabled = enabled, onTap = onConfigTap)
+                        ConfigChip(
+                            summary = configSummary,
+                            enabled = enabled,
+                            onTap = onConfigTap,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
                     }
                 }
                 SendButton(
@@ -550,6 +577,13 @@ private fun ChatComposerPreview() {
             onConfigTap = {},
             commands = ChatPreviewData.commands,
             onCommandPick = {},
+            thinking = ThinkingControl(
+                options = ChatPreviewData.configOptions,
+                reasons = null,
+                onCommit = { CompletableDeferred(true) },
+                onSwitchToRestricted = {},
+                onTurnOffUltra = {},
+            ),
         )
     }
 }

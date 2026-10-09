@@ -1,5 +1,7 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingFrame
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.compositeOver
@@ -125,6 +127,8 @@ fun ChatScreen(
     onReviewPrompt: () -> Unit = {},
     workflowGate: WorkflowGate = WorkflowGate(),
     onSwitchPermission: (() -> Unit)? = null,
+    thinking: ThinkingControl? = null,
+    thinkingFrame: ThinkingFrame? = null,
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -259,6 +263,8 @@ fun ChatScreen(
                     onCommandPick = onCommandPick,
                     workflowGate = workflowGate,
                     onSwitchPermission = onSwitchPermission,
+                    thinking = thinking,
+                    thinkingFrame = thinkingFrame,
                 )
             }
         }

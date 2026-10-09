@@ -1,6 +1,8 @@
 package to.eyed.spettro.mobile.coordinator.remote
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +44,9 @@ import to.eyed.spettro.mobile.model.ChatMessage
 import to.eyed.spettro.mobile.model.ChatSession
 import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.model.ImageAttachment
+import to.eyed.spettro.mobile.model.Thinking
+import to.eyed.spettro.mobile.model.ThinkingCommitter
+import to.eyed.spettro.mobile.model.ThinkingStop
 import to.eyed.spettro.mobile.model.Prompts.describedBy
 
 /** A permission or question the host is waiting on, addressed by prompt id. */
@@ -609,6 +614,35 @@ class MobileModel(
         scope.launch { applyConfig(session, configID, ConfigValue.Bool(value)) }
     }
 
+    /** One move queue per chat, for the session it was made with. */
+    private val thinkingQueues = mutableMapOf<String, Pair<ChatSession, ThinkingCommitter>>()
+
+    /**
+     * Moves the open chat's thinking slider to [stop]: the level, Ultra (two
+     * calls, thinking high and then ultracode on), or away from Ultra
+     * (ultracode off first). The calls go one at a time, each after the
+     * last is answered, and moves made meanwhile collapse into the latest
+     * (ThinkingCommitter). The queue belongs to the chat, not the sheet, so
+     * a slider closed mid-move still sends where it had got to. Completes
+     * true once the queue has drained.
+     */
+    fun commitThinking(stop: ThinkingStop): Deferred<Boolean> {
+        val session = _openChat.value ?: return CompletableDeferred(false)
+        val queue = thinkingQueues[session.chatId]?.takeIf { it.first === session }?.second
+            ?: ThinkingCommitter(
+                scope = scope,
+                ultraOnNow = { Thinking.state(session.configOptions.value)?.ultraOn == true },
+                send = { call -> applyConfig(session, call.configId, call.value) },
+                // A host that answers before the set is done can't be
+                // waited on; it gets the pair a beat apart instead.
+                spacingMs = {
+                    val connected = client.state.value as? RemoteState.Connected
+                    if (connected?.has(RemoteFeature.CONFIG_RESULT) == true) 0L else OLD_HOST_CONFIG_SPACING_MS
+                },
+            ).also { thinkingQueues[session.chatId] = session to it }
+        return queue.commit(stop)
+    }
+
     /**
      * Sets one option, showing it at once. A host with
      * [RemoteFeature.CONFIG_RESULT] answers when the set is done: success
@@ -792,6 +826,20 @@ class MobileModel(
 
     // MARK: Providers & models
 
+    /**
+     * Fetches the models catalog once, quietly, if nothing has yet: the
+     * thinking slider reads from it whether the chat's model can think at
+     * all. Unknown (no catalog, an older host) leaves the slider usable.
+     */
+    fun loadModelsIfNeeded() {
+        if (_models.value != null) return
+        scope.launch {
+            runCatching { AcpModelsList.parse(api.agentCall(AcpExtensionMethod.MODELS_LIST)) }
+                .getOrNull()
+                ?.let { if (_models.value == null) _models.value = it }
+        }
+    }
+
     fun refreshProviders() {
         scope.launch {
             _providersLoading.value = true
@@ -946,6 +994,13 @@ class MobileModel(
     private companion object {
         /** `chats/open` for a chat the host doesn't have (deleted meanwhile). */
         const val NO_SUCH_CHAT = -32001
+
+        /**
+         * Between the calls of one slider move on a host without
+         * [RemoteFeature.CONFIG_RESULT], whose `chats/config` returns before
+         * the CLI has the value.
+         */
+        const val OLD_HOST_CONFIG_SPACING_MS = 300L
     }
 
     private fun textBlock(text: String): JsonObject = buildJsonObject {

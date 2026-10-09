@@ -5,43 +5,34 @@ import to.eyed.spettro.mobile.ui.components.SpettroSheet
 import to.eyed.spettro.mobile.ui.components.SegmentedControl
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Shield
@@ -50,19 +41,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,22 +51,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
 import to.eyed.spettro.mobile.core.acp.AcpConfigOption
 import to.eyed.spettro.mobile.model.ConfigValue
+import to.eyed.spettro.mobile.model.Thinking
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
 import to.eyed.spettro.mobile.ui.components.SectionHeader
 import to.eyed.spettro.mobile.ui.components.SpettroCard
@@ -94,8 +67,10 @@ import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
- * Mode, model, permission, thinking level, and any boolean toggles the agent
- * advertises — as a grouped bottom sheet.
+ * Mode, model, permission, and whatever else the agent advertises — as a
+ * grouped bottom sheet. Thinking and Ultra are not here: they are one dial,
+ * the composer's thinking chip and its slider (the desktop's ELSEWHERE), and
+ * a second switch for Ultra is how the two used to disagree.
  *
  * Presentation is chosen per option: compact flat selects (mode, permission)
  * render as a horizontal segmented toggle; big or grouped lists (model)
@@ -125,40 +100,37 @@ fun ChatConfigSheet(
     }
 }
 
-/** Category display order: mode, model, permission, thinking, ultra, rest. */
+/** Category display order: mode, model, permission, workflow size, rest. */
 private fun categoryRank(option: AcpConfigOption): Int =
     when (option.category ?: option.id) {
         "mode" -> 0
         "model" -> 1
         "permission" -> 2
-        "thinking", "thought_level" -> 3
-        "ultra" -> 4
-        else -> 5
+        "workflow_size" -> 3
+        else -> 4
     }
+
+/** Options with a control of their own elsewhere: the thinking chip, whose slider also holds Ultra. */
+private val ELSEWHERE = setOf(Thinking.THINKING_ID, Thinking.ULTRA_ID)
 
 private fun categoryIcon(option: AcpConfigOption): ImageVector =
     when (option.category ?: option.id) {
         "mode" -> Icons.Outlined.Tune
         "model" -> Icons.Outlined.Memory
         "permission" -> Icons.Outlined.Shield
-        "thinking", "thought_level" -> Icons.Outlined.Psychology
-        "ultra" -> Icons.Outlined.Bolt
         else -> Icons.Outlined.Settings
     }
 
-private enum class SelectStyle { Segmented, Drill, Rows, Slider }
+private enum class SelectStyle { Segmented, Drill, Rows }
 
 /**
  * Segmented needs few, flat, short choices; a grouped or long list (models)
- * reads better as its own page; an ordered intensity scale (thinking level)
- * is a slider.
+ * reads better as its own page.
  */
-private fun selectStyle(option: AcpConfigOption, kind: AcpConfigOption.Kind.Select): SelectStyle {
+private fun selectStyle(kind: AcpConfigOption.Kind.Select): SelectStyle {
     val grouped = kind.groups.any { !it.name.isNullOrEmpty() }
     val count = kind.groups.sumOf { it.options.size }
-    val isThinking = (option.category ?: option.id) in setOf("thinking", "thought_level")
     return when {
-        isThinking && !grouped && count >= 3 -> SelectStyle.Slider
         grouped || count > 6 -> SelectStyle.Drill
         count in 2..4 -> SelectStyle.Segmented
         else -> SelectStyle.Rows
@@ -172,7 +144,7 @@ internal fun ChatConfigSheetContent(
     onSetString: (String, String) -> Unit,
     onSetBool: (String, Boolean) -> Unit,
 ) {
-    val ordered = options.sortedBy(::categoryRank)
+    val ordered = options.filterNot { it.id in ELSEWHERE }.sortedBy(::categoryRank)
     var drillId by rememberSaveable { mutableStateOf<String?>(null) }
     val drill = ordered.firstOrNull { it.id == drillId }
 
@@ -211,13 +183,7 @@ internal fun ChatConfigSheetContent(
             ) {
                 items(ordered, key = { it.id }) { option ->
                     when (val kind = option.kind) {
-                        is AcpConfigOption.Kind.Select -> when (selectStyle(option, kind)) {
-                            SelectStyle.Slider -> SliderSection(
-                                option = option,
-                                kind = kind,
-                                pending = pendingValues?.get(option.id),
-                                onSelect = { onSetString(option.id, it) },
-                            )
+                        is AcpConfigOption.Kind.Select -> when (selectStyle(kind)) {
                             SelectStyle.Segmented -> SegmentedSection(
                                 option = option,
                                 kind = kind,
@@ -275,236 +241,6 @@ private fun labelFor(kind: AcpConfigOption.Kind.Select, value: String?): String?
         .flatMap { it.options.asSequence() }
         .firstOrNull { it.value == value }
         ?.name
-
-/**
- * An ordered intensity scale (the thinking level) as a discrete Material 3
- * Expressive slider: a thick track that shrinks its corners as the handle
- * approaches, a gap around the handle, a stop dot per level, and a handle that
- * thins and stretches under the finger with the expressive spring.
- *
- * The color carries the meaning: the fill desaturates to gray at the bottom of
- * the scale ("off") and reaches the fully saturated accent at the top ("max"),
- * animating between levels — so the slider reads as how hard the agent will
- * think even before the label is read. Every level crossed also ticks the
- * haptics, so the scale is felt as much as seen.
- */
-@Composable
-private fun SliderSection(
-    option: AcpConfigOption,
-    kind: AcpConfigOption.Kind.Select,
-    pending: ConfigValue?,
-    onSelect: (String) -> Unit,
-) {
-    val colors = LocalSpettroColors.current
-    val choices = kind.groups.flatMap { it.options }
-    val current = currentValue(kind, pending)
-    val currentIndex = choices.indexOfFirst { it.value == current }.coerceAtLeast(0)
-    val lastIndex = (choices.size - 1).coerceAtLeast(0)
-
-    var dragPosition by remember(option.id, currentIndex) {
-        mutableFloatStateOf(currentIndex.toFloat())
-    }
-    val activeIndex = dragPosition.roundToInt().coerceIn(choices.indices)
-
-    // Haptics: one tick per level crossed while dragging, like a detented dial.
-    val haptics = LocalHapticFeedback.current
-    var tickedIndex by remember(option.id) { mutableIntStateOf(currentIndex) }
-
-    // Saturation follows the live position: 0 = gray, top = full accent. The
-    // animation smooths the jump between the discrete stops.
-    val levelTarget = remember(dragPosition, lastIndex, colors.accent) {
-        saturated(colors.accent, if (lastIndex > 0) dragPosition / lastIndex else 1f)
-    }
-    val levelColor by animateColorAsState(
-        targetValue = levelTarget,
-        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
-        label = "thinkingLevelColor",
-    )
-    // Ticks sit on top of the fill, so they follow its brightness, not the theme's.
-    val onLevelColor = if (levelColor.luminance() > 0.45f) {
-        Color.Black.copy(alpha = 0.55f)
-    } else {
-        Color.White.copy(alpha = 0.85f)
-    }
-
-    val interactionSource = remember { MutableInteractionSource() }
-    val sliderColors = SliderDefaults.colors(
-        thumbColor = levelColor,
-        activeTrackColor = levelColor,
-        activeTickColor = onLevelColor,
-        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-    )
-
-    Column {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            SectionLabel(option)
-            Spacer(modifier = Modifier.weight(1f))
-            LevelPill(
-                label = choices[activeIndex].name,
-                index = activeIndex,
-                container = levelColor,
-                content = onLevelColor,
-            )
-        }
-        Slider(
-            value = dragPosition,
-            onValueChange = { value ->
-                dragPosition = value
-                val stop = value.roundToInt().coerceIn(choices.indices)
-                if (stop != tickedIndex) {
-                    tickedIndex = stop
-                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                }
-            },
-            onValueChangeFinished = {
-                val snapped = dragPosition.roundToInt().coerceIn(choices.indices)
-                dragPosition = snapped.toFloat()
-                if (choices[snapped].value != current) onSelect(choices[snapped].value)
-            },
-            valueRange = 0f..lastIndex.toFloat(),
-            steps = (choices.size - 2).coerceAtLeast(0),
-            colors = sliderColors,
-            interactionSource = interactionSource,
-            thumb = {
-                ExpressiveHandle(color = levelColor, interactionSource = interactionSource)
-            },
-            track = { sliderState ->
-                SliderDefaults.Track(
-                    sliderState = sliderState,
-                    // The expressive track: outer corners this round, corners
-                    // shrinking as the handle nears them, a gap either side of
-                    // the handle, and a dot per level instead of the end stop.
-                    trackCornerSize = TrackCornerSize,
-                    colors = sliderColors,
-                    drawStopIndicator = null,
-                    drawTick = { offset, color ->
-                        drawCircle(color = color, radius = TickRadius.toPx(), center = offset)
-                    },
-                    thumbTrackGapSize = ThumbTrackGap,
-                    trackInsideCornerSize = TrackInsideCorner,
-                )
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { stateDescription = choices[activeIndex].name },
-        )
-        // The ends of the scale, so the fill has something to be measured against.
-        if (choices.size > 1) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                ScaleEnd(text = choices.first().name)
-                Spacer(modifier = Modifier.weight(1f))
-                ScaleEnd(text = choices.last().name)
-            }
-        }
-        val active = choices[activeIndex]
-        (active.description ?: option.description)?.takeIf { it.isNotEmpty() }?.let { text ->
-            AnimatedContent(
-                targetState = text,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "thinkingLevelDescription",
-            ) { description ->
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(
-                        start = Dimens.spacingXs,
-                        top = Dimens.spacingXs,
-                    ),
-                )
-            }
-        }
-    }
-}
-
-// Expressive slider metrics: a chunkier gap and rounder corners than the
-// defaults, so the handle reads as sitting *in* the track rather than on it.
-private val TrackCornerSize = 12.dp
-private val TrackInsideCorner = 6.dp
-private val ThumbTrackGap = 8.dp
-private val TickRadius = 2.5.dp
-
-/**
- * The expressive handle: a pill that thins and stretches while it is dragged
- * (so the level under the finger stays visible) and springs back on release.
- */
-@Composable
-private fun ExpressiveHandle(color: Color, interactionSource: MutableInteractionSource) {
-    val dragged by interactionSource.collectIsDraggedAsState()
-    val pressed by interactionSource.collectIsPressedAsState()
-    val engaged = dragged || pressed
-    val spec = MaterialTheme.motionScheme.fastSpatialSpec<Dp>()
-    val width by animateDpAsState(
-        targetValue = if (engaged) 3.dp else 5.dp,
-        animationSpec = spec,
-        label = "handleWidth",
-    )
-    val height by animateDpAsState(
-        targetValue = if (engaged) HandleHeightEngaged else HandleHeightIdle,
-        animationSpec = spec,
-        label = "handleHeight",
-    )
-    Box(
-        modifier = Modifier.size(width = 6.dp, height = HandleHeightEngaged),
-        contentAlignment = Alignment.Center,
-    ) {
-        Spacer(
-            modifier = Modifier
-                .size(width = width, height = height)
-                .background(color, CircleShape),
-        )
-    }
-}
-
-private val HandleHeightIdle = 40.dp
-private val HandleHeightEngaged = 52.dp
-
-/** The active level, as a filled pill that slides in the direction of travel. */
-@Composable
-private fun LevelPill(label: String, index: Int, container: Color, content: Color) {
-    AnimatedContent(
-        targetState = index to label,
-        transitionSpec = {
-            val rising = targetState.first > initialState.first
-            val enter = slideInVertically { h -> if (rising) h else -h } + fadeIn()
-            val exit = slideOutVertically { h -> if (rising) -h else h } + fadeOut()
-            enter togetherWith exit
-        },
-        label = "thinkingLevelPill",
-        modifier = Modifier.padding(bottom = Dimens.spacingSm),
-    ) { (_, text) ->
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = content,
-            modifier = Modifier
-                .background(container, CircleShape)
-                .padding(horizontal = 10.dp, vertical = 3.dp),
-        )
-    }
-}
-
-@Composable
-private fun ScaleEnd(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-    )
-}
-
-/** [accent] with its saturation scaled to [fraction] — 0 reads as gray. */
-private fun saturated(accent: Color, fraction: Float): Color {
-    val hsv = FloatArray(3)
-    android.graphics.Color.colorToHSV(accent.toArgb(), hsv)
-    hsv[1] = hsv[1] * (0.08f + 0.92f * fraction.coerceIn(0f, 1f))
-    return Color(android.graphics.Color.HSVToColor(hsv))
-}
 
 /**
  * The permission levels in the desktop's words (SessionSettingsPopover):
@@ -827,7 +563,7 @@ private fun DrillSearchField(
     )
 }
 
-/** Middling flat lists (e.g. thinking levels) stay as check rows in a card. */
+/** Middling flat lists stay as check rows in a card. */
 @Composable
 private fun RowsSection(
     option: AcpConfigOption,

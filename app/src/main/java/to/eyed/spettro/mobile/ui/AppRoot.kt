@@ -88,8 +88,10 @@ import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.model.ChatSession
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.ImageProcessing
+import to.eyed.spettro.mobile.model.Thinking
 import to.eyed.spettro.mobile.ui.components.StatusDot
 import to.eyed.spettro.mobile.ui.components.rememberLocalNetworkPermission
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.chat.NewSessionScreen
@@ -1015,6 +1017,21 @@ private fun RemoteChatHost(
 
     val modeOption = configOptions.firstOrNull { it.id == "mode" }
     val summary = configSummary(configOptions)
+    // Thinking and Ultra are one dial, the thinking chip's slider; whether
+    // the model can think at all comes from the models catalog.
+    val catalog by model.models.collectAsState()
+    LaunchedEffect(session.chatId) { model.loadModelsIfNeeded() }
+    val thinking = if (Thinking.state(configOptions) != null) {
+        ThinkingControl(
+            options = configOptions,
+            reasons = Thinking.modelReasons(configOptions, catalog?.models.orEmpty()),
+            onCommit = model::commitThinking,
+            onSwitchToRestricted = { model.setConfigValue(Thinking.PERMISSION_ID, Thinking.RESTRICTED) },
+            onTurnOffUltra = { model.setConfigValue(Thinking.ULTRA_ID, false) },
+        )
+    } else {
+        null
+    }
 
     ChatScreen(
         title = title,
@@ -1055,6 +1072,7 @@ private fun RemoteChatHost(
         onReviewPrompt = { model.bringBackPrompts(session.chatId) },
         workflowGate = workflowGate(configOptions),
         onSwitchPermission = { model.setConfigValue("permission", "restricted") },
+        thinking = thinking,
         onDelete = {
             model.deleteChat(session.chatId)
             onBack()
