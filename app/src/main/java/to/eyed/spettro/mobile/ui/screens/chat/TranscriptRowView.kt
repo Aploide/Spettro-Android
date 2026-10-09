@@ -1,5 +1,6 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -102,8 +103,18 @@ private fun StandaloneAgentCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(colors.agentAccent.copy(alpha = if (colors.isDark) 0.07f else 0.05f))
-            .border(Dimens.hairlineWidth, colors.agentAccent.copy(alpha = 0.25f), shape)
+            .background(colors.surfaceRaised)
+            .border(Dimens.hairlineWidth, colors.hairline, shape)
+            // The desktop's sub-agent rail: a straight 2dp line in the agent
+            // accent, inset from the card's top and bottom.
+            .drawBehind {
+                val inset = 10.dp.toPx()
+                drawRect(
+                    colors.agentAccent,
+                    topLeft = androidx.compose.ui.geometry.Offset(0f, inset),
+                    size = androidx.compose.ui.geometry.Size(2.dp.toPx(), (size.height - inset * 2).coerceAtLeast(0f)),
+                )
+            }
             .padding(horizontal = Dimens.spacingSm, vertical = 5.dp),
     ) {
         Row(
@@ -125,7 +136,7 @@ private fun StandaloneAgentCard(
 
 // MARK: Previews
 
-@Preview(name = "Folded transcript", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 400)
+@Preview(name = "Folded transcript", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 400)
 @Composable
 private fun FoldedTranscriptPreview() {
     SpettroTheme(darkTheme = true) {
@@ -138,7 +149,7 @@ private fun FoldedTranscriptPreview() {
     }
 }
 
-@Preview(name = "Failed script", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 400)
+@Preview(name = "Failed script", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 400)
 @Composable
 private fun FailedScriptPreview() {
     SpettroTheme(darkTheme = true) {

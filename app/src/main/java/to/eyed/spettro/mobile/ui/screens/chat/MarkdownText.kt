@@ -40,8 +40,9 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
  * Transcript markdown, rendered through mikepenz's markdown-renderer-m3 and
- * styled to the Spettro transcript conventions: 14sp prose, monospaced code
- * on the raised surface with a hairline border, links in the accent.
+ * styled to the desktop's transcript: 15sp prose at 1.6, monospaced code on
+ * the sunken surface under a hairline, inline code on a 7% ink wash, links in
+ * the accent's text colour.
  *
  * Streaming strategy (port of MarkdownText.swift, docs/31-markdown-rendering.md):
  * the source is split into stable block-level chunks — on blank lines, but
@@ -76,36 +77,35 @@ fun MarkdownText(
 @Composable
 private fun MarkdownChunkView(chunk: String) {
     val colors = LocalSpettroColors.current
-    val scheme = MaterialTheme.colorScheme
-    val body = MaterialTheme.typography.bodyMedium
+    val body = MaterialTheme.typography.bodyLarge
     Markdown(
         content = chunk,
         colors = markdownColor(
-            text = scheme.onSurface,
-            codeBackground = colors.surfaceRaised,
-            inlineCodeBackground = colors.surfaceRaised,
+            text = colors.textPrimary,
+            codeBackground = colors.surfaceSunken,
+            inlineCodeBackground = colors.textPrimary.copy(alpha = 0.07f),
             dividerColor = colors.hairline,
             tableBackground = colors.surfaceRaised,
         ),
         typography = markdownTypography(
-            h1 = body.copy(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold),
-            h2 = body.copy(fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold),
-            h3 = body.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
-            h4 = body.copy(fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold),
+            h1 = body.copy(fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold),
+            h2 = body.copy(fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
+            h3 = body.copy(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold),
+            h4 = body.copy(fontWeight = FontWeight.SemiBold),
             h5 = body.copy(fontWeight = FontWeight.SemiBold),
             h6 = body.copy(fontWeight = FontWeight.Medium),
             text = body,
             code = MonoBody,
-            inlineCode = MonoBody,
-            quote = body.copy(color = scheme.onSurfaceVariant),
+            inlineCode = MonoBody.copy(fontSize = 13.sp),
+            quote = body.copy(color = colors.textSecondary),
             paragraph = body,
             ordered = body,
             bullet = body,
             list = body,
             textLink = TextLinkStyles(
-                style = SpanStyle(color = colors.accent),
+                style = SpanStyle(color = colors.accentText),
                 pressedStyle = SpanStyle(
-                    color = colors.accent,
+                    color = colors.accentText,
                     textDecoration = TextDecoration.Underline,
                 ),
             ),
@@ -130,8 +130,8 @@ private fun MarkdownChunkView(chunk: String) {
 
 /**
  * The Spettro code block: language tag over a hairline seam, monospaced code
- * that scrolls horizontally, all on the raised surface with a hairline border
- * rounded to the small radius — the Compose port of `SpettroCodeBlockStyle`.
+ * that scrolls horizontally, all on the sunken surface with a hairline border
+ * rounded to the small radius.
  */
 @Composable
 private fun SpettroCodeBlock(code: String, language: String?) {
@@ -141,7 +141,7 @@ private fun SpettroCodeBlock(code: String, language: String?) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(colors.surfaceRaised)
+            .background(colors.surfaceSunken)
             .border(Dimens.hairlineWidth, colors.hairline, shape),
     ) {
         Row(
@@ -152,7 +152,7 @@ private fun SpettroCodeBlock(code: String, language: String?) {
             Text(
                 text = language?.takeIf { it.isNotBlank() } ?: "code",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.textTertiary,
             )
         }
         HairlineDivider()
@@ -160,9 +160,9 @@ private fun SpettroCodeBlock(code: String, language: String?) {
             Text(
                 text = code.trimEnd('\n'),
                 style = MonoBody,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = colors.textPrimary,
                 softWrap = false,
-                modifier = Modifier.padding(Dimens.spacingSm),
+                modifier = Modifier.padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
             )
         }
     }
@@ -227,7 +227,7 @@ internal object MarkdownChunker {
     }
 }
 
-@Preview(name = "Markdown dark", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Markdown dark", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun MarkdownTextPreviewDark() {
     SpettroTheme(darkTheme = true) {
@@ -238,7 +238,7 @@ private fun MarkdownTextPreviewDark() {
     }
 }
 
-@Preview(name = "Markdown light", showBackground = true, backgroundColor = 0xFFF9F9F7)
+@Preview(name = "Markdown light", showBackground = true, backgroundColor = 0xFFFAFAFA)
 @Composable
 private fun MarkdownTextPreviewLight() {
     SpettroTheme(darkTheme = false) {

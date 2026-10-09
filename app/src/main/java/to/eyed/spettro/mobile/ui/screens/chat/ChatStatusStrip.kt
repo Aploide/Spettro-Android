@@ -66,7 +66,7 @@ fun ChatStatusStrip(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(colors.surfaceRaised)
+            .background(colors.canvas)
             .animateContentSize(transcriptSpring()),
     ) {
         Row(
@@ -170,7 +170,7 @@ private fun PlanList(plan: List<AcpPlanEntry>) {
                         tint = colors.success,
                         modifier = Modifier.size(12.dp),
                     )
-                    "in_progress" -> SpettroSpinner(size = 10.dp, color = colors.accent)
+                    "in_progress" -> SpettroSpinner(size = 10.dp)
                     else -> Icon(
                         imageVector = Icons.Outlined.RadioButtonUnchecked,
                         contentDescription = "Pending",
@@ -233,7 +233,7 @@ private fun formatTokens(count: Int): String = when {
 
 // MARK: Previews
 
-@Preview(name = "Busy", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Busy", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun ChatStatusStripPreviewBusy() {
     SpettroTheme(darkTheme = true) {
@@ -249,7 +249,7 @@ private fun ChatStatusStripPreviewBusy() {
     }
 }
 
-@Preview(name = "Idle, hot context", showBackground = true, backgroundColor = 0xFFF9F9F7, widthDp = 380)
+@Preview(name = "Idle, hot context", showBackground = true, backgroundColor = 0xFFFAFAFA, widthDp = 380)
 @Composable
 private fun ChatStatusStripPreviewIdle() {
     SpettroTheme(darkTheme = false) {

@@ -1,5 +1,18 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import to.eyed.spettro.mobile.ui.theme.SpettroMotion
+import to.eyed.spettro.mobile.ui.theme.MonoTool
+import to.eyed.spettro.mobile.ui.components.StatusDot
+import to.eyed.spettro.mobile.ui.components.Shimmer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -83,11 +96,15 @@ private val ToolIcon.vector: ImageVector
 internal fun <T> transcriptSpring() =
     spring<T>(stiffness = Spring.StiffnessMediumLow)
 
+/** The tool header's verb: the desktop's 13.5px at 600. */
+private val ToolVerb = TextStyle(fontSize = 13.5.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold)
+
 /**
- * One tool call as a quiet, expandable row (port of ToolCallView.swift): an
- * icon, a short verb, the human-readable detail — never raw JSON — a +N/-N
- * diff stat, and a live status glyph. Tapping reveals the output or a
- * red/green line diff. Sub-agent calls render as a dedicated tinted card.
+ * One tool call as a quiet, expandable row, as the desktop draws it: a
+ * status glyph in a 16dp slot, the verb, the human-readable argument in mono
+ * — never raw JSON — and a +N/-N diff stat. Tapping opens the output or a
+ * red/green line diff in a panel set in behind a hairline rule. Sub-agent
+ * calls render as their own card.
  */
 @Composable
 fun ToolCallRow(
@@ -109,70 +126,66 @@ private fun PlainToolRow(tool: ToolCallItem, modifier: Modifier) {
     val hasDetail = tool.output.isNotEmpty() || tool.diffs.isNotEmpty()
     val chevronAngle by animateFloatAsState(
         targetValue = if (expanded) 90f else 0f,
-        animationSpec = transcriptSpring(),
+        animationSpec = SpettroMotion.chevron(),
         label = "toolChevron",
     )
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(Dimens.radiusSm))
-            .background(if (expanded) colors.surfaceRaised else colors.surfaceRaised.copy(alpha = 0f))
             .animateContentSize(transcriptSpring()),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(Dimens.radiusXs))
                 .clickable(enabled = hasDetail) { expanded = !expanded }
-                .padding(horizontal = Dimens.spacingSm, vertical = 5.dp),
+                .heightIn(min = 32.dp)
+                .padding(end = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = tool.icon.vector,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp),
-            )
+            ToolStatusGlyph(status = tool.status, denied = tool.denied)
             Text(
                 text = tool.displayName,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = ToolVerb,
+                color = colors.textPrimary,
             )
             Text(
                 text = tool.displayDetail,
-                style = MonoSmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MonoTool,
+                color = colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             tool.diffStat?.let { stat ->
                 if (stat.added > 0 || stat.removed > 0) {
-                    DiffStatLabel(added = stat.added, removed = stat.removed, fontSize = 11.sp)
+                    DiffStatLabel(added = stat.added, removed = stat.removed, fontSize = 12.sp)
                 }
             }
-            ToolStatusGlyph(status = tool.status)
             if (hasDetail) {
                 Icon(
                     imageVector = Icons.Outlined.ChevronRight,
                     contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    tint = colors.textTertiary,
                     modifier = Modifier
-                        .size(14.dp)
+                        .size(15.dp)
                         .rotate(chevronAngle),
                 )
             }
         }
         if (expanded && hasDetail) {
+            // The desktop's expanded panel: indented to the glyph's centre,
+            // behind a 1dp hairline rule.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(
-                        start = Dimens.spacingXl,
-                        end = Dimens.spacingSm,
-                        bottom = Dimens.spacingSm,
-                    ),
+                    .padding(start = 7.dp, top = 2.dp, bottom = Dimens.spacingSm)
+                    .drawBehind {
+                        drawRect(colors.hairline, size = Size(1.dp.toPx(), size.height))
+                    }
+                    .padding(start = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             ) {
                 if (tool.diffs.isNotEmpty()) {
@@ -186,25 +199,39 @@ private fun PlainToolRow(tool: ToolCallItem, modifier: Modifier) {
     }
 }
 
+/**
+ * The desktop's tool status glyph, a 7dp mark in a 16dp slot: a hollow
+ * tertiary ring while pending, a pulsing accent dot while running, a success
+ * dot when done, the danger icon when it failed, and a struck-through ring
+ * when the user turned it down.
+ */
 @Composable
-private fun ToolStatusGlyph(status: AcpToolStatus) {
+private fun ToolStatusGlyph(status: AcpToolStatus, denied: Boolean = false) {
     val colors = LocalSpettroColors.current
-    when (status) {
-        AcpToolStatus.PENDING, AcpToolStatus.IN_PROGRESS ->
-            SpettroSpinner(size = 12.dp, color = colors.accent)
-        AcpToolStatus.COMPLETED -> Icon(
-            imageVector = Icons.Outlined.Check,
-            contentDescription = "Completed",
-            tint = colors.success,
-            modifier = Modifier.size(14.dp),
-        )
-        AcpToolStatus.FAILED -> Icon(
-            imageVector = Icons.Outlined.ErrorOutline,
-            contentDescription = "Failed",
-            tint = colors.danger,
-            modifier = Modifier.size(14.dp),
-        )
-        AcpToolStatus.UNKNOWN -> Unit
+    Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
+        when {
+            denied -> Canvas(Modifier.size(9.dp).semantics { contentDescription = "Denied" }) {
+                val stroke = 1.5.dp.toPx()
+                drawCircle(colors.textTertiary, radius = size.minDimension / 2f - stroke / 2f, style = Stroke(stroke))
+                drawLine(colors.textTertiary, Offset(0f, size.height), Offset(size.width, 0f), strokeWidth = stroke)
+            }
+            status == AcpToolStatus.PENDING -> Canvas(Modifier.size(8.dp)) {
+                val stroke = 1.5.dp.toPx()
+                drawCircle(colors.textTertiary, radius = size.minDimension / 2f - stroke / 2f, style = Stroke(stroke))
+            }
+            status == AcpToolStatus.IN_PROGRESS -> StatusDot(color = colors.accent, pulsing = true)
+            status == AcpToolStatus.COMPLETED -> StatusDot(
+                color = colors.success,
+                modifier = Modifier.semantics { contentDescription = "Completed" },
+            )
+            status == AcpToolStatus.FAILED -> Icon(
+                imageVector = Icons.Outlined.ErrorOutline,
+                contentDescription = "Failed",
+                tint = colors.danger,
+                modifier = Modifier.size(14.dp),
+            )
+            else -> Unit
+        }
     }
 }
 
@@ -217,14 +244,14 @@ private fun ToolOutputBlock(output: String) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(colors.canvas)
+            .background(colors.surfaceSunken)
             .border(Dimens.hairlineWidth, colors.hairline, shape)
             .horizontalScroll(rememberScrollState()),
     ) {
         Text(
             text = output.trim(),
-            style = MonoSmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MonoSmall,
+            color = colors.textSecondary,
             softWrap = false,
             maxLines = 12,
             overflow = TextOverflow.Ellipsis,
@@ -265,13 +292,13 @@ private fun SingleDiff(diff: ToolCallItem.ToolDiff) {
             Icon(
                 imageVector = Icons.Outlined.Description,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = colors.textTertiary,
                 modifier = Modifier.size(12.dp),
             )
             Text(
                 text = ToolCallItem.shortPath(diff.path),
                 style = MonoSmall.copy(fontWeight = FontWeight.Medium),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -282,7 +309,7 @@ private fun SingleDiff(diff: ToolCallItem.ToolDiff) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(shape)
-                .background(colors.canvas)
+                .background(colors.surfaceRaised)
                 .border(Dimens.hairlineWidth, colors.hairline, shape)
                 .horizontalScroll(rememberScrollState()),
         ) {
@@ -302,18 +329,18 @@ private fun SingleDiff(diff: ToolCallItem.ToolDiff) {
 
 @Composable
 private fun DiffLine(line: String, prefix: String, tint: androidx.compose.ui.graphics.Color) {
-    val style = MonoSmall.copy(fontSize = 12.sp, lineHeight = 17.sp)
-    Row(modifier = Modifier.fillMaxWidth().background(tint.copy(alpha = 0.10f))) {
+    val style = MonoSmall
+    Row(modifier = Modifier.fillMaxWidth().background(tint.copy(alpha = 0.12f))) {
         Text(
             text = prefix,
             style = style,
             color = tint,
-            modifier = Modifier.width(16.dp).padding(start = Dimens.spacingXs),
+            modifier = Modifier.width(18.dp).padding(start = Dimens.spacingXs),
         )
         Text(
             text = line.ifEmpty { " " },
             style = style,
-            color = tint,
+            color = LocalSpettroColors.current.textPrimary,
             softWrap = false,
             modifier = Modifier.padding(end = Dimens.spacingSm),
         )
@@ -325,15 +352,16 @@ private fun TruncationNote(count: Int) {
     Text(
         text = "… $count more lines",
         style = MonoSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-        modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 2.dp),
+        color = LocalSpettroColors.current.textTertiary,
+        modifier = Modifier.padding(start = 18.dp, top = 2.dp, bottom = 2.dp),
     )
 }
 
 /**
- * The dedicated card for `agent` tool calls: makes it obvious another agent
- * has spun up, who it is, what it was asked to do, and — once it reports
- * back — its summary rendered as markdown. Tinted with the agent accent.
+ * The card for `agent` tool calls (the desktop's sub-agent card): raised,
+ * a hairline, and a straight 2dp rail in the agent accent down its left
+ * edge, so it is obvious another agent has spun up, who it is, what it was
+ * asked to do, and — once it reports back — its summary as markdown.
  */
 @Composable
 private fun SubAgentCard(
@@ -350,7 +378,7 @@ private fun SubAgentCard(
     val shape = RoundedCornerShape(Dimens.radiusMd)
     val chevronAngle by animateFloatAsState(
         targetValue = if (expanded) 90f else 0f,
-        animationSpec = transcriptSpring(),
+        animationSpec = SpettroMotion.chevron(),
         label = "agentChevron",
     )
 
@@ -358,82 +386,79 @@ private fun SubAgentCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(colors.agentAccent.copy(alpha = if (colors.isDark) 0.07f else 0.05f))
-            .border(Dimens.hairlineWidth, colors.agentAccent.copy(alpha = 0.25f), shape)
+            .background(colors.surfaceRaised)
+            .border(Dimens.hairlineWidth, colors.hairline, shape)
+            .drawBehind {
+                val inset = 10.dp.toPx()
+                drawRect(
+                    colors.agentAccent,
+                    topLeft = Offset(0f, inset),
+                    size = Size(2.dp.toPx(), (size.height - inset * 2).coerceAtLeast(0f)),
+                )
+            }
             .animateContentSize(transcriptSpring()),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(enabled = hasSummary) { expanded = !expanded }
-                .padding(horizontal = Dimens.spacingMd, vertical = Dimens.spacingSm),
+                .padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.Outlined.SmartToy,
-                contentDescription = null,
+                contentDescription = "Agent",
                 tint = colors.agentAccent,
                 modifier = Modifier.size(16.dp),
             )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = call.agent,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                        color = colors.agentAccent,
-                    )
-                    Text(
-                        text = "AGENT",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.5.sp),
-                        color = colors.agentAccent,
-                        modifier = Modifier
-                            .background(colors.agentAccent.copy(alpha = 0.18f), CircleShape)
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                        style = ToolVerb,
+                        color = colors.textPrimary,
                     )
                     if (isRunning) {
-                        Text(
-                            text = "working…",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Shimmer(
+                            text = "Working…",
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
                 call.task?.takeIf { it.isNotEmpty() }?.let { task ->
                     Text(
                         text = task,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textSecondary,
                         maxLines = if (expanded) Int.MAX_VALUE else 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
             when {
-                isRunning -> SpettroSpinner(size = 12.dp, color = colors.agentAccent)
+                isRunning -> StatusDot(color = colors.accent, pulsing = true)
                 failed -> Icon(
                     imageVector = Icons.Outlined.ErrorOutline,
                     contentDescription = "Failed",
                     tint = colors.danger,
                     modifier = Modifier.size(14.dp),
                 )
-                else -> Icon(
-                    imageVector = Icons.Outlined.Check,
-                    contentDescription = "Completed",
-                    tint = colors.success,
-                    modifier = Modifier.size(14.dp),
+                else -> StatusDot(
+                    color = colors.success,
+                    modifier = Modifier.semantics { contentDescription = "Completed" },
                 )
             }
             if (hasSummary) {
                 Icon(
                     imageVector = Icons.Outlined.ChevronRight,
                     contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    tint = colors.textTertiary,
                     modifier = Modifier
-                        .size(14.dp)
+                        .size(15.dp)
                         .rotate(chevronAngle),
                 )
             }
@@ -450,7 +475,7 @@ private fun SubAgentCard(
 
 // MARK: Previews
 
-@Preview(name = "Tool rows dark", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Tool rows dark", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun ToolCallRowPreviewDark() {
     SpettroTheme(darkTheme = true) {
@@ -468,7 +493,7 @@ private fun ToolCallRowPreviewDark() {
     }
 }
 
-@Preview(name = "Tool rows light", showBackground = true, backgroundColor = 0xFFF9F9F7, widthDp = 380)
+@Preview(name = "Tool rows light", showBackground = true, backgroundColor = 0xFFFAFAFA, widthDp = 380)
 @Composable
 private fun ToolCallRowPreviewLight() {
     SpettroTheme(darkTheme = false) {
@@ -483,7 +508,7 @@ private fun ToolCallRowPreviewLight() {
     }
 }
 
-@Preview(name = "Diff view", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Diff view", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun ToolDiffViewPreview() {
     SpettroTheme(darkTheme = true) {

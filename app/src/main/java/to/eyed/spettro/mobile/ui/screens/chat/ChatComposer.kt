@@ -21,22 +21,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.UnfoldMore
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,9 +42,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -56,18 +62,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import to.eyed.spettro.mobile.core.acp.AcpCommand
 import to.eyed.spettro.mobile.model.ImageAttachment
-import to.eyed.spettro.mobile.ui.components.HairlineDivider
+import to.eyed.spettro.mobile.ui.components.SpettroMenu
+import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
+import to.eyed.spettro.mobile.ui.components.SpettroTextField
 import to.eyed.spettro.mobile.ui.components.activationHighlight
+import to.eyed.spettro.mobile.ui.theme.ComposerText
 import to.eyed.spettro.mobile.ui.theme.Dimens
+import to.eyed.spettro.mobile.ui.theme.Elevation
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.MonoBody
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
+import to.eyed.spettro.mobile.ui.theme.floatingShadow
+
 
 /**
- * The input bar (port of MobileComposerView.swift): an attachment thumbnail
- * strip, a one-line config summary that opens the settings sheet, and the
- * input row — a plus menu (photos, slash commands), a pill text field, and a
- * send button that becomes Stop mid-turn, with Guide beside it to steer.
+ * The composer, as the desktop draws it: a floating card — raised, a
+ * hairline, 20dp corners, the composer shadow — with the text on top and a
+ * toolbar inside it: a plus menu (photos, slash commands), the chat's
+ * settings in one quiet chip, and the send button, an ink circle that
+ * becomes an ink Stop square mid-turn, with an ink Guide pill beside it
+ * once there is something to steer with. A 28dp fade above lets the
+ * transcript slide under it.
  *
  * Stateless: text, attachments, and busy state are owned by the caller; only
  * ephemeral chrome (menus, the command sheet) lives here.
@@ -95,61 +111,101 @@ fun ChatComposer(
     val workflow = remember(text, workflowGate) { workflowDraft(text, workflowGate) }
     var plusMenuOpen by remember { mutableStateOf(false) }
     var commandsOpen by rememberSaveable { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(Dimens.radiusLg)
+    val fade = colors.canvas
 
-    Column(modifier = modifier.fillMaxWidth().background(colors.surfaceRaised)) {
-        HairlineDivider()
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(colors.canvas)
+            // The transcript fades out under the card rather than meeting a
+            // hard edge (the desktop's 28px fade above .composer-wrap).
+            .drawBehind {
+                val height = 28.dp.toPx()
+                drawRect(
+                    brush = Brush.verticalGradient(listOf(fade.copy(alpha = 0f), fade), startY = -height, endY = 0f),
+                    topLeft = Offset(0f, -height),
+                    size = Size(size.width, height),
+                )
+            }
+            .padding(start = Dimens.spacingMd, end = Dimens.spacingMd, top = 2.dp, bottom = Dimens.spacingSm),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = Dimens.spacingSm),
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                .then(
+                    if (focused) {
+                        // The desktop's focus ring: 3dp of accent at 10% outside the card.
+                        Modifier.drawBehind {
+                            val ring = 3.dp.toPx()
+                            drawRoundRect(
+                                color = colors.accent.copy(alpha = 0.1f),
+                                topLeft = Offset(-ring / 2f, -ring / 2f),
+                                size = Size(size.width + ring, size.height + ring),
+                                cornerRadius = CornerRadius((Dimens.radiusLg + 1.5.dp).toPx()),
+                                style = Stroke(width = ring),
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
+                .floatingShadow(Elevation.Composer, shape)
+                .clip(shape)
+                .background(colors.surfaceRaised)
+                .border(
+                    Dimens.hairlineWidth,
+                    if (focused) colors.accent.copy(alpha = 0.4f).compositeOver(colors.surfaceRaised) else colors.hairline,
+                    shape,
+                ),
         ) {
             if (attachments.isNotEmpty()) {
                 AttachmentStrip(attachments = attachments, onRemove = onRemoveAttachment)
             }
-            if (configSummary != null) {
-                ConfigSummaryRow(
-                    summary = configSummary,
-                    enabled = enabled,
-                    onTap = onConfigTap,
-                )
-            }
+            ComposerTextField(
+                text = text,
+                onTextChange = onTextChange,
+                enabled = enabled,
+                budgets = workflow.budgets,
+                muted = workflow.muted,
+                interactionSource = interactionSource,
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Dimens.spacingLg),
-                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-                verticalAlignment = Alignment.Bottom,
+                    .padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box {
                     IconButton(
                         onClick = { plusMenuOpen = true },
                         enabled = enabled,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(36.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.AddCircle,
+                            imageVector = Icons.Outlined.Add,
                             contentDescription = "Attach",
-                            tint = if (enabled) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(26.dp),
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(22.dp),
                         )
                     }
-                    DropdownMenu(
-                        expanded = plusMenuOpen,
-                        onDismissRequest = { plusMenuOpen = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Photos") },
-                            leadingIcon = { Icon(Icons.Outlined.Photo, contentDescription = null) },
+                    SpettroMenu(expanded = plusMenuOpen, onDismissRequest = { plusMenuOpen = false }) {
+                        SpettroMenuItem(
+                            text = "Photos",
+                            icon = Icons.Outlined.Photo,
                             onClick = {
                                 plusMenuOpen = false
                                 onAddImages()
                             },
                         )
                         if (commands.isNotEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("Commands") },
-                                leadingIcon = { Icon(Icons.Outlined.Tag, contentDescription = null) },
+                            SpettroMenuItem(
+                                text = "Commands",
+                                icon = Icons.Outlined.Tag,
                                 onClick = {
                                     plusMenuOpen = false
                                     commandsOpen = true
@@ -158,16 +214,13 @@ fun ChatComposer(
                         }
                     }
                 }
-
-                ComposerTextField(
-                    text = text,
-                    onTextChange = onTextChange,
-                    enabled = enabled,
-                    budgets = workflow.budgets,
-                    muted = workflow.muted,
-                    modifier = Modifier.weight(1f),
-                )
-
+                // The chip keeps its own width and only shortens when the
+                // send buttons need the room.
+                Box(Modifier.weight(1f)) {
+                    if (configSummary != null) {
+                        ConfigChip(summary = configSummary, enabled = enabled, onTap = onConfigTap)
+                    }
+                }
                 SendButton(
                     isBusy = isBusy,
                     canSend = enabled && (text.isNotBlank() || attachments.isNotEmpty()),
@@ -175,11 +228,11 @@ fun ChatComposer(
                     onStop = onStop,
                 )
             }
-            WorkflowHint(
-                draft = workflow,
-                onSwitchPermission = onSwitchPermission?.takeIf { workflowGate.canRestrict },
-            )
         }
+        WorkflowHint(
+            draft = workflow,
+            onSwitchPermission = onSwitchPermission?.takeIf { workflowGate.canRestrict },
+        )
     }
 
     if (commandsOpen) {
@@ -200,7 +253,11 @@ private fun AttachmentStrip(
     onRemove: (ImageAttachment) -> Unit,
 ) {
     LazyRow(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Dimens.spacingLg),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = Dimens.spacingMd,
+            end = Dimens.spacingMd,
+            top = Dimens.spacingMd,
+        ),
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
     ) {
         items(attachments, key = { it.id }) { attachment ->
@@ -209,7 +266,8 @@ private fun AttachmentStrip(
                 Icon(
                     imageVector = Icons.Filled.Cancel,
                     contentDescription = "Remove attachment",
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    // White on a dark disc: it sits on a photo, not on the theme.
+                    tint = Color.White,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(2.dp)
@@ -223,41 +281,47 @@ private fun AttachmentStrip(
     }
 }
 
-/** "Coding · GPT-5 · YOLO" — one tappable line standing in for the chips. */
+/**
+ * "Coding · GPT-5 · Don’t ask" in one toolbar chip (the desktop's
+ * `config-chip`): 32dp, 8dp corners, text-secondary, opening the settings
+ * sheet.
+ */
 @Composable
-private fun ConfigSummaryRow(
+private fun ConfigChip(
     summary: String,
     enabled: Boolean,
     onTap: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    val tint = if (enabled) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(Dimens.radiusSm))
             .clickable(enabled = enabled, onClick = onTap)
-            .padding(horizontal = Dimens.spacingLg, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
+            .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = Icons.Outlined.Tune,
             contentDescription = "Chat settings",
-            tint = tint,
-            modifier = Modifier.size(14.dp),
+            tint = colors.textSecondary,
+            modifier = Modifier.size(15.dp),
         )
         Text(
             text = summary,
             style = MaterialTheme.typography.labelLarge,
-            color = tint,
+            color = colors.textSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
         Icon(
-            imageVector = Icons.Outlined.UnfoldMore,
+            imageVector = Icons.Outlined.KeyboardArrowDown,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.size(12.dp),
+            tint = colors.textTertiary,
+            modifier = Modifier.size(14.dp),
         )
     }
 }
@@ -269,22 +333,15 @@ private fun ComposerTextField(
     enabled: Boolean,
     budgets: Boolean,
     muted: Boolean,
-    modifier: Modifier = Modifier,
+    interactionSource: MutableInteractionSource,
 ) {
     val colors = LocalSpettroColors.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val focused by interactionSource.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(Dimens.radiusLg)
-    val borderColor = if (focused) colors.accent.copy(alpha = 0.5f) else colors.hairline
-
     BasicTextField(
         value = text,
         onValueChange = onTextChange,
         enabled = enabled,
-        maxLines = 6,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(
-            color = MaterialTheme.colorScheme.onSurface,
-        ),
+        maxLines = 8,
+        textStyle = ComposerText.copy(color = colors.textPrimary),
         // "ultracode", or "use a workflow to …", silently arms multi-agent
         // orchestration for the next turn. Lighting the phrase as it is typed
         // is the only sign the user gets that the turn changed shape, and it is
@@ -294,24 +351,21 @@ private fun ComposerTextField(
         visualTransformation = activationHighlight(budgets = budgets, muted = muted),
         cursorBrush = SolidColor(colors.accent),
         interactionSource = interactionSource,
-        modifier = modifier
-            .heightIn(min = 40.dp)
-            .clip(shape)
-            .background(colors.surfaceRaised)
-            .border(Dimens.hairlineWidth, borderColor, shape),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp),
         decorationBox = { innerTextField ->
             Box(
-                modifier = Modifier.padding(
-                    horizontal = Dimens.spacingMd,
-                    vertical = Dimens.spacingSm + 1.dp,
-                ),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 if (text.isEmpty()) {
                     Text(
-                        text = if (enabled) "Message Spettro…" else "Not connected",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        text = if (enabled) "Describe a task, or ask about your code…" else "Waiting for your computer…",
+                        style = ComposerText,
+                        color = colors.textTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 innerTextField()
@@ -319,6 +373,9 @@ private fun ComposerTextField(
         },
     )
 }
+
+/** The size of the composer's round buttons: the desktop's 32px, grown for a thumb. */
+private val SendSize = 36.dp
 
 @Composable
 private fun SendButton(
@@ -331,32 +388,39 @@ private fun SendButton(
     if (isBusy) {
         // Mid-turn there are two things to do: stop the turn, or guide it —
         // a message sent now steers the running agent at its next step. The
-        // Guide pill only shows once there is something to send.
+        // Guide pill only shows once there is something to send, and then
+        // Stop steps back to an outline so the two don't compete.
         Row(
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(SendSize)
                     .clip(CircleShape)
-                    .background(colors.danger)
+                    .then(
+                        if (canSend) {
+                            Modifier.border(Dimens.hairlineWidth, colors.hairline, CircleShape)
+                        } else {
+                            Modifier.background(colors.ink)
+                        },
+                    )
                     .clickable(onClick = onStop),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Stop,
-                    contentDescription = "Stop",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(20.dp),
+                Box(
+                    Modifier
+                        .size(11.dp)
+                        .background(if (canSend) colors.ink else colors.onInk, RoundedCornerShape(2.dp))
+                        .semantics { contentDescription = "Stop" },
                 )
             }
             if (canSend) {
                 Row(
                     modifier = Modifier
-                        .height(40.dp)
+                        .height(SendSize)
                         .clip(CircleShape)
-                        .background(colors.accent)
+                        .background(colors.ink)
                         .clickable(onClick = onSend)
                         .padding(start = 10.dp, end = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -365,13 +429,13 @@ private fun SendButton(
                     Icon(
                         imageVector = Icons.Outlined.ArrowUpward,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(18.dp),
+                        tint = colors.onInk,
+                        modifier = Modifier.size(17.dp),
                     )
                     Text(
                         text = "Guide",
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = colors.onInk,
                     )
                 }
             }
@@ -379,17 +443,18 @@ private fun SendButton(
     } else {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(SendSize)
+                .alpha(if (canSend) 1f else 0.25f)
                 .clip(CircleShape)
-                .background(if (canSend) colors.accent else colors.accent.copy(alpha = 0.35f))
+                .background(colors.ink)
                 .clickable(enabled = canSend, onClick = onSend),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = Icons.Outlined.ArrowUpward,
                 contentDescription = "Send",
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(20.dp),
+                tint = colors.onInk,
+                modifier = Modifier.size(19.dp),
             )
         }
     }
@@ -408,10 +473,7 @@ fun CommandPalette(
     onPick: (AcpCommand) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = LocalSpettroColors.current.surfaceRaised,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         CommandPaletteContent(commands = commands, onPick = onPick)
     }
 }
@@ -430,48 +492,18 @@ internal fun CommandPaletteContent(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Search field.
-        val shape = RoundedCornerShape(Dimens.radiusLg)
-        BasicTextField(
+        SpettroTextField(
             value = search,
             onValueChange = { search = it },
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-            ),
-            cursorBrush = SolidColor(colors.accent),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.spacingLg)
-                .clip(shape)
-                .background(colors.canvas)
-                .border(Dimens.hairlineWidth, colors.hairline, shape),
-            decorationBox = { innerTextField ->
-                Row(
-                    modifier = Modifier.padding(
-                        horizontal = Dimens.spacingMd,
-                        vertical = Dimens.spacingSm,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (search.isEmpty()) {
-                            Text(
-                                text = "Find a command",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
+            placeholder = "Find a command",
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Dimens.spacingLg),
+            leading = {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = colors.textTertiary,
+                    modifier = Modifier.size(16.dp),
+                )
             },
         )
 
@@ -494,13 +526,13 @@ internal fun CommandPaletteContent(
                     Text(
                         text = "/${command.name}",
                         style = MonoBody.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = colors.textPrimary,
                     )
                     if (command.description.isNotEmpty()) {
                         Text(
                             text = command.description,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.textSecondary,
                         )
                     }
                 }
@@ -511,7 +543,7 @@ internal fun CommandPaletteContent(
 
 // MARK: Previews
 
-@Preview(name = "Composer", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Composer", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun ChatComposerPreview() {
     SpettroTheme(darkTheme = true) {
@@ -534,7 +566,7 @@ private fun ChatComposerPreview() {
     }
 }
 
-@Preview(name = "Busy — stop", showBackground = true, backgroundColor = 0xFFF9F9F7, widthDp = 380)
+@Preview(name = "Busy — stop", showBackground = true, backgroundColor = 0xFFFAFAFA, widthDp = 380)
 @Composable
 private fun ChatComposerPreviewBusy() {
     SpettroTheme(darkTheme = false) {
@@ -556,7 +588,7 @@ private fun ChatComposerPreviewBusy() {
     }
 }
 
-@Preview(name = "Disconnected", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Disconnected", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun ChatComposerPreviewDisabled() {
     SpettroTheme(darkTheme = true) {
@@ -578,7 +610,7 @@ private fun ChatComposerPreviewDisabled() {
     }
 }
 
-@Preview(name = "Command palette", showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 380)
+@Preview(name = "Command palette", showBackground = true, backgroundColor = 0xFF2C2C2E, widthDp = 380)
 @Composable
 private fun CommandPalettePreview() {
     SpettroTheme(darkTheme = true) {

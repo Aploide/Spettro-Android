@@ -268,5 +268,5 @@ internal object ChatPreviewData {
         ),
     )
 
-    const val CONFIG_SUMMARY = "Coding · GPT-5 · YOLO"
+    const val CONFIG_SUMMARY = "Coding · GPT-5 · Don’t ask"
 }

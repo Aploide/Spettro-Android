@@ -1,5 +1,13 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import to.eyed.spettro.mobile.ui.theme.SpettroMotion
+import to.eyed.spettro.mobile.ui.components.activationAnnotated
+import to.eyed.spettro.mobile.ui.components.Shimmer
+import to.eyed.spettro.mobile.ui.components.CardVariant
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.animation.core.animateFloatAsState
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -65,11 +73,11 @@ import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
- * Dispatches a transcript entry to the right renderer: a right-aligned accent
- * bubble for the user, full-width markdown prose for the assistant, a
- * collapsible panel for streamed reasoning, a quiet centered card for
- * notices, and [ToolCallRow] for tool calls.
- * Port of TranscriptItemView.swift.
+ * Dispatches a transcript entry to the right renderer: a right-aligned
+ * neutral bubble for the user, full-width markdown prose for the assistant, a
+ * one-line disclosure for streamed reasoning, a muted line for notices (an
+ * error card for errors), and [ToolCallRow] for tool calls — the desktop's
+ * transcript.
  */
 @Composable
 fun TranscriptItemView(
@@ -105,30 +113,23 @@ private fun UserBubble(message: ChatMessage, modifier: Modifier) {
             }
         }
         if (message.text.isNotEmpty()) {
-            // The bubble caps at ~80% of the transcript width and hugs the
-            // trailing edge; only the user keeps chat-bubble framing.
+            // The bubble caps at 85% of the transcript width and hugs the
+            // trailing edge; only the user keeps chat-bubble framing. It is
+            // neutral, as on the desktop — which also leaves room for the
+            // activating phrase to stay lit: what armed the turn should still
+            // be visible in the turn it armed.
             Box(
-                modifier = Modifier.fillMaxWidth(0.8f),
+                modifier = Modifier.fillMaxWidth(0.85f),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                // Deliberately plain. The activating phrase is lit in the
-                // composer, where it still tells you something you can act on;
-                // once the message is sent the run itself is the evidence, and
-                // a mark here would be decoration. It also cannot be done well:
-                // this text is white on a saturated accent, so there is no
-                // headroom above it and any "highlight" can only darken the
-                // words, which reads as damage rather than emphasis.
                 Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimary,
+                    text = activationAnnotated(message.text),
+                    style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+                    color = colors.textPrimary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(Dimens.radiusBubble))
                         .background(colors.userBubble)
-                        .padding(
-                            horizontal = Dimens.spacingMd,
-                            vertical = Dimens.spacingSm + 2.dp,
-                        ),
+                        .padding(horizontal = Dimens.spacingLg, vertical = 10.dp),
                 )
             }
         }
@@ -166,7 +167,7 @@ private fun SteeringCaption(state: ChatMessage.Steering?) {
             SteeringLine(
                 icon = Icons.Outlined.Schedule,
                 text = "Queued · will be seen at the next step",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.textTertiary,
             )
         else -> AnimatedVisibility(
             visible = state == ChatMessage.Steering.DELIVERED && showDelivered,
@@ -260,7 +261,7 @@ private fun TypingDots() {
                     .size(5.dp)
                     .alpha(alpha)
                     .background(
-                        MaterialTheme.colorScheme.onSurfaceVariant,
+                        LocalSpettroColors.current.textTertiary,
                         RoundedCornerShape(percent = 50),
                     ),
             )
@@ -270,10 +271,19 @@ private fun TypingDots() {
 
 // MARK: Reasoning
 
+/** The reasoning and tool-header size on the desktop (13.5px). */
+private val ReasoningText = TextStyle(fontSize = 13.5.sp, lineHeight = 20.sp)
+
+/**
+ * Streamed reasoning as one line — "Thinking…" shimmering while it streams,
+ * then "Thought for 12s" — that opens to the text behind a 2dp hairline rule,
+ * as the desktop draws it. No card: thinking is not a result.
+ */
 @Composable
 private fun ReasoningPanel(message: ChatMessage, modifier: Modifier) {
+    val colors = LocalSpettroColors.current
     var expanded by rememberSaveable(message.id) { mutableStateOf(false) }
-    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    val turn by animateFloatAsState(if (expanded) 90f else 0f, SpettroMotion.chevron(), label = "reasoningChevron")
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -282,87 +292,106 @@ private fun ReasoningPanel(message: ChatMessage, modifier: Modifier) {
     ) {
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(Dimens.radiusSm))
+                .clip(RoundedCornerShape(Dimens.radiusXs))
                 .clickable { expanded = !expanded }
-                .padding(horizontal = Dimens.spacingXs, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(vertical = 4.dp, horizontal = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Psychology,
-                contentDescription = null,
-                tint = secondary,
-                modifier = Modifier.size(14.dp),
-            )
             val duration = message.thoughtDuration
-            GlareText(
+            Shimmer(
                 text = when {
                     message.isStreaming -> "Thinking…"
                     duration != null -> "Thought for $duration"
                     else -> "Thought"
                 },
-                style = MaterialTheme.typography.labelMedium,
-                color = secondary,
+                style = ReasoningText,
                 isActive = message.isStreaming,
             )
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,
                 contentDescription = if (expanded) "Collapse" else "Expand",
-                tint = secondary.copy(alpha = 0.6f),
+                tint = colors.textTertiary,
                 modifier = Modifier
-                    .size(12.dp)
-                    .rotate(if (expanded) 90f else 0f),
+                    .size(14.dp)
+                    .rotate(turn),
             )
         }
         if (expanded) {
-            SpettroCard(radius = Dimens.radiusSm, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
-                    ),
-                    color = secondary,
-                    modifier = Modifier.padding(Dimens.spacingSm),
-                )
-            }
+            Text(
+                text = message.text,
+                style = ReasoningText.copy(lineHeight = 21.sp),
+                color = colors.textSecondary,
+                modifier = Modifier
+                    .padding(start = 2.dp)
+                    .drawBehind {
+                        drawRect(colors.hairline, size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height))
+                    }
+                    .padding(start = 14.dp, top = 2.dp, bottom = 2.dp),
+            )
         }
     }
 }
 
 // MARK: Notice
 
+/**
+ * A notice. Ordinary ones are not cards on the desktop but a muted line with
+ * an icon; an error is the error card — a danger-tinted ground and border,
+ * the icon in danger, the sentence itself in the primary ink (it is meant to
+ * be read, not to alarm).
+ */
 @Composable
 private fun NoticeCard(message: ChatMessage, isError: Boolean, modifier: Modifier) {
     val colors = LocalSpettroColors.current
-    val tint = if (isError) colors.danger else MaterialTheme.colorScheme.onSurfaceVariant
-    SpettroCard(radius = Dimens.radiusSm, modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.spacingMd, vertical = Dimens.spacingSm),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = if (isError) Icons.Outlined.WarningAmber else Icons.Outlined.Info,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(14.dp),
-            )
-            Text(
-                text = message.text,
-                style = MaterialTheme.typography.bodySmall,
-                color = tint,
-                textAlign = TextAlign.Center,
-            )
+    if (isError) {
+        SpettroCard(variant = CardVariant.Error, modifier = modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ErrorOutline,
+                    contentDescription = null,
+                    tint = colors.danger,
+                    modifier = Modifier.padding(top = 2.dp).size(16.dp),
+                )
+                Text(
+                    text = message.text,
+                    style = TextStyle(fontSize = 13.5.sp, lineHeight = 19.5.sp),
+                    color = colors.textPrimary,
+                )
+            }
         }
+        return
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp, horizontal = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Info,
+            contentDescription = null,
+            tint = colors.textTertiary,
+            modifier = Modifier.size(14.dp),
+        )
+        Text(
+            text = message.text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textTertiary,
+        )
     }
 }
 
 // MARK: Previews
 
-@Preview(name = "Transcript dark", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Transcript dark", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun TranscriptPreviewDark() {
     SpettroTheme(darkTheme = true) {
@@ -376,7 +405,7 @@ private fun TranscriptPreviewDark() {
     }
 }
 
-@Preview(name = "Transcript light", showBackground = true, backgroundColor = 0xFFF9F9F7, widthDp = 380)
+@Preview(name = "Transcript light", showBackground = true, backgroundColor = 0xFFFAFAFA, widthDp = 380)
 @Composable
 private fun TranscriptPreviewLight() {
     SpettroTheme(darkTheme = false) {
@@ -392,7 +421,7 @@ private fun TranscriptPreviewLight() {
     }
 }
 
-@Preview(name = "Streaming", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Streaming", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun TranscriptPreviewStreaming() {
     SpettroTheme(darkTheme = true) {

@@ -972,10 +972,21 @@ private fun RemoteChatHost(
 
 private fun configSummary(options: List<to.eyed.spettro.mobile.core.acp.AcpConfigOption>): String? {
     val parts = listOf("mode", "model", "permission").mapNotNull { id ->
-        options.firstOrNull { it.id == id }?.currentLabel?.takeIf { it.isNotBlank() }
+        val option = options.firstOrNull { it.id == id } ?: return@mapNotNull null
+        // The desktop's one name per permission level — never "YOLO".
+        val value = (option.kind as? to.eyed.spettro.mobile.core.acp.AcpConfigOption.Kind.Select)?.current
+        PERMISSION_NAMES[value]?.takeIf { id == "permission" }
+            ?: option.currentLabel?.takeIf { it.isNotBlank() }
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
+
+/** The permission levels by their short names, as the desktop's Settings shows them. */
+private val PERMISSION_NAMES = mapOf(
+    "ask-first" to "Ask first",
+    "restricted" to "Restricted",
+    "yolo" to "Don’t ask",
+)
 
 private fun loadAttachment(context: Context, uri: android.net.Uri): ImageAttachment? = try {
     context.contentResolver.openInputStream(uri)?.use { stream ->

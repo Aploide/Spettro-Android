@@ -1,5 +1,16 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.foundation.border
+import to.eyed.spettro.mobile.ui.components.StatusDot
+import to.eyed.spettro.mobile.ui.components.SpettroTopBar
+import to.eyed.spettro.mobile.ui.components.SpettroMenuSeparator
+import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
+import to.eyed.spettro.mobile.ui.components.SpettroMenu
+import to.eyed.spettro.mobile.ui.components.SpettroButton
+import to.eyed.spettro.mobile.ui.components.ConfirmDialog
+import to.eyed.spettro.mobile.ui.components.ButtonSize
+import to.eyed.spettro.mobile.ui.components.BarIconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -132,76 +143,40 @@ fun ChatScreen(
         modifier = modifier,
         containerColor = colors.canvas,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = title,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    // In the tablet split shell the chat sits beside the list,
-                    // so there is nowhere to go "back" to.
-                    if (showBack) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = "Back",
-                            )
-                        }
-                    }
-                },
+            SpettroTopBar(
+                title = title.ifBlank { "Untitled chat" },
+                // In the tablet split shell the chat sits beside the list,
+                // so there is nowhere to go "back" to.
+                onBack = onBack.takeIf { showBack },
                 actions = {
                     Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(
-                                imageVector = Icons.Outlined.MoreVert,
-                                contentDescription = "Chat menu",
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = menuOpen,
-                            onDismissRequest = { menuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(if (isPinned) "Unpin" else "Pin") },
-                                leadingIcon = {
-                                    Icon(Icons.Outlined.PushPin, contentDescription = null)
-                                },
+                        BarIconButton(
+                            icon = Icons.Outlined.MoreVert,
+                            contentDescription = "Chat menu",
+                            onClick = { menuOpen = true },
+                        )
+                        SpettroMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            SpettroMenuItem(
+                                text = if (isPinned) "Unpin" else "Pin",
+                                icon = Icons.Outlined.PushPin,
                                 onClick = {
                                     menuOpen = false
                                     onTogglePinned()
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text(if (isArchived) "Unarchive" else "Archive") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = if (isArchived) {
-                                            Icons.Outlined.Unarchive
-                                        } else {
-                                            Icons.Outlined.Archive
-                                        },
-                                        contentDescription = null,
-                                    )
-                                },
+                            SpettroMenuItem(
+                                text = if (isArchived) "Unarchive" else "Archive",
+                                icon = if (isArchived) Icons.Outlined.Unarchive else Icons.Outlined.Archive,
                                 onClick = {
                                     menuOpen = false
                                     onToggleArchived()
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text("Delete Chat", color = colors.danger) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.DeleteOutline,
-                                        contentDescription = null,
-                                        tint = colors.danger,
-                                    )
-                                },
+                            SpettroMenuSeparator()
+                            SpettroMenuItem(
+                                text = "Delete…",
+                                icon = Icons.Outlined.DeleteOutline,
+                                destructive = true,
                                 onClick = {
                                     menuOpen = false
                                     confirmingDelete = true
@@ -210,10 +185,6 @@ fun ChatScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = colors.canvas,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
             )
         },
     ) { padding ->
@@ -280,26 +251,20 @@ fun ChatScreen(
     }
 
     if (confirmingDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmingDelete = false },
-            title = { Text("Delete this chat?") },
-            text = { Text("The conversation is removed from the host. This cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmingDelete = false
-                        onDelete()
-                    },
-                ) {
-                    Text("Delete", color = colors.danger)
-                }
+        val name = title.ifBlank { "Untitled chat" }
+        ConfirmDialog(
+            title = "Delete this chat?",
+            message = if (isBusy) {
+                "Spettro is still working in “$name”. Deleting it stops that work and removes the conversation from Spettro."
+            } else {
+                "“$name” will be removed from Spettro. Files it changed in your project stay as they are."
             },
-            dismissButton = {
-                TextButton(onClick = { confirmingDelete = false }) {
-                    Text("Cancel")
-                }
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmingDelete = false
+                onDelete()
             },
-            containerColor = colors.surfaceRaised,
+            onDismiss = { confirmingDelete = false },
         )
     }
 }
@@ -307,10 +272,10 @@ fun ChatScreen(
 /**
  * Desktop-style readable measure: on wide screens the transcript, status
  * strip and composer cap out and recenter instead of stretching edge to
- * edge — the same 820px cap the PC app puts on its transcript column. On
- * phones the cap never engages.
+ * edge — the desktop's 760px reading measure. On phones the cap never
+ * engages.
  */
-private val ContentMaxWidth = 820.dp
+private val ContentMaxWidth = Dimens.measure
 
 @Composable
 private fun ReadableColumn(content: @Composable () -> Unit) {
@@ -370,19 +335,25 @@ private fun Transcript(rows: List<TranscriptRow>, modifier: Modifier) {
     }
 }
 
+/** A chat with nothing in it yet: the desktop's new-session greeting. */
 @Composable
 private fun EmptyTranscript(modifier: Modifier) {
+    val colors = LocalSpettroColors.current
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            modifier = Modifier.padding(Dimens.spacingXl),
         ) {
-            AppIconImage(size = 48.dp)
             Text(
-                text = "Start the conversation",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                text = "What should we build?",
+                style = MaterialTheme.typography.headlineSmall,
+                color = colors.textPrimary,
+            )
+            Text(
+                text = "Describe a task, or ask about your code.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = colors.textSecondary,
             )
         }
     }
@@ -468,31 +439,28 @@ private fun ChatScreenPreviewEmpty() {
 @Composable
 private fun PromptWaitingBar(text: String, onReview: () -> Unit) {
     val colors = LocalSpettroColors.current
+    val shape = RoundedCornerShape(Dimens.radiusMd)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingXs)
-            .clip(RoundedCornerShape(Dimens.radiusMd))
-            .background(colors.warning.copy(alpha = 0.12f))
+            .padding(horizontal = Dimens.spacingMd, vertical = Dimens.spacingXs)
+            .clip(shape)
+            .background(colors.warning.copy(alpha = 0.12f).compositeOver(colors.surfaceRaised))
+            .border(1.dp, colors.warning.copy(alpha = 0.35f), shape)
             .clickable(onClick = onReview)
-            .padding(start = Dimens.spacingMd, end = Dimens.spacingXs),
+            .padding(start = Dimens.spacingMd, end = 6.dp, top = 6.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(7.dp)
-                .background(colors.warning, CircleShape),
-        )
+        StatusDot(color = colors.warning)
         Text(
             text = text,
             style = MaterialTheme.typography.bodyMedium,
+            color = colors.textPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onReview) {
-            Text("Review", color = colors.warning, fontWeight = FontWeight.SemiBold)
-        }
+        SpettroButton("Review", onClick = onReview, size = ButtonSize.Small)
     }
 }
