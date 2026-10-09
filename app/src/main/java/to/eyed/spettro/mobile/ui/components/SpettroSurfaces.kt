@@ -21,10 +21,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -56,6 +59,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
@@ -438,8 +443,10 @@ fun SpettroToast(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
     onClose: (() -> Unit)? = null,
+    details: String? = null,
 ) {
     val colors = LocalSpettroColors.current
+    val clipboard = LocalClipboardManager.current
     val shape = RoundedCornerShape(Dimens.radiusMd)
     Surface(
         modifier = modifier.widthIn(max = 520.dp).floatingShadow(Elevation.Medium, shape),
@@ -469,6 +476,28 @@ fun SpettroToast(
                 Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold))
                 if (detail != null) {
                     Text(detail, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                }
+                // The error as it arrived, for whoever needs to report it.
+                if (details != null) {
+                    Disclosure("Show details") {
+                        Text(
+                            details,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 160.dp)
+                                .background(colors.surfaceSunken, RoundedCornerShape(Dimens.radiusSm))
+                                .border(Dimens.hairlineWidth, colors.hairline, RoundedCornerShape(Dimens.radiusSm))
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            style = MonoSmall,
+                            color = colors.textSecondary,
+                        )
+                        SpettroLink(
+                            "Copy",
+                            onClick = { clipboard.setText(AnnotatedString(details)) },
+                            fontSize = 12f,
+                        )
+                    }
                 }
             }
             if (actionLabel != null && onAction != null) {

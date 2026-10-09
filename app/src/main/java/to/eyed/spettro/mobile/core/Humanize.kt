@@ -199,7 +199,8 @@ fun humanizeError(message: String?, ctx: HumanizeContext = HumanizeContext()): H
     // line, cut to something that fits.
     val firstLine = raw.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()
     val detail = when {
-        firstLine.isEmpty() -> "Try again. If it keeps happening, the details below can help."
+        // Nothing to show behind "Show details", so don't point there.
+        firstLine.isEmpty() -> "Try again. If it keeps happening, check Spettro on your computer."
         firstLine.length > FALLBACK_LIMIT -> firstLine.take(FALLBACK_LIMIT - 1) + "…"
         else -> firstLine
     }

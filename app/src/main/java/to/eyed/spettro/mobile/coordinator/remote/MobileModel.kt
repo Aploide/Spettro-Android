@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import to.eyed.spettro.mobile.core.ErrorActionKind
 import to.eyed.spettro.mobile.core.humanizeError
 import to.eyed.spettro.mobile.core.acp.AcpAccountStatus
 import to.eyed.spettro.mobile.core.acp.AcpExtensionMethod
@@ -88,9 +89,34 @@ fun promptsShownWith(
 /**
  * A transient, dismissible message shown above the chat UI, as the desktop's
  * toast: a short [text] title and, for errors, a [detail] sentence saying
- * what to do.
+ * what to do, at most one [action], and the [raw] error behind "Show
+ * details".
  */
-data class Banner(val text: String, val isError: Boolean = false, val detail: String? = null)
+data class Banner(
+    val text: String,
+    val isError: Boolean = false,
+    val detail: String? = null,
+    val action: BannerAction? = null,
+    val raw: String? = null,
+) {
+    /** The desktop's toast timings: 8s with something to do, 6s for an error, 4s for news. */
+    val durationMs: Long
+        get() = when {
+            action != null -> 8_000
+            isError -> 6_000
+            else -> 4_000
+        }
+}
+
+/**
+ * A toast's one button. Either the model runs it ([run]: Undo, Try again),
+ * or it names a place the UI opens ([opens]: Models & providers).
+ */
+class BannerAction(
+    val label: String,
+    val opens: ErrorActionKind? = null,
+    val run: (() -> Unit)? = null,
+)
 
 /**
  * The Protocol B coordinator: owns the mirror of the PC host's state and
@@ -391,7 +417,7 @@ class MobileModel(
         scope.launch {
             _isRefreshing.value = true
             runCatching { _chats.value = api.chatsList() }
-                .onFailure { noteError("Couldn’t load your chats", it.message) }
+                .onFailure { noteError("Couldn’t load your chats", it.message, retry = ::refreshEverything) }
             runCatching { _projects.value = api.projectsList() }
             runCatching { _account.value = AcpAccountStatus.parse(api.agentCall(AcpExtensionMethod.ACCOUNT_STATUS)) }
             _isRefreshing.value = false
@@ -854,16 +880,31 @@ class MobileModel(
 
     /**
      * A failure, said the desktop's way (core/Humanize): a recognised error
-     * becomes its plain title and what to do; anything else keeps [what]
-     * failed as the title, with the message as the detail.
+     * becomes its plain title, what to do and the one action that does it;
+     * anything else keeps [what] failed as the title, with the message as
+     * the detail. The raw text goes behind "Show details" whenever the
+     * toast hasn't already printed all of it. [retry] is what Try again
+     * runs; without one, a Try again action isn't offered.
      */
-    private fun noteError(what: String, message: String?) {
+    private fun noteError(what: String, message: String?, retry: (() -> Unit)? = null) {
         val human = humanizeError(message)
-        _banner.value = if (human.known) {
-            Banner(human.title, isError = true, detail = human.detail)
-        } else {
-            Banner(what, isError = true, detail = human.detail)
+        val action = human.action?.let { action ->
+            when (action.kind) {
+                ErrorActionKind.Retry -> retry?.let { BannerAction(action.label, run = it) }
+                ErrorActionKind.Connect, ErrorActionKind.Models -> BannerAction(action.label, opens = action.kind)
+                // Restarting, reinstalling or updating the engine happens on
+                // the computer, not from here.
+                else -> null
+            }
         }
+        val raw = human.raw.takeIf { it.isNotBlank() && (human.known || '\n' in it || it.length > human.detail.length + 1) }
+        _banner.value = Banner(
+            text = if (human.known) human.title else what,
+            isError = true,
+            detail = human.detail,
+            action = action,
+            raw = raw,
+        )
     }
 
     private companion object {

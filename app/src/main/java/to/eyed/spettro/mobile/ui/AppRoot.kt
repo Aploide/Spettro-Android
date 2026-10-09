@@ -8,7 +8,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import to.eyed.spettro.mobile.core.ErrorActionKind
 import androidx.compose.ui.platform.LocalDensity
 import to.eyed.spettro.mobile.ui.components.ButtonStyle
 import to.eyed.spettro.mobile.ui.components.ConfirmDialog
@@ -486,7 +490,10 @@ private fun RemoteNavigator(
         }
 
         RemotePromptOverlays(model)
-        BannerOverlay(model)
+        BannerOverlay(model, onOpenProviders = {
+            model.refreshProviders()
+            screen = RemoteScreen.Providers
+        })
         ReconnectingPill(visible = reconnecting)
     }
 }
@@ -832,12 +839,14 @@ private fun RemotePromptOverlays(model: MobileModel) {
 }
 
 /**
- * The model's one-line notes, as the desktop's toast: top centre, raised,
- * with an icon by tone. Errors stay up longer (6s) than news (4s); a tap
- * dismisses.
+ * The model's notes, as the desktop's toast: top centre, raised, with an
+ * icon by tone, the note's one action, and the raw error behind "Show
+ * details". News stays up 4s, an error 6s, a toast with an action 8s
+ * ([Banner.durationMs]); touching it holds it, the way hovering does on the
+ * desktop, and a tap on it dismisses unless it has details to read.
  */
 @Composable
-private fun BannerOverlay(model: MobileModel) {
+private fun BannerOverlay(model: MobileModel, onOpenProviders: () -> Unit) {
     val banner by model.banner.collectAsState()
     Box(Modifier.fillMaxWidth().statusBarsPadding(), contentAlignment = Alignment.TopCenter) {
         AnimatedVisibility(
@@ -846,19 +855,43 @@ private fun BannerOverlay(model: MobileModel) {
             exit = fadeOut(SpettroMotion.quick()),
         ) {
             val current = banner ?: return@AnimatedVisibility
-            LaunchedEffect(current) {
-                kotlinx.coroutines.delay(if (current.isError) 6000 else 4000)
+            var held by remember(current) { mutableStateOf(false) }
+            LaunchedEffect(current, held) {
+                if (held) return@LaunchedEffect
+                kotlinx.coroutines.delay(current.durationMs)
                 model.dismissBanner()
+            }
+            val action = current.action
+            val runAction: (() -> Unit)? = action?.let {
+                it.run ?: when (it.opens) {
+                    ErrorActionKind.Connect, ErrorActionKind.Models -> onOpenProviders
+                    else -> null
+                }
             }
             SpettroToast(
                 title = current.text,
                 detail = current.detail,
                 tone = if (current.isError) ToastTone.Error else ToastTone.Info,
                 icon = if (current.isError) Icons.Outlined.ErrorOutline else Icons.Outlined.Info,
+                actionLabel = action?.label,
+                onAction = runAction?.let { run ->
+                    {
+                        model.dismissBanner()
+                        run()
+                    }
+                },
                 onClose = { model.dismissBanner() },
+                details = current.raw,
                 modifier = Modifier
                     .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .clickable { model.dismissBanner() },
+                    .pointerInput(current) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            held = true
+                        }
+                    }
+                    // With details to read, only the close button dismisses.
+                    .clickable(enabled = current.raw == null) { model.dismissBanner() },
             )
         }
     }

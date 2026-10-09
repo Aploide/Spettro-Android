@@ -83,4 +83,14 @@ class HumanizeTest {
             humanizeError("timeout").sentence,
         )
     }
+
+    @Test
+    fun `an empty message doesn't point at details there aren't`() {
+        for (message in listOf(null, "", "  \n ")) {
+            val human = humanizeError(message)
+            assertEquals("Something went wrong", human.title)
+            assertEquals("Try again. If it keeps happening, check Spettro on your computer.", human.detail)
+            assertTrue(human.raw.isBlank())
+        }
+    }
 }
