@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Spettro" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- The window under the first Compose frame, and the splash, in the
+         canvas colour: no white flash before the app draws. The night copy
+         is in values-night; the app's own Appearance setting reaches the
+         window through UiModeManager.setApplicationNightMode. -->
+    <style name="Theme.Spettro" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/canvas</item>
+        <item name="android:windowSplashScreenBackground">@color/canvas</item>
+    </style>
 </resources>

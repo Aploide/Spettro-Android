@@ -14,8 +14,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /** The phone's own look: what `SpettroTheme` is given. */
 data class ThemeChoice(
@@ -39,8 +42,17 @@ internal object ThemePrefs {
     )
 
     fun write(prefs: MutablePreferences, choice: ThemeChoice) {
-        prefs[APPEARANCE] = choice.appearance.name
-        prefs[ACCENT] = choice.accent.name
+        write(prefs, choice.appearance)
+        write(prefs, choice.accent)
+    }
+
+    /** Only the appearance key: a write never touches the setting it isn't about. */
+    fun write(prefs: MutablePreferences, appearance: Appearance) {
+        prefs[APPEARANCE] = appearance.name
+    }
+
+    fun write(prefs: MutablePreferences, accent: Accent) {
+        prefs[ACCENT] = accent.name
     }
 
     private inline fun <reified E : Enum<E>> String?.toEnum(default: E): E =
@@ -63,24 +75,38 @@ class ThemeStore(
         context.applicationContext.preferencesDataStoreFile("spettro_theme")
     }
 
-    private val _choice = MutableStateFlow(ThemeChoice())
+    // Read before the first frame, not after it: a phone set to Dark or
+    // Monochrome would otherwise draw its first frames System and Lilac and
+    // then switch. The file is two short strings; a damaged one reads as
+    // the defaults.
+    private val _choice = MutableStateFlow(
+        runBlocking { runCatching { ThemePrefs.read(dataStore.data.first()) }.getOrDefault(ThemeChoice()) },
+    )
 
-    /** The current choice; the defaults until the first read lands (a few ms after launch). */
+    /**
+     * The current choice. This store is the only writer, so after the first
+     * read it is the truth and the disk follows it — it never reads back, so a
+     * write landing late can't flip the screen away from the last tap.
+     */
     val choice: StateFlow<ThemeChoice> = _choice.asStateFlow()
+
+    /** Writes, one at a time and in the order they were asked for. */
+    private val writes = Channel<(MutablePreferences) -> Unit>(Channel.UNLIMITED)
 
     init {
         scope.launch {
-            dataStore.data.map(ThemePrefs::read).collect { _choice.value = it }
+            for (write in writes) runCatching { dataStore.edit { write(it) } }
         }
     }
 
-    fun setAppearance(appearance: Appearance) = update(_choice.value.copy(appearance = appearance))
-
-    fun setAccent(accent: Accent) = update(_choice.value.copy(accent = accent))
-
-    private fun update(choice: ThemeChoice) {
+    fun setAppearance(appearance: Appearance) {
         // Shown at once; the disk catches up.
-        _choice.value = choice
-        scope.launch { dataStore.edit { ThemePrefs.write(it, choice) } }
+        _choice.update { it.copy(appearance = appearance) }
+        writes.trySend { ThemePrefs.write(it, appearance) }
+    }
+
+    fun setAccent(accent: Accent) {
+        _choice.update { it.copy(accent = accent) }
+        writes.trySend { ThemePrefs.write(it, accent) }
     }
 }

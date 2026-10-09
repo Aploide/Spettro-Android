@@ -30,4 +30,14 @@ class ThemePrefsTest {
         )
         assertEquals(ThemeChoice(Appearance.System, Accent.Mono), ThemePrefs.read(prefs))
     }
+
+    @Test
+    fun `writing one setting leaves the other as stored`() {
+        val prefs = mutablePreferencesOf()
+        ThemePrefs.write(prefs, ThemeChoice(Appearance.Dark, Accent.Mono))
+        ThemePrefs.write(prefs, Appearance.Light)
+        assertEquals(ThemeChoice(Appearance.Light, Accent.Mono), ThemePrefs.read(prefs))
+        ThemePrefs.write(prefs, Accent.Lilac)
+        assertEquals(ThemeChoice(Appearance.Light, Accent.Lilac), ThemePrefs.read(prefs))
+    }
 }
