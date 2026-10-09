@@ -42,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,11 +51,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import to.eyed.spettro.mobile.core.acp.AcpQuestionAnswer
 import to.eyed.spettro.mobile.core.acp.AcpQuestionItem
 import to.eyed.spettro.mobile.core.acp.AcpQuestionOption
@@ -118,6 +121,16 @@ internal fun QuestionSheetContent(
     // Which option previews are expanded ("questionId:optionId") — pure
     // presentation, not worth surviving process death.
     var expandedPreviews by remember { mutableStateOf(setOf<String>()) }
+    // The desktop's arm delay, as on the approval sheet: for the first
+    // 600ms the options and buttons are dimmed and inert, so a tap meant for
+    // whatever was on screen a moment ago can't answer the agent — a lone
+    // single-select question answers itself on the first pick.
+    var armed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(PROMPT_ARM_DELAY_MS)
+        armed = true
+    }
+    val armedModifier = if (armed) Modifier else Modifier.alpha(0.6f).consumeTaps()
 
     fun selectedIds(q: AcpQuestionItem): List<String> = selections[q.id].orEmpty()
     fun custom(q: AcpQuestionItem): String = customText[q.id].orEmpty()
@@ -148,6 +161,7 @@ internal fun QuestionSheetContent(
     }
 
     fun choose(q: AcpQuestionItem, option: AcpQuestionOption) {
+        if (!armed) return
         val current = ArrayList(selectedIds(q))
         if (q.multiSelect) {
             if (!current.remove(option.id)) current.add(option.id)
@@ -238,6 +252,7 @@ internal fun QuestionSheetContent(
         Column(
             modifier = Modifier
                 .weight(1f, fill = false)
+                .then(armedModifier)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
         ) {
@@ -286,7 +301,7 @@ internal fun QuestionSheetContent(
         Row(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().then(armedModifier),
         ) {
             SpettroButton("Decline", onClick = onDecline, style = ButtonStyle.Plain, shape = RoundedCornerShape(Dimens.radiusSm))
 
