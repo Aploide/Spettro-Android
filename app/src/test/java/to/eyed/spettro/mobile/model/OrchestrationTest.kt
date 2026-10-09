@@ -971,6 +971,39 @@ class OrchestrationTest {
     }
 
     @Test
+    fun theLiveSheetCallsAPhaseOfOnlyQueuedMembersPendingNotRunning() {
+        // The next wave of a fan-out, held back by max_concurrency: the card
+        // counts it as in progress, but nobody in it is working yet.
+        val queued = audit.copy(
+            agents = listOf(
+                Wire.CardAgent("gp#1", "scan a", "Scan", "running"),
+                Wire.CardAgent("gp#2", "fix a", "Fix", "queued"),
+                Wire.CardAgent("gp#3", "fix b", "Fix", "queued"),
+            ),
+        )
+        val (scan, fix) = onlyWorkflow(groupTranscript(listOf(Wire.workflowCard(queued)))).phases
+        assertEquals(PhaseState.RUNNING, fix.state)
+        assertEquals(PhaseState.PENDING, fix.liveState)
+        assertEquals(PhaseState.RUNNING, scan.liveState)
+    }
+
+    @Test
+    fun theLiveSheetRanksRunningThenFailedThenDoneAsTheDesktopPanelDoes() {
+        val (scan, fix, verify) = onlyWorkflow(groupTranscript(listOf(Wire.workflowCard(audit)))).phases
+        // Scan: two done, one failed, nobody running.
+        assertEquals(PhaseState.FAILED, scan.liveState)
+        // Fix: one running beside one queued.
+        assertEquals(PhaseState.RUNNING, fix.liveState)
+        // Verify auth: declared, nothing dispatched.
+        assertEquals(PhaseState.PENDING, verify.liveState)
+        val done = audit.copy(agents = listOf(Wire.CardAgent("gp#1", "scan a", "Scan", "success")))
+        assertEquals(
+            PhaseState.DONE,
+            onlyWorkflow(groupTranscript(listOf(Wire.workflowCard(done)))).phases[0].liveState,
+        )
+    }
+
+    @Test
     fun theMetadataWinsOverTextItDisagreesWith() {
         val card = Wire.workflowCard(audit) as TranscriptItem.Tool
         val item = TranscriptItem.Tool(card.tool.copy(output = "▸ Bogus — 0/0 done"))

@@ -347,7 +347,7 @@ private fun LiveRunSection(run: WorkflowRun) {
 
         run.phases
             .filter { it.title.isNotEmpty() || it.members.isNotEmpty() }
-            .forEach { phase -> LivePhase(phase.title, phase.state, phase.members) }
+            .forEach { phase -> LivePhase(phase.title, phase.liveState, phase.members) }
     }
 }
 

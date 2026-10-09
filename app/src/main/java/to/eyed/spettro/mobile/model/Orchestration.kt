@@ -191,6 +191,22 @@ data class WorkflowPhase(
             counts.failed > 0 -> PhaseState.FAILED
             else -> PhaseState.DONE
         }
+
+    /**
+     * The state the live sheet shows, which asks a narrower question than
+     * [state]: is anybody in this phase working right now? A phase whose
+     * members are all queued (the next wave of a fan-out held back by
+     * max_concurrency) is still waiting, not running — calling it "0 running"
+     * with an accent dot would be wrong. Port of the desktop panel's
+     * `groupState`.
+     */
+    val liveState: PhaseState
+        get() = when {
+            counts.running > 0 -> PhaseState.RUNNING
+            counts.failed > 0 -> PhaseState.FAILED
+            counts.done > 0 -> PhaseState.DONE
+            else -> PhaseState.PENDING
+        }
 }
 
 enum class PhaseState { PENDING, RUNNING, FAILED, DONE }
