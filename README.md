@@ -80,7 +80,7 @@ app/src/main/java/to/eyed/spettro/mobile/
     │   │                      DisconnectedScreen, project picker
     │   ├── chat/              ChatScreen, composer, transcript rendering,
     │   │                      tool-call rows, markdown, config sheet, status strip,
-    │   │                      workflow/swarm cards + the live run strip
+    │   │                      workflow cards + the live run strip
     │   ├── settings/          SettingsScreen, ProvidersScreen
     │   └── sheets/            PermissionSheet, QuestionSheet
     └── AppRoot.kt             routes on RemoteState; hosts global sheets
@@ -90,13 +90,13 @@ The architecture contract the modules were built against lives in
 [`DESIGN.md`](./DESIGN.md) — package ownership, module APIs, wire-format
 gotchas, and the design tokens.
 
-### Orchestration: workflows and Ultra swarms
+### Orchestration: workflows
 
-The CLI streams a workflow run or an Ultra swarm as a **flat** sequence of tool
-calls — one long-lived lifecycle call, one call per sub-agent, and every tool
-each sub-agent runs, all interleaved in arrival order. Rendered literally that
-is a wall of near-identical rows that drowns the conversation and never says
-which agent did what.
+The CLI streams a workflow run as a **flat** sequence of tool calls — one
+long-lived card for the run, one call per sub-agent, and every tool each
+sub-agent runs, all interleaved in arrival order. Rendered literally that is a
+wall of near-identical rows that drowns the conversation and never says which
+agent did what.
 
 `model/Orchestration.kt` reconstructs the real shape. It is pure and memo-free
 on purpose: a session restored from disk must fold to exactly the same tree as
@@ -104,22 +104,30 @@ the live one that produced it, so the answer may depend only on the items
 passed in. `ChatScreen` runs it once per transcript change and both the
 transcript and the live strip read the result.
 
-Three things about the wire make this harder than it looks, and all three are
-load-bearing:
+The run's state comes from `_meta["spettro.app/workflow"]` (version 1) on the
+card when it is there — phases, members, pause, stop, size and budget, the log
+tail — and from the text the CLI rendered into the card when it is not (an
+older CLI, or a host that does not relay the meta in a snapshot). The meta
+wins; the two paths are tested to draw the same tree. A few things about the
+wire are load-bearing:
 
-- **A finished run's plan is gone.** `argsJSON` is overwritten by every update
-  carrying `rawInput`, and the CLI's finish payload is a completely different
-  shape (`{run_id, workflow, agents, failed, cached, tokens}`) — no `phases`,
-  no `description`. They are mined back out of the tree the CLI rendered into
-  the call's own output. Structured args always win; the text only fills what
-  is missing.
+- **Card ids say which run and which turn.** `workflow-<run>` is a run's first
+  card and `workflow-<run>-<n>` the one a later turn opened to continue it;
+  `wf-<n>` is a run with no id (and every card of an older CLI). A run paused
+  at a checkpoint and continued later has two cards: the first closes
+  "continued in a later turn", the second lists every member so far, so
+  members are pooled per run rather than per card.
 - **A workflow arrives as two calls with the same name.** The model's
   invocation of the `workflow` *tool* carries the whole script as arguments;
-  the `wf-…` lifecycle trace is what the run is built from. The first is folded
-  into the second — except when it failed before any run existed, where it is
-  the only evidence a workflow was attempted at all.
-- **Swarm members carry no run id.** They can only be attached to the `ultra`
-  call they were fanned out from, by position.
+  the card is what the run is built from. The first is folded into the second
+  — except when it failed before any run existed, where it is the only
+  evidence a workflow was attempted at all. A reply to a checkpoint
+  (`continue_run_id`) folds away too, unless it was refused.
+- **Progress traces can escape.** `workflow X ⏸ cp-1`, `▸ Phase` and `· log`
+  traces carry `workflow` and no `agent`, exactly like a card, and must never
+  open a phantom run.
+
+Ultra swarms are gone from the CLI, and from the app with them.
 
 `OrchestrationTest` is a case-for-case port of the desktop app's suite and
 covers every one of those. Screenshots cannot catch any of it — a member

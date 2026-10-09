@@ -16,6 +16,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -42,16 +49,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import to.eyed.spettro.mobile.model.MemberCall
-import to.eyed.spettro.mobile.model.OrchRun
 import to.eyed.spettro.mobile.model.OrchStatus
 import to.eyed.spettro.mobile.model.PhaseState
+import to.eyed.spettro.mobile.model.RunStatus
 import to.eyed.spettro.mobile.model.WorkflowPhase
+import to.eyed.spettro.mobile.model.WorkflowRun
+import to.eyed.spettro.mobile.model.capMembers
 import to.eyed.spettro.mobile.model.epochMillisOrNull
+import to.eyed.spettro.mobile.model.planLabel
+import to.eyed.spettro.mobile.model.runStateDetail
+import to.eyed.spettro.mobile.model.runStateLine
 import to.eyed.spettro.mobile.ui.components.GlareText
 import to.eyed.spettro.mobile.ui.components.elapsedLabel
 import to.eyed.spettro.mobile.ui.components.SpettroSpinner
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
+import to.eyed.spettro.mobile.ui.theme.MonoSmall
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.TabularNums
 
@@ -86,6 +99,14 @@ import to.eyed.spettro.mobile.ui.theme.TabularNums
  * failed member keeps its row AND gains the reason it failed, and the
  * successes — the least interesting rows on the card — fold into one "N done"
  * that expands.
+ *
+ * Two states are neither live nor over, and each says so in words rather than
+ * with a spinner. A run *paused* at a checkpoint is waiting for Spettro to
+ * answer a question it asked; a spinner there reads as hung. A card a later
+ * turn *continued* is superseded by the card further down — it keeps the
+ * state its turn left (usually paused), says "Continued below" instead of
+ * waiting forever, and steps back to a hairline. A *stopped* run was ended on
+ * purpose and says why, rather than passing for a success.
  */
 
 /** How many member rows a single phase shows before it starts hiding them.
@@ -102,58 +123,84 @@ private val RAIL_WIDTH = 14.dp
 
 @Composable
 fun WorkflowCard(
-    run: OrchRun.Workflow,
+    run: WorkflowRun,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    val running = run.status == OrchStatus.RUNNING
+    val continued = run.continued
+    val running = run.status == RunStatus.RUNNING && !continued
     val settled = !running
+    // Finished, failed or stopped: nothing more will run. A paused run (and
+    // the card a later turn continued) may still reach its remaining phases.
+    val over = !continued &&
+        (run.status == RunStatus.DONE || run.status == RunStatus.FAILED || run.status == RunStatus.STOPPED)
     // A failure is never folded away; everything else starts closed and keeps
-    // whatever the reader last did to it.
+    // whatever the reader last did to it. A continued card is history the card
+    // below repeats in full, so it is the last thing that should open itself.
     var expanded by rememberSaveable(run.tool.id) {
-        mutableStateOf(run.status == OrchStatus.FAILED)
+        mutableStateOf(run.status == RunStatus.FAILED && !continued)
     }
     var logOpen by rememberSaveable(run.tool.id) { mutableStateOf(false) }
     var scriptOpen by rememberSaveable(run.tool.id) { mutableStateOf(false) }
-    var rawOpen by rememberSaveable(run.tool.id) { mutableStateOf(false) }
 
     val elapsed = rememberElapsed(running, run.tool.timestamp)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     // Ink and wash are separate: the first has to be readable at 12sp, the
     // second is a background and darkening it to clear a text ratio would only
-    // make the card muddy.
-    val accent = when (run.status) {
-        OrchStatus.FAILED -> colors.dangerInk
-        OrchStatus.RUNNING -> colors.accentInk
-        OrchStatus.DONE -> colors.agentInk
+    // make the card muddy. A run that is neither working nor over says so in
+    // its colour too: amber while it waits, grey once it was stopped or handed
+    // on — never the accent, which would read as still moving.
+    val accent = when {
+        continued -> muted
+        run.status == RunStatus.FAILED -> colors.dangerInk
+        run.status == RunStatus.RUNNING -> colors.accentInk
+        run.status == RunStatus.PAUSED -> colors.warning
+        run.status == RunStatus.STOPPED -> muted
+        else -> colors.agentInk
     }
-    val wash = when (run.status) {
-        OrchStatus.FAILED -> colors.diffRemoved
-        OrchStatus.RUNNING -> colors.accent
-        OrchStatus.DONE -> colors.agentAccent
+    val wash = when {
+        continued -> muted
+        run.status == RunStatus.FAILED -> colors.diffRemoved
+        run.status == RunStatus.RUNNING -> colors.accent
+        run.status == RunStatus.PAUSED -> colors.warning
+        run.status == RunStatus.STOPPED -> muted
+        else -> colors.agentAccent
     }
     val shape = RoundedCornerShape(Dimens.radiusMd)
 
     // The one-line form is a readout, not a truncation of the open one: while
-    // running it says how far along and how long, and once finished it says
-    // what the run concluded — the line the CLI itself prints.
+    // running it says how far along and how long, and once settled it says
+    // what the run is about now — the question a paused run asks, why a
+    // stopped one stopped, what a finished one concluded.
     val tail = if (running) {
         when {
             run.counts.total > 0 && elapsed.isNotEmpty() -> elapsed
             run.counts.total > 0 -> ""
-            elapsed.isEmpty() -> "dispatching…"
+            elapsed.isEmpty() -> "Starting…"
             else -> elapsed
         }
     } else {
-        run.summaryText
+        runStateDetail(run)
     }
 
     val phases = run.phases.filter { it.title.isNotEmpty() || it.members.isNotEmpty() }
+    val plan = planLabel(run)
+    val state = runStateLine(run)
+    // A run that died before any agent started has nothing to measure: an
+    // empty grey bar there reads as "0% of something", so it goes.
+    val metered = run.counts.total > 0 || running
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(wash.copy(alpha = if (colors.isDark) 0.06f else 0.045f))
+            .background(
+                if (continued) {
+                    Color.Transparent
+                } else {
+                    wash.copy(alpha = if (colors.isDark) 0.06f else 0.045f)
+                },
+            )
             .border(Dimens.hairlineWidth, wash.copy(alpha = 0.25f), shape)
             .animateContentSize(transcriptSpring()),
     ) {
@@ -170,7 +217,7 @@ fun WorkflowCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                WorkflowMark(tint = accent, size = 14.dp)
+                WorkflowMark(tint = accent.copy(alpha = if (continued) 0.7f else 1f), size = 14.dp)
                 // The name shimmers only while the run is live — the same
                 // "this is moving" signal the reasoning header uses.
                 GlareText(
@@ -180,49 +227,61 @@ fun WorkflowCard(
                     ),
                     color = accent,
                     isActive = running,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
-                RunBadge(status = run.status)
+                RunBadge(run = run)
                 Box(Modifier.weight(1f))
-                // A clean finish gets no badge, so the glyph is the only thing
-                // that says the run is over rather than stalled.
-                if (run.status == OrchStatus.DONE) {
-                    OrchStatusGlyph(status = run.status, size = 13.dp)
-                }
                 DisclosureChevron(expanded = expanded, size = 13.dp)
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                OrchProgressMeter(counts = run.counts, width = if (expanded) 96.dp else 72.dp)
-                if (run.counts.total > 0) {
-                    OrchRatio(finished = run.counts.finished, total = run.counts.total)
-                }
-                if (expanded) {
-                    OrchCountsLabel(counts = run.counts, modifier = Modifier.weight(1f))
-                    if (running && elapsed.isNotEmpty()) ElapsedLabel(elapsed)
-                } else if (tail.isNotEmpty()) {
-                    SummaryTail(
-                        text = tail,
-                        failedTerm = if (run.counts.failed > 0) {
-                            "${run.counts.failed} failed"
-                        } else {
-                            ""
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
+            if (metered || tail.isNotEmpty() || expanded) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (metered) {
+                        OrchProgressMeter(counts = run.counts, width = if (expanded) 96.dp else 72.dp)
+                    }
+                    if (run.counts.total > 0) {
+                        OrchRatio(finished = run.counts.finished, total = run.counts.total)
+                    }
+                    if (expanded) {
+                        OrchCountsLabel(counts = run.counts, modifier = Modifier.weight(1f))
+                        if (running && elapsed.isNotEmpty()) ElapsedLabel(elapsed)
+                    } else if (tail.isNotEmpty()) {
+                        SummaryTail(
+                            text = tail,
+                            failedTerm = if (run.counts.failed > 0) {
+                                "${run.counts.failed} failed"
+                            } else {
+                                ""
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
 
-            // The strip belongs to the header rather than the body for the
-            // same reason it does on the swarm card: it is the one thing that
-            // has to survive the card being closed. A settled run whose
-            // failures were only a red sliver in the meter is the exact bug
-            // the desktop's rework was written to prevent.
+            // What the run was sized for — a tier and a token budget — said in
+            // words once the card is open. It is how the user asked for the
+            // run ("ultracode +500k"), so it is worth a line of its own.
+            if (expanded && plan.isNotEmpty()) {
+                Text(
+                    text = plan,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+                    color = muted.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            // The strip belongs to the header rather than the body: it is the
+            // one thing that has to survive the card being closed. A settled
+            // run whose failures were only a red sliver in the meter is the
+            // exact bug the desktop's rework was written to prevent.
             if (run.members.isNotEmpty()) {
-                AgentCellStrip(members = run.members, pending = 0)
+                AgentCellStrip(members = run.members)
             }
         }
 
@@ -238,6 +297,8 @@ fun WorkflowCard(
                     ),
                 verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             ) {
+                if (state.isNotEmpty()) StateLine(run = run, text = state)
+
                 if (run.description.isNotEmpty()) {
                     Text(
                         text = run.description,
@@ -251,7 +312,7 @@ fun WorkflowCard(
 
                 if (phases.isEmpty()) {
                     Text(
-                        text = if (running) "waiting for the first agent…" else "no agents ran",
+                        text = if (running) "Waiting for the first agent…" else "No agents ran",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     )
@@ -261,6 +322,7 @@ fun WorkflowCard(
                             PhaseGroup(
                                 phase = phase,
                                 compact = settled,
+                                over = over,
                                 isLast = index == phases.lastIndex,
                                 runId = run.tool.id,
                             )
@@ -271,6 +333,7 @@ fun WorkflowCard(
                 if (run.logs.isNotEmpty()) {
                     LogBlock(
                         logs = run.logs,
+                        dropped = run.droppedLogLines,
                         compact = settled,
                         open = logOpen,
                         onToggle = { logOpen = !logOpen },
@@ -280,7 +343,7 @@ fun WorkflowCard(
                 run.script?.let { script ->
                     if (script.source.isNotEmpty() || script.returned.isNotEmpty()) {
                         Disclosure(
-                            label = "script",
+                            label = "Script",
                             open = scriptOpen,
                             onToggle = { scriptOpen = !scriptOpen },
                         ) {
@@ -294,16 +357,6 @@ fun WorkflowCard(
                         }
                     }
                 }
-
-                if (run.rendered.isNotEmpty()) {
-                    Disclosure(
-                        label = "raw tree",
-                        open = rawOpen,
-                        onToggle = { rawOpen = !rawOpen },
-                    ) {
-                        OrchCodeBlock(text = run.rendered, maxLines = 40)
-                    }
-                }
             }
         }
     }
@@ -313,11 +366,23 @@ fun WorkflowCard(
 // Header pieces
 // ---------------------------------------------------------------------------
 
+/**
+ * The status pill beside the name. A finished success gets no pill — the meter
+ * and the counts already say it — only the green check a finished tool row
+ * wears, so a run that worked looks as finished as one that failed looks
+ * failed. Every other state is spelled out, so none of them depends on colour
+ * alone.
+ */
 @Composable
-private fun RunBadge(status: OrchStatus) {
+private fun RunBadge(run: WorkflowRun) {
     val colors = LocalSpettroColors.current
-    when (status) {
-        OrchStatus.RUNNING -> Row(
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    if (run.continued) {
+        OrchPill(text = "Continued below", tint = muted, icon = Icons.Outlined.ArrowDownward)
+        return
+    }
+    when (run.status) {
+        RunStatus.RUNNING -> Row(
             modifier = Modifier
                 .clip(CircleShape)
                 .background(colors.accent.copy(alpha = 0.16f))
@@ -327,7 +392,7 @@ private fun RunBadge(status: OrchStatus) {
         ) {
             SpettroSpinner(size = 8.dp, color = colors.accentInk)
             Text(
-                text = "running",
+                text = "Running",
                 fontSize = 9.sp,
                 lineHeight = 12.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -335,8 +400,68 @@ private fun RunBadge(status: OrchStatus) {
                 color = colors.accentInk,
             )
         }
-        OrchStatus.FAILED -> OrchPill(text = "failed", tint = colors.dangerInk)
-        OrchStatus.DONE -> Unit
+        RunStatus.PAUSED -> OrchPill(text = "Paused", tint = colors.warning, icon = Icons.Filled.PauseCircle)
+        RunStatus.STOPPED -> OrchPill(text = "Stopped", tint = muted, icon = Icons.Filled.StopCircle)
+        RunStatus.FAILED -> OrchPill(text = "Failed", tint = colors.dangerInk, icon = Icons.Filled.Cancel)
+        RunStatus.DONE -> OrchStatusGlyph(status = OrchStatus.DONE, size = 13.dp)
+    }
+}
+
+/**
+ * The sentence an open card leads with when the run is neither simply working
+ * nor simply finished: why it failed, what it waits for, why it stopped, where
+ * it went. On a tinted ground of its own, because it is the one line on the
+ * card that tells the reader what to do with it.
+ */
+@Composable
+private fun StateLine(run: WorkflowRun, text: String) {
+    val colors = LocalSpettroColors.current
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val ground = when {
+        run.continued -> Color.Transparent
+        run.status == RunStatus.FAILED -> colors.diffRemoved.copy(alpha = 0.09f)
+        run.status == RunStatus.PAUSED -> colors.warning.copy(alpha = 0.10f)
+        else -> Color.Transparent
+    }
+    val ink = if (run.continued || run.status == RunStatus.STOPPED) {
+        muted
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dimens.radiusSm))
+            .background(ground)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        if (run.continued) {
+            Icon(
+                imageVector = Icons.Outlined.ArrowDownward,
+                contentDescription = null,
+                tint = muted.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 2.dp).size(12.dp),
+            )
+        } else {
+            RunStatusGlyph(status = run.status, size = 12.dp, modifier = Modifier.padding(top = 2.dp))
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 17.sp),
+            color = ink,
+            modifier = Modifier.weight(1f),
+        )
+        val checkpoint = run.pausedAt?.checkpointId.orEmpty()
+        if (!run.continued && checkpoint.isNotEmpty()) {
+            Text(
+                text = "at $checkpoint",
+                style = MonoSmall.copy(fontSize = 10.sp, lineHeight = 17.sp),
+                color = muted.copy(alpha = 0.7f),
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -407,12 +532,15 @@ private fun ElapsedLabel(elapsed: String) {
  * A phase opens expanded when it is running or has failures and closed when it
  * finished cleanly: what is moving and what broke are what the reader came for,
  * and a settled phase's roll of successes is the least interesting thing on the
- * card. A pending phase has nothing to open.
+ * card. A pending phase has nothing to open — and on a run that has ended it
+ * says "Not run" rather than "Pending", which would promise work that is not
+ * coming.
  */
 @Composable
 private fun PhaseGroup(
     phase: WorkflowPhase,
     compact: Boolean,
+    over: Boolean,
     isLast: Boolean,
     runId: String,
 ) {
@@ -498,7 +626,7 @@ private fun PhaseGroup(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = phase.title.ifEmpty { "no phase" },
+                    text = phase.title.ifEmpty { "No phase" },
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.SemiBold,
                     ),
@@ -511,9 +639,10 @@ private fun PhaseGroup(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
+                if (phase.dynamic) OrchPill(text = "Added", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (state == PhaseState.PENDING) {
                     Text(
-                        text = "pending",
+                        text = if (over) "Not run" else "Pending",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     )
@@ -544,7 +673,6 @@ private fun PhaseGroup(
             if (phase.members.isNotEmpty()) {
                 AgentCellStrip(
                     members = phase.members,
-                    pending = 0,
                     modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
                 )
             }
@@ -621,12 +749,17 @@ private fun QuietToggle(
 @Composable
 private fun LogBlock(
     logs: List<String>,
+    dropped: Int,
     compact: Boolean,
     open: Boolean,
     onToggle: () -> Unit,
 ) {
+    // The CLI keeps only the last lines; saying how many went before keeps the
+    // tail from passing for the whole log.
+    val earlier = if (dropped > 0) "… $dropped earlier ${if (dropped == 1) "line" else "lines"}" else ""
     if (!compact && logs.size <= LOG_INLINE_MAX) {
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            if (earlier.isNotEmpty()) LogLine(earlier, faint = true)
             logs.forEach { LogLine(it) }
         }
         return
@@ -643,7 +776,7 @@ private fun LogBlock(
         ) {
             DisclosureChevron(expanded = open, size = 11.dp)
             Text(
-                text = "log (${logs.size})",
+                text = "Log (${logs.size + dropped})",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -659,16 +792,17 @@ private fun LogBlock(
                 )
             }
         }
+        if (open && earlier.isNotEmpty()) LogLine(earlier, faint = true)
         if (open) logs.forEach { LogLine(it) }
     }
 }
 
 @Composable
-private fun LogLine(line: String) {
+private fun LogLine(line: String, faint: Boolean = false) {
     Text(
         text = line,
         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (faint) 0.6f else 0.85f),
         modifier = Modifier.padding(start = 4.dp),
     )
 }
@@ -709,32 +843,6 @@ internal fun Disclosure(
 // ---------------------------------------------------------------------------
 
 /**
- * Trims a phase to [cap] rows. Port of the `prio` ordering in
- * view_workflow.go's workflowRow: running rows are never dropped, then
- * failures are kept ahead of successes, because a failure is the row a reader
- * most wants to see among work that is already over. Survivors stay in
- * dispatch order — reordering them would make the list churn as it fills.
- */
-private fun capMembers(members: List<MemberCall>, cap: Int): Pair<List<MemberCall>, Int> {
-    if (members.size <= cap) return members to 0
-    val keep = mutableSetOf<String>()
-    for (member in members) {
-        if (member.status == OrchStatus.RUNNING) keep += member.tool.id
-    }
-    var budget = (cap - keep.size).coerceAtLeast(0)
-    for (status in listOf(OrchStatus.FAILED, OrchStatus.DONE)) {
-        for (member in members) {
-            if (budget == 0) break
-            if (member.status != status || member.tool.id in keep) continue
-            keep += member.tool.id
-            budget -= 1
-        }
-    }
-    val shown = members.filter { it.tool.id in keep }
-    return shown to (members.size - shown.size)
-}
-
-/**
  * Ticking elapsed time while the run is live. The tool call's timestamp is set
  * once, when the call first appears, and never updated — so it is a true start
  * time. The clock only runs while the card needs it: a finished run has no end
@@ -768,6 +876,7 @@ private fun WorkflowCardLivePreview() {
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
         ) {
             WorkflowCard(run = OrchestrationPreviewData.liveWorkflow)
+            WorkflowCard(run = OrchestrationPreviewData.pausedWorkflow)
         }
     }
 }

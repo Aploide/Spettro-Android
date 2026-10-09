@@ -1,11 +1,19 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 import to.eyed.spettro.mobile.model.ChatMessage
-import to.eyed.spettro.mobile.model.OrchRun
 import to.eyed.spettro.mobile.model.ToolCallItem
 import to.eyed.spettro.mobile.model.TranscriptItem
 import to.eyed.spettro.mobile.model.TranscriptRow
+import to.eyed.spettro.mobile.model.WorkflowRun
 import to.eyed.spettro.mobile.model.groupTranscript
 
 /**
@@ -17,10 +25,10 @@ import to.eyed.spettro.mobile.model.groupTranscript
  * feeds them was broken, which is the one bug this whole layer exists to
  * prevent. Every scene below is therefore also a live exercise of the fold.
  *
- * The wire shapes are copied from real CLI output — `workflow <name>` carrying
- * `{run_id, workflow, phases}`, members carrying `{agent, workflow, run_id,
- * phase, index}`, Ultra members carrying `{agent, swarm: true}`, and nested
- * calls titled `[instance] tool {...}`.
+ * The wire shapes are the ones the CLI sends today — a card `workflow-<run>`
+ * (or `workflow-<run>-2` for a later turn's) carrying its whole state as
+ * `_meta["spettro.app/workflow"]`, members carrying `{agent, workflow, run_id,
+ * phase, index}`, and nested calls titled `[instance] tool {...}`.
  *
  * Declaration order matters: an `object`'s properties initialise top to bottom,
  * so every constant is declared above its first use.
@@ -40,11 +48,11 @@ internal object OrchestrationPreviewData {
         output: String = "",
     ) = ToolCallItem(
         id = id,
-        title = """agent {"agent":"$instance"}""",
+        title = "agent $instance: $task",
         kind = "think",
         status = status,
         output = output,
-        argsJSON = """{"agent":"$instance","task":"$task"$extraArgs}""",
+        argsJSON = """{"agent":"$instance","task":"$task","parent_agent_id":"coding"$extraArgs}""",
     )
 
     private fun child(
@@ -57,6 +65,96 @@ internal object OrchestrationPreviewData {
 
     private fun report(agent: String, summary: String, status: String = "ok") =
         """{"agent":"$agent","status":"$status","summary":"$summary"}"""
+
+    /** A member as the card lists it: instance, task, phase, meta status. */
+    private data class Listed(
+        val instance: String,
+        val task: String,
+        val phase: String,
+        val status: String,
+        val replayed: Boolean = false,
+    )
+
+    private data class Phase(val title: String, val detail: String = "", val dynamic: Boolean = false)
+
+    /**
+     * `_meta["spettro.app/workflow"]` as metaView() in internal/acp/workflow.go
+     * writes it: the run, its phases with their counts, every member, and the
+     * log's tail.
+     */
+    private fun meta(
+        runId: String,
+        name: String,
+        status: String,
+        description: String = WF_DESCRIPTION,
+        size: String = "large",
+        sizeAgents: Int = 30,
+        budgetTokens: Long = 500_000,
+        phases: List<Phase>,
+        members: List<Listed>,
+        logs: List<String> = emptyList(),
+        dropped: Int = 0,
+        attach: Int = 1,
+        pausedAt: Pair<String, String>? = null,
+        stoppedReason: String? = null,
+        continuedIn: String? = null,
+        continuedFrom: String? = null,
+        summary: String? = null,
+    ): JsonObject = buildJsonObject {
+        put("version", 1)
+        put("runId", runId)
+        put("name", name)
+        put("description", description)
+        put("size", size)
+        put("sizeAgents", sizeAgents)
+        put("budgetTokens", budgetTokens)
+        put("status", status)
+        put("attach", attach)
+        pausedAt?.let { (checkpoint, message) ->
+            putJsonObject("pausedAt") {
+                put("checkpointId", checkpoint)
+                put("message", message)
+            }
+        }
+        stoppedReason?.let { put("stoppedReason", it) }
+        continuedIn?.let { put("continuedIn", it) }
+        continuedFrom?.let { put("continuedFrom", it) }
+        summary?.let { put("summary", it) }
+        putJsonArray("phases") {
+            for (phase in phases) {
+                val inPhase = members.filter { it.phase == phase.title }
+                addJsonObject {
+                    put("title", phase.title)
+                    if (phase.detail.isNotEmpty()) put("detail", phase.detail)
+                    put("dynamic", phase.dynamic)
+                    put("done", inPhase.count { it.status == "done" || it.status == "failed" })
+                    put("total", inPhase.size)
+                    put("failed", inPhase.count { it.status == "failed" })
+                }
+            }
+        }
+        putJsonArray("members") {
+            for (m in members) {
+                addJsonObject {
+                    put("instance", m.instance)
+                    put("task", m.task)
+                    put("phase", m.phase)
+                    put("status", m.status)
+                    put("replayed", m.replayed)
+                }
+            }
+        }
+        putJsonObject("counts") {
+            put("agents", members.size)
+            put("failed", members.count { it.status == "failed" })
+            put("replayed", members.count { it.replayed })
+        }
+        putJsonArray("logTail") { logs.forEach { add(it) } }
+        put("droppedLogLines", dropped)
+    }
+
+    /** acpWorkflow.title(): `workflow <name> · <size> · budget <n>`. */
+    private fun cardTitle(name: String) = "workflow $name · large · budget 500k"
 
     // -----------------------------------------------------------------------
     // Constants the fixtures below embed
@@ -77,68 +175,75 @@ internal object OrchestrationPreviewData {
         "\"const PHASES = ['Read', 'Port']\\nexport const meta = {\\n  name: 'port-settings'," +
             "\\n  description: 'Port the settings screen',\\n  phases: PHASES,\\n}\\n\""
 
-    private const val WF_RUN = "wf_2026_08_24_a91"
+    private const val WF_RUN = "wf_20260824_a91c03"
+    private const val CARD_ID = "workflow-$WF_RUN"
 
     private const val WF_DESCRIPTION =
         "Review the changed files across dimensions, then adversarially verify every finding"
 
-    /**
-     * The tree `acpWorkflow.render()` writes into a finished run's output. The
-     * settled fixture carries it because it is the *only* place a finished
-     * run's phase plan, description and log survive — parsing it back is what
-     * `parseRenderedWorkflow` exists for.
-     */
-    private val RENDERED_TREE = """
-        6 agents · 1 failed · 1 replayed
+    private val PHASES = listOf(
+        Phase("Review", "one agent per dimension"),
+        Phase("Verify", "three skeptics per finding"),
+        Phase("Synthesise", "rank what survived"),
+    )
 
-        $WF_DESCRIPTION
+    /** Every member the run dispatched, as the card lists them mid-flight. */
+    private val LIVE_MEMBERS = listOf(
+        Listed("review#1", "correctness — logic errors and unhandled states", "Review", "done"),
+        Listed("review#2", "performance — allocations on the hot path", "Review", "done"),
+        Listed("review#3", "tests — coverage of the changed branches", "Review", "failed"),
+        Listed("verify#1", "Refute: the resume path drops queued chunks", "Verify", "running"),
+        Listed("verify#2", "Refute: the pairing timeout is never cleared", "Verify", "running"),
+        Listed("verify#3", "Refute: the transcript fold recomputes per frame", "Verify", "done", replayed = true),
+    )
 
-        ▸ Review — 2/3 done, 1 failed
-            ✓ review#1  correctness — logic errors and unhandled states
-            ✓ review#2  performance — allocations on the hot path
-            ✗ review#3  tests — coverage of the changed branches
-        ▸ Verify — 3/3 done
-            ✓ verify#1  Refute: the resume path drops queued chunks
-            ✓ verify#2  Refute: the pairing timeout is never cleared
-            ✓ verify#3  Refute: groupTranscript recomputes per frame
-        ○ Synthesise — pending
-
-        log:
-          3/3 dimensions reviewed
-          2 findings queued for verification
-          1 finding refuted
-    """.trimIndent()
+    private val LIVE_LOGS = listOf(
+        "3/3 dimensions reviewed",
+        "2 findings queued for verification",
+    )
 
     // -----------------------------------------------------------------------
     // A workflow mid-flight: three phases, one member already failed
     // -----------------------------------------------------------------------
 
-    private val workflowLifecycle = ToolCallItem(
-        id = "wf-lifecycle",
-        title = "workflow review-changes",
+    private val workflowCard = ToolCallItem(
+        id = CARD_ID,
+        title = cardTitle("review-changes"),
         kind = "think",
         status = AcpToolStatus.IN_PROGRESS,
         argsJSON = """{"run_id":"$WF_RUN","workflow":"review-changes",""" +
             """"description":"$WF_DESCRIPTION","origin":"inline",""" +
             """"phases":[{"title":"Review","detail":"one agent per dimension"},""" +
             """{"title":"Verify","detail":"three skeptics per finding"},""" +
-            """{"title":"Synthesise","detail":"rank what survived"}]}""",
+            """{"title":"Synthesise","detail":"rank what survived"}],""" +
+            """"size":"large","size_agents":30,"budget_tokens":500000}""",
+        workflow = meta(
+            runId = WF_RUN,
+            name = "review-changes",
+            status = "running",
+            phases = PHASES,
+            members = LIVE_MEMBERS,
+            logs = LIVE_LOGS,
+        ),
     )
 
     /** The model's own `workflow` tool call, carrying the script it wrote. */
     private val workflowScriptCall = ToolCallItem(
-        id = "wf-script",
+        id = "call-1",
         title = """workflow {"save_as":"review-changes","script":"export const meta = ..."}""",
         kind = "think",
         status = AcpToolStatus.IN_PROGRESS,
         argsJSON = """{"save_as":"review-changes","script":$SCRIPT_SOURCE_JSON}""",
     )
 
+    private fun runArgs(phase: String, index: Int, extra: String = "") =
+        ""","workflow":"review-changes","run_id":"$WF_RUN","phase":"$phase","index":$index$extra"""
+
     private val workflowMembers = listOf(
         member(
-            "wf-m1", "review#1", "correctness — logic errors and unhandled states",
+            "call-2", "review#1", "correctness — logic errors and unhandled states",
             AcpToolStatus.COMPLETED,
-            ""","workflow":"review-changes","run_id":"$WF_RUN","phase":"Review","index":1""",
+            runArgs("Review", 1),
             report(
                 "review#1",
                 "Two real defects: the resume path drops queued chunks, and the pairing " +
@@ -146,57 +251,56 @@ internal object OrchestrationPreviewData {
             ),
         ),
         member(
-            "wf-m2", "review#2", "performance — allocations on the hot path",
+            "call-3", "review#2", "performance — allocations on the hot path",
             AcpToolStatus.COMPLETED,
-            ""","workflow":"review-changes","run_id":"$WF_RUN","phase":"Review","index":2""",
+            runArgs("Review", 2),
             report(
                 "review#2",
                 "One finding: the transcript fold was recomputed per frame before the memo landed.",
             ),
         ),
         member(
-            "wf-m3", "review#3", "tests — coverage of the changed branches",
+            "call-4", "review#3", "tests — coverage of the changed branches",
             AcpToolStatus.FAILED,
-            ""","workflow":"review-changes","run_id":"$WF_RUN","phase":"Review","index":3""",
+            runArgs("Review", 3),
             """{"error":"provider returned 429 after 3 attempts"}""",
         ),
         member(
-            "wf-m4", "verify#1", "Refute: the resume path drops queued chunks",
+            "call-5", "verify#1", "Refute: the resume path drops queued chunks",
             AcpToolStatus.IN_PROGRESS,
-            ""","workflow":"review-changes","run_id":"$WF_RUN","phase":"Verify","index":4""",
+            runArgs("Verify", 4),
         ),
         member(
-            "wf-m5", "verify#2", "Refute: the pairing timeout is never cleared",
+            "call-6", "verify#2", "Refute: the pairing timeout is never cleared",
             AcpToolStatus.IN_PROGRESS,
-            ""","workflow":"review-changes","run_id":"$WF_RUN","phase":"Verify","index":5""",
+            runArgs("Verify", 5),
         ),
         member(
-            "wf-m6", "verify#3", "Refute: the transcript fold recomputes per frame",
+            "call-7", "verify#3", "Refute: the transcript fold recomputes per frame",
             AcpToolStatus.COMPLETED,
-            ""","workflow":"review-changes","run_id":"$WF_RUN","phase":"Verify","index":6,""" +
-                """"cached":true""",
+            runArgs("Verify", 6, ""","cached":true"""),
             report("verify#3", "Refuted — the memo was added in the same commit."),
         ),
     )
 
     private val workflowChildren = listOf(
         child(
-            "wf-c1", "review#1",
+            "call-8", "review#1",
             """read {"path":"app/src/main/java/to/eyed/spettro/mobile/core/remote/RemoteClient.kt"}""",
             "read", AcpToolStatus.COMPLETED,
         ),
         child(
-            "wf-c2", "review#1",
+            "call-9", "review#1",
             """grep {"pattern":"queuedChunks","path":"app/src"}""",
             "search", AcpToolStatus.COMPLETED,
         ),
         child(
-            "wf-c3", "verify#1",
+            "call-10", "verify#1",
             """bash {"command":"./gradlew :app:testDebugUnitTest --tests '*Resume*'"}""",
             "execute", AcpToolStatus.IN_PROGRESS,
         ),
         child(
-            "wf-c4", "verify#2",
+            "call-11", "verify#2",
             """read {"path":"app/src/main/java/to/eyed/spettro/mobile/core/remote/RemotePairing.kt"}""",
             "read", AcpToolStatus.COMPLETED,
         ),
@@ -205,19 +309,19 @@ internal object OrchestrationPreviewData {
     private val workflowPrompt = TranscriptItem.Message(
         ChatMessage(
             role = ChatMessage.Role.User,
-            text = "ultracode — review the changes on this branch",
+            text = "ultracode +500k — review the changes on this branch",
         ),
     )
 
     /**
      * A live workflow, interleaved the way the wire delivers it: the script
-     * call, the lifecycle call, then members and their nested tools in arrival
-     * order rather than grouped by owner.
+     * call, the card, then members and their nested tools in arrival order
+     * rather than grouped by owner.
      */
     val liveWorkflowTranscript: List<TranscriptItem> = listOf(
         workflowPrompt,
         TranscriptItem.Tool(workflowScriptCall),
-        TranscriptItem.Tool(workflowLifecycle),
+        TranscriptItem.Tool(workflowCard),
         TranscriptItem.Tool(workflowMembers[0]),
         TranscriptItem.Tool(workflowChildren[0]),
         TranscriptItem.Tool(workflowMembers[1]),
@@ -230,37 +334,42 @@ internal object OrchestrationPreviewData {
         TranscriptItem.Tool(workflowMembers[5]),
     )
 
-    /**
-     * The same run, finished. The finish update replaces `argsJSON` with a
-     * completely different payload and the phase plan is gone — everything the
-     * card still shows has to be mined back out of the rendered text, which is
-     * exactly what this fixture exercises.
-     */
+    /** The members once every one of them has settled. */
+    private val settledMembers: List<ToolCallItem> = workflowMembers.map { call ->
+        if (call.status != AcpToolStatus.IN_PROGRESS) return@map call
+        call.copy(
+            status = AcpToolStatus.COMPLETED,
+            output = report(
+                call.subAgentCall?.agent ?: "agent",
+                "Confirmed — reproduced on a clean checkout.",
+            ),
+        )
+    }
+
+    /** The same run, finished: the card closes completed, its summary on top. */
     val settledWorkflowTranscript: List<TranscriptItem> = buildList {
         add(workflowPrompt)
+        add(TranscriptItem.Tool(workflowScriptCall.copy(status = AcpToolStatus.COMPLETED)))
         add(
             TranscriptItem.Tool(
-                workflowLifecycle.copy(
+                workflowCard.copy(
                     status = AcpToolStatus.COMPLETED,
-                    argsJSON = """{"run_id":"$WF_RUN","workflow":"review-changes","agents":6,""" +
-                        """"failed":1,"cached":1,"tokens":412000}""",
-                    output = RENDERED_TREE,
+                    workflow = meta(
+                        runId = WF_RUN,
+                        name = "review-changes",
+                        status = "success",
+                        phases = PHASES,
+                        members = LIVE_MEMBERS.map {
+                            if (it.status == "running") it.copy(status = "done") else it
+                        },
+                        logs = LIVE_LOGS + "1 finding refuted",
+                        summary = "6 agents · 1 failed · 1 replayed",
+                    ),
                 ),
             ),
         )
-        workflowMembers.forEachIndexed { index, call ->
-            val settled = if (call.status == AcpToolStatus.IN_PROGRESS) {
-                call.copy(
-                    status = AcpToolStatus.COMPLETED,
-                    output = report(
-                        call.subAgentCall?.agent ?: "agent",
-                        "Confirmed — reproduced on a clean checkout.",
-                    ),
-                )
-            } else {
-                call
-            }
-            add(TranscriptItem.Tool(settled))
+        settledMembers.forEachIndexed { index, call ->
+            add(TranscriptItem.Tool(call))
             if (index == 0) add(TranscriptItem.Tool(workflowChildren[0]))
         }
         add(
@@ -275,137 +384,157 @@ internal object OrchestrationPreviewData {
     }
 
     // -----------------------------------------------------------------------
-    // An Ultra swarm mid-ramp
+    // A run waiting at a checkpoint, and the same run continued
     // -----------------------------------------------------------------------
 
-    private val swarmItems = listOf(
-        "app/src/main/java/to/eyed/spettro/mobile/ui/screens/chat/ChatScreen.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/ui/screens/chat/ChatComposer.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/ui/screens/chat/ToolCallRow.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/ui/screens/home/ChatListScreen.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/ui/screens/home/PairingScreen.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/ui/screens/settings/SettingsScreen.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/core/remote/RemoteClient.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/core/remote/RemotePairing.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/core/acp/AcpParser.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/model/ChatSession.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/model/TranscriptModels.kt",
-        "app/src/main/java/to/eyed/spettro/mobile/coordinator/AppContainer.kt",
-    )
+    private val PAUSE = "cp-1" to "Two findings survived. Fix both, or only the resume path?"
 
-    private val ultraArgs: String = buildString {
-        append("""{"description":"Add KDoc to every public composable and check the imports",""")
-        append(""""subagent_type":"code","isolation":"worktree","items":[""")
-        append(swarmItems.joinToString(",") { "\"$it\"" })
-        append("]}")
+    private val pausedMembers = LIVE_MEMBERS.map {
+        if (it.status == "running") it.copy(status = "done") else it
     }
 
-    private val ultraCall = ToolCallItem(
-        id = "ultra-1",
-        title = "ultra",
-        kind = "think",
-        status = AcpToolStatus.IN_PROGRESS,
-        argsJSON = ultraArgs,
-    )
-
-    private fun swarmMember(
-        index: Int,
-        status: AcpToolStatus,
-        output: String = "",
-    ): ToolCallItem {
-        val instance = "code#${index + 1}"
-        return ToolCallItem(
-            id = "ultra-m$index",
-            title = """agent {"agent":"$instance"}""",
-            kind = "think",
-            status = status,
-            output = output,
-            argsJSON = """{"agent":"$instance","task":"${swarmItems[index]}",""" +
-                """"swarm":true,"index":${index + 1}}""",
-        )
-    }
-
-    private val swarmMembers = listOf(
-        swarmMember(
-            0, AcpToolStatus.COMPLETED,
-            report("code#1", "Documented 6 composables; no import changes needed."),
-        ),
-        swarmMember(
-            1, AcpToolStatus.COMPLETED,
-            report("code#2", "Documented 4 composables and dropped two unused imports."),
-        ),
-        swarmMember(
-            2, AcpToolStatus.FAILED,
-            "the file was modified by another member; rebase before retrying",
-        ),
-        swarmMember(3, AcpToolStatus.COMPLETED, report("code#4", "Documented 9 composables.")),
-        swarmMember(4, AcpToolStatus.IN_PROGRESS),
-        swarmMember(5, AcpToolStatus.IN_PROGRESS),
-        swarmMember(6, AcpToolStatus.IN_PROGRESS),
-    )
-
-    private val swarmChildren = listOf(
-        child(
-            "us-c1", "code#5",
-            """read {"path":"app/src/main/java/to/eyed/spettro/mobile/ui/screens/home/PairingScreen.kt"}""",
-            "read", AcpToolStatus.COMPLETED,
-        ),
-        child(
-            "us-c2", "code#5",
-            """edit {"path":"app/src/main/java/to/eyed/spettro/mobile/ui/screens/home/PairingScreen.kt"}""",
-            "edit", AcpToolStatus.IN_PROGRESS,
-        ),
-        child(
-            "us-c3", "code#6",
-            """bash {"command":"./gradlew :app:compileDebugKotlin"}""",
-            "execute", AcpToolStatus.IN_PROGRESS,
+    /** The card as the turn that paused it leaves it: open, in progress. */
+    private val pausedCard = workflowCard.copy(
+        workflow = meta(
+            runId = WF_RUN,
+            name = "review-changes",
+            status = "paused",
+            phases = PHASES,
+            members = pausedMembers,
+            logs = LIVE_LOGS + "1 finding refuted",
+            pausedAt = PAUSE,
         ),
     )
 
-    private val swarmPrompt = TranscriptItem.Message(
-        ChatMessage(
-            role = ChatMessage.Role.User,
-            text = "fan this out across sub-agents: document every public composable",
-        ),
-    )
-
-    val liveSwarmTranscript: List<TranscriptItem> = buildList {
-        add(swarmPrompt)
-        add(TranscriptItem.Tool(ultraCall))
-        swarmMembers.forEach { add(TranscriptItem.Tool(it)) }
-        swarmChildren.forEach { add(TranscriptItem.Tool(it)) }
-    }
-
-    /** A settled swarm: every item dispatched, two of them broken. */
-    val settledSwarmTranscript: List<TranscriptItem> = buildList {
-        add(swarmPrompt)
-        add(TranscriptItem.Tool(ultraCall.copy(status = AcpToolStatus.COMPLETED)))
-        swarmItems.indices.forEach { index ->
-            val status = if (index == 2 || index == 9) {
-                AcpToolStatus.FAILED
-            } else {
-                AcpToolStatus.COMPLETED
-            }
-            val output = if (status == AcpToolStatus.FAILED) {
-                "the file was modified by another member; rebase before retrying"
-            } else {
-                report("code#${index + 1}", "Documented the public surface of this file.")
-            }
-            add(TranscriptItem.Tool(swarmMember(index, status, output)))
-        }
+    val pausedWorkflowTranscript: List<TranscriptItem> = buildList {
+        add(workflowPrompt)
+        add(TranscriptItem.Tool(workflowScriptCall.copy(status = AcpToolStatus.COMPLETED)))
+        add(TranscriptItem.Tool(pausedCard))
+        settledMembers.forEach { add(TranscriptItem.Tool(it)) }
         add(
             TranscriptItem.Message(
                 ChatMessage(
                     role = ChatMessage.Role.Assistant,
-                    text = "Ten files documented. Two members hit the same rebase conflict — " +
-                        "I'll redo those two serially.",
+                    text = "The review paused before fixing anything: two findings survived " +
+                        "verification. Should I fix both, or only the resume path?",
                 ),
             ),
         )
     }
 
+    /**
+     * Turn two answers the checkpoint. The CLI closes turn one's card
+     * "continued in a later turn" with its state as it paused, and opens
+     * `workflow-<run>-2` with everything recorded so far plus the new phase.
+     */
+    val continuedWorkflowTranscript: List<TranscriptItem> = buildList {
+        add(workflowPrompt)
+        add(TranscriptItem.Tool(workflowScriptCall.copy(status = AcpToolStatus.COMPLETED)))
+        add(
+            TranscriptItem.Tool(
+                pausedCard.copy(
+                    status = AcpToolStatus.COMPLETED,
+                    workflow = meta(
+                        runId = WF_RUN,
+                        name = "review-changes",
+                        status = "paused",
+                        phases = PHASES,
+                        members = pausedMembers,
+                        logs = LIVE_LOGS + "1 finding refuted",
+                        pausedAt = PAUSE,
+                        continuedIn = "$CARD_ID-2",
+                    ),
+                ),
+            ),
+        )
+        settledMembers.forEach { add(TranscriptItem.Tool(it)) }
+        add(
+            TranscriptItem.Message(
+                ChatMessage(role = ChatMessage.Role.User, text = "Fix both."),
+            ),
+        )
+        add(
+            TranscriptItem.Tool(
+                ToolCallItem(
+                    id = "call-1~2",
+                    title = """workflow {"continue_run_id":"$WF_RUN","reply":"fix both"}""",
+                    kind = "think",
+                    status = AcpToolStatus.COMPLETED,
+                    argsJSON = """{"continue_run_id":"$WF_RUN","reply":"fix both"}""",
+                    output = """<workflow_result name="review-changes" run_id="$WF_RUN">""" +
+                        "\n</workflow_result>",
+                ),
+            ),
+        )
+        val fix = Phase("Fix", "one agent per surviving finding", dynamic = true)
+        add(
+            TranscriptItem.Tool(
+                ToolCallItem(
+                    id = "$CARD_ID-2",
+                    title = cardTitle("review-changes"),
+                    kind = "think",
+                    status = AcpToolStatus.IN_PROGRESS,
+                    workflow = meta(
+                        runId = WF_RUN,
+                        name = "review-changes",
+                        status = "running",
+                        attach = 2,
+                        continuedFrom = CARD_ID,
+                        phases = PHASES + fix,
+                        members = pausedMembers + listOf(
+                            Listed("code#1", "Fix: the resume path drops queued chunks", "Fix", "running"),
+                            Listed("code#2", "Fix: the pairing timeout is never cleared", "Fix", "pending"),
+                        ),
+                        logs = LIVE_LOGS + listOf("1 finding refuted", "fixing 2 findings"),
+                    ),
+                ),
+            ),
+        )
+        add(
+            TranscriptItem.Tool(
+                member(
+                    "call-2~2", "code#1", "Fix: the resume path drops queued chunks",
+                    AcpToolStatus.IN_PROGRESS,
+                    ""","workflow":"review-changes","run_id":"$WF_RUN","phase":"Fix","index":7""",
+                ),
+            ),
+        )
+        add(
+            TranscriptItem.Tool(
+                child(
+                    "call-3~2", "code#1",
+                    """edit {"path":"app/src/main/java/to/eyed/spettro/mobile/core/remote/RemoteClient.kt"}""",
+                    "edit", AcpToolStatus.IN_PROGRESS,
+                ),
+            ),
+        )
+    }
+
+    /** A run the orchestrator stopped: the card closes completed, saying why. */
+    val stoppedWorkflowTranscript: List<TranscriptItem> = listOf(
+        workflowPrompt,
+        TranscriptItem.Tool(workflowScriptCall.copy(status = AcpToolStatus.COMPLETED)),
+        TranscriptItem.Tool(
+            workflowCard.copy(
+                status = AcpToolStatus.COMPLETED,
+                workflow = meta(
+                    runId = WF_RUN,
+                    name = "review-changes",
+                    status = "stopped",
+                    phases = PHASES,
+                    members = LIVE_MEMBERS.map {
+                        if (it.status == "running") it.copy(status = "done") else it
+                    },
+                    logs = LIVE_LOGS,
+                    dropped = 12,
+                    stoppedReason = "paused for over 30m with no continue",
+                ),
+            ),
+        ),
+    ) + settledMembers.map { TranscriptItem.Tool(it) }
+
     // -----------------------------------------------------------------------
-    // A workflow that never started
+    // Workflows that never started
     // -----------------------------------------------------------------------
 
     val failedScriptTranscript: List<TranscriptItem> = listOf(
@@ -415,15 +544,45 @@ internal object OrchestrationPreviewData {
                 text = "use a workflow to port the settings screen",
             ),
         ),
+        // A run that died on the way in: the card closes failed, the parse
+        // error where a finished run's counts would go.
         TranscriptItem.Tool(
             ToolCallItem(
-                id = "wf-broken",
+                id = "workflow-wf_20260824_b7e211",
+                title = "workflow port-settings",
+                kind = "think",
+                status = AcpToolStatus.FAILED,
+                workflow = meta(
+                    runId = "wf_20260824_b7e211",
+                    name = "port-settings",
+                    status = "failed",
+                    description = "Port the settings screen",
+                    size = "",
+                    sizeAgents = 0,
+                    budgetTokens = 0,
+                    phases = listOf(Phase("Read"), Phase("Port")),
+                    members = emptyList(),
+                    summary = "error: workflow \"port-settings\": script does not parse: " +
+                        "SyntaxError: (anonymous): Line 4:12 Unexpected identifier",
+                ),
+            ),
+        ),
+        TranscriptItem.Message(
+            ChatMessage(
+                role = ChatMessage.Role.Assistant,
+                text = "The script didn't parse. I'll run the saved version instead.",
+            ),
+        ),
+        // And a script call that started no run at all.
+        TranscriptItem.Tool(
+            ToolCallItem(
+                id = "call-12",
                 title = """workflow {"save_as":"port-settings","script":"export const meta = ..."}""",
                 kind = "think",
                 status = AcpToolStatus.FAILED,
-                output = "script error: meta must be a pure literal — `phases` referenced the " +
-                    "variable `PHASES` (line 4)",
-                argsJSON = """{"save_as":"port-settings","script":$BROKEN_SCRIPT_JSON}""",
+                output = "error: workflow: no saved workflow named \"port-settings\" " +
+                    "(looked in .spettro/workflows)",
+                argsJSON = """{"name":"port-settings","script":$BROKEN_SCRIPT_JSON}""",
             ),
         ),
     )
@@ -437,9 +596,23 @@ internal object OrchestrationPreviewData {
         add(ChatPreviewData.userMessage)
         add(ChatPreviewData.reasoning)
         add(TranscriptItem.Tool(ChatPreviewData.readTool))
-        addAll(liveSwarmTranscript.drop(1))
-        add(TranscriptItem.Tool(ChatPreviewData.executeTool))
         addAll(settledWorkflowTranscript.drop(1))
+        add(TranscriptItem.Tool(ChatPreviewData.executeTool))
+        addAll(liveWorkflowTranscript.drop(1).map(::secondRun))
+    }
+
+    /** The live workflow under a different run id, so two runs can share a
+     *  transcript without their ids colliding. */
+    private fun secondRun(item: TranscriptItem): TranscriptItem {
+        val tool = (item as? TranscriptItem.Tool)?.tool ?: return item
+        val renamed = tool.copy(
+            id = tool.id.replace(WF_RUN, "wf_20260824_c4d590").let { if (it == tool.id) "${it}~2" else it },
+            argsJSON = tool.argsJSON?.replace(WF_RUN, "wf_20260824_c4d590"),
+            workflow = tool.workflow?.let { meta ->
+                JsonObject(meta + ("runId" to JsonPrimitive("wf_20260824_c4d590")))
+            },
+        )
+        return TranscriptItem.Tool(renamed)
     }
 
     /**
@@ -480,28 +653,16 @@ internal object OrchestrationPreviewData {
 
     val liveWorkflowRows: List<TranscriptRow> get() = groupTranscript(liveWorkflowTranscript)
     val settledWorkflowRows: List<TranscriptRow> get() = groupTranscript(settledWorkflowTranscript)
-    val liveSwarmRows: List<TranscriptRow> get() = groupTranscript(liveSwarmTranscript)
-    val settledSwarmRows: List<TranscriptRow> get() = groupTranscript(settledSwarmTranscript)
     val failedScriptRows: List<TranscriptRow> get() = groupTranscript(failedScriptTranscript)
     val mixedRows: List<TranscriptRow> get() = groupTranscript(mixedTranscript)
 
     /** The first workflow run in a folded list, for card-level previews. */
-    fun workflowRun(rows: List<TranscriptRow>): OrchRun.Workflow =
-        rows.filterIsInstance<TranscriptRow.Run>()
-            .map { it.run }
-            .filterIsInstance<OrchRun.Workflow>()
-            .first()
+    fun workflowRun(rows: List<TranscriptRow>): WorkflowRun =
+        rows.filterIsInstance<TranscriptRow.Run>().map { it.run }.first()
 
-    /** The first swarm run in a folded list, for card-level previews. */
-    fun swarmRun(rows: List<TranscriptRow>): OrchRun.Swarm =
-        rows.filterIsInstance<TranscriptRow.Run>()
-            .map { it.run }
-            .filterIsInstance<OrchRun.Swarm>()
-            .first()
+    /** The live workflow, folded — the shape most previews want. */
+    val liveWorkflow: WorkflowRun get() = workflowRun(liveWorkflowRows)
 
-    /** The live swarm, folded — the shape most previews want. */
-    val liveSwarm: OrchRun.Swarm get() = swarmRun(liveSwarmRows)
-
-    /** The live workflow, folded. */
-    val liveWorkflow: OrchRun.Workflow get() = workflowRun(liveWorkflowRows)
+    /** The workflow waiting at its checkpoint, folded. */
+    val pausedWorkflow: WorkflowRun get() = workflowRun(groupTranscript(pausedWorkflowTranscript))
 }

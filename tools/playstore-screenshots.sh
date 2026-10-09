@@ -19,10 +19,11 @@
 #   SKIP_INSTALL=1 ./tools/playstore-screenshots.sh  # reuse the installed APK
 #
 # ScreenshotActivity also serves the orchestration scenes, which are for
-# eyeballing changes to the workflow/swarm cards rather than for the listing:
+# eyeballing changes to the workflow cards rather than for the listing:
 #
-#   workflow  workflow_done  workflow_failed  swarm  swarm_done
-#   orchestration            (both kinds of run mixed into a conversation)
+#   workflow  workflow_done  workflow_paused  workflow_continued
+#   workflow_stopped  workflow_failed
+#   orchestration            (two runs mixed into a conversation)
 #   activation               (the "ultracode" highlight, composer and sent)
 #   permission_edit          (an approval with a diff, beside the listed command one)
 #
@@ -30,7 +31,7 @@
 #
 #   adb shell am start -n \
 #       to.eyed.spettro.mobile.dev/to.eyed.spettro.mobile.screenshots.ScreenshotActivity \
-#       --es scene swarm --es theme dark --es form phone
+#       --es scene workflow_paused --es theme dark --es form phone
 #
 set -euo pipefail
 

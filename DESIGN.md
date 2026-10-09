@@ -143,7 +143,7 @@ assistant = full-width prose, no chrome; cards = surfaceRaised + 1dp hairline bo
 2. **PairingScreen** — 3-step intro, QR scan (zxing), manual paste fallback of `spettro-pair://` URL.
 3. **ChatListScreen** — sections by project folder (collapsible), pinned first, swipe pin/archive/delete, search, pull-refresh, new-chat with project picker, archived sheet, agent-down banner.
 4. **ChatScreen** — transcript (LazyColumn over *folded rows*, not raw items), status strip (run ticker/plan progress/context %), live orchestration strip above the composer, composer (attachments via PhotosPicker max 4 → JPEG longest edge 1568px q85, command palette, config summary chip, send/stop, `ultracode` activation highlight).
-   - **WorkflowCard / SwarmCard** — a workflow run or an Ultra swarm as one object rather than N rows. Collapsed by default (a failed run opens expanded); the collapsed header carries the meter, the ratio, the per-member cell strip and any failures, so closing the card never hides what broke.
+   - **WorkflowCard** — a workflow run as one object rather than N rows. Collapsed by default (a failed run opens expanded); the collapsed header carries the meter, the ratio, the per-member cell strip and any failures, so closing the card never hides what broke. A paused run says what it waits for, a stopped one why it stopped, and a card a later turn continued says "Continued below" — none of them spins.
    - **OrchestrationLiveStrip** — the phone's answer to the desktop's docked panel and the TUI's ctrl+b side panel: one pinned line showing who is working and on what, expanding into a sheet with the whole declared plan. A finished run is held briefly and settles rather than blinking out.
 5. **ChatConfigSheet** — config options as grouped selects/toggles.
 6. **PermissionSheet** / **QuestionSheet** — per iOS behavior; never preselect recommended; unanswered questions omitted from reply.
@@ -154,18 +154,22 @@ assistant = full-width prose, no chrome; cards = surfaceRaised + 1dp hairline bo
 ## Orchestration derivation (`model/Orchestration.kt`)
 
 `groupTranscript` folds the flat ACP transcript back into the shape a workflow
-or Ultra swarm actually had: runs absorb their members, members absorb their own
+actually had: runs absorb their members, members absorb their own
 tool calls, everything else passes through untouched and in order. It is pure
 and memo-free by contract — a session restored from disk must fold identically
 to the live one that produced it — and it is memoised once in `ChatScreen`, not
 per surface.
 
-Three wire facts drive its design, and each has a way of being absent:
+A run's state is `_meta["spettro.app/workflow"]` (version 1) on its card when
+the card carries it, and the card's rendered text otherwise. The wire facts
+that drive the fold, and what each falls back to when it is absent:
 
 | Clue | When it is missing | What we fall back to |
 |---|---|---|
-| `run_id` on a workflow member | never (workflow) / always (swarm) | the nearest open run, then the last one |
-| `phases` / `description` in args | after the finish update overwrites them, and forever once reloaded | `parseRenderedWorkflow` mines them from the CLI's own rendered tree |
+| `_meta["spettro.app/workflow"]` | an older CLI; a snapshot from a host that does not relay it; a version > 1 | `parseRenderedWorkflow` reads the same state from the card's text |
+| card id `workflow-<run>[-<n>]` | an older CLI (`wf-<n>`) or a run with no id | args with `workflow` and no `agent`, then a `workflow …` title |
+| `run_id` on a workflow member | a run with no id | the nearest open run, then the last one |
+| `phases` / `description` in args | after the finish update overwrites them, and forever once reloaded | the meta, else the CLI's own rendered tree |
 | `[instance] ` title prefix | plain delegations (the CLI only brackets names containing `#`) | the call stays a flat row rather than being guessed at |
 
 A tint note: `SpettroColors.modeColor` is the TUI's palette, and the TUI is
@@ -173,7 +177,8 @@ always dark. On the light appearance every hue is darkened toward black so it
 clears 4.5:1 as ink; the hue is what carries the meaning and is preserved
 exactly. Status, not identity, drives the cell strip's colours — running takes
 the accent rather than the member's spec tint, because half the palette is a
-green and a `code` swarm would otherwise draw running-green beside done-green.
+green and a fan-out of `code` agents would otherwise draw running-green beside
+done-green.
 
 ## Testing
 

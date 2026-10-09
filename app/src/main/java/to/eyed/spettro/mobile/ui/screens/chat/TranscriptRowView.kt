@@ -23,7 +23,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import to.eyed.spettro.mobile.model.MemberCall
-import to.eyed.spettro.mobile.model.OrchRun
 import to.eyed.spettro.mobile.model.TranscriptRow
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
@@ -33,8 +32,8 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * Dispatches one row of the *folded* transcript.
  *
  * [TranscriptItemView] renders the flat wire: a message, a tool call. This
- * renders what `groupTranscript` made of it — a workflow run, an Ultra swarm, a
- * lone sub-agent, a workflow script that never started — and falls through to
+ * renders what `groupTranscript` made of it — a workflow run, a lone
+ * sub-agent, a workflow script that never started — and falls through to
  * [TranscriptItemView] for everything the fold left alone, which is the great
  * majority of a normal conversation.
  *
@@ -50,14 +49,12 @@ fun TranscriptRowView(
     when (row) {
         is TranscriptRow.Item -> TranscriptItemView(item = row.item, modifier = modifier)
 
-        is TranscriptRow.Run -> when (val run = row.run) {
-            is OrchRun.Workflow -> WorkflowCard(run = run, modifier = modifier)
-            is OrchRun.Swarm -> SwarmCard(run = run, modifier = modifier)
-        }
+        is TranscriptRow.Run -> WorkflowCard(run = row.run, modifier = modifier)
 
         // A delegation that belongs to no run — the plain `agent` tool. It gets
-        // the same member row a swarm member does rather than the old bespoke
-        // card, so one sub-agent and twenty read as the same kind of thing.
+        // the same member row a workflow member does rather than the old
+        // bespoke card, so one sub-agent and twenty read as the same kind of
+        // thing.
         is TranscriptRow.Agent -> {
             var expanded by rememberSaveable(row.member.tool.id) { mutableStateOf(false) }
             StandaloneAgentCard(
@@ -86,7 +83,8 @@ fun TranscriptRowView(
  * It keeps the agent-tinted card chrome the app has always given a sub-agent,
  * but its contents are a [MemberRow] — so a lone delegation shows the same
  * status glyph, the same live "what it is doing now" detail, and the same
- * reachable list of the tools it ran as a member of a twenty-agent swarm does.
+ * reachable list of the tools it ran as a member of a twenty-agent workflow
+ * does.
  * Before the fold existed those nested calls were loose rows in the transcript
  * with no visible owner; now they belong to the agent that made them, and this
  * is the surface that has to show them.

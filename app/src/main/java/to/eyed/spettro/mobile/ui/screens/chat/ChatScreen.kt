@@ -112,9 +112,9 @@ fun ChatScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
 
-    // The wire delivers a workflow or an Ultra swarm as a flat run of tool
-    // calls — a lifecycle call, one call per sub-agent, and every tool each of
-    // them runs, interleaved. Rendered literally, a twenty-agent fan-out is a
+    // The wire delivers a workflow as a flat run of tool calls — a lifecycle
+    // card, one call per sub-agent, and every tool each of them runs,
+    // interleaved. Rendered literally, a twenty-agent fan-out is a
     // wall of rows that drowns the conversation, so `groupTranscript` rebuilds
     // the shape the run actually had.
     //
@@ -317,9 +317,8 @@ private fun ReadableColumn(content: @Composable () -> Unit) {
 /**
  * The conversation, folded.
  *
- * The wire delivers a workflow or an Ultra swarm as a flat run of tool calls —
- * a lifecycle call, one call per sub-agent, and every tool each of them runs,
- * interleaved. Rendered literally, a twenty-agent fan-out is a wall of rows
+ * The wire delivers a workflow as a flat run of tool calls — a lifecycle card,
+ * one call per sub-agent, and every tool each of them runs, interleaved. Rendered literally, a twenty-agent fan-out is a wall of rows
  * that drowns the conversation, so [groupTranscript] rebuilds the shape the run
  * actually had and the list renders *rows* rather than items.
  *
@@ -337,7 +336,7 @@ private fun Transcript(rows: List<TranscriptRow>, modifier: Modifier) {
 
     // Auto-scroll: follow the conversation only while the reader is already
     // near the bottom, so scrolling back through history isn't hijacked.
-    // Keyed on the rows themselves rather than their count: a swarm absorbing
+    // Keyed on the rows themselves rather than their count: a workflow absorbing
     // twenty members leaves the count flat while the run is very much moving,
     // and the view would stop following it.
     LaunchedEffect(rows) {

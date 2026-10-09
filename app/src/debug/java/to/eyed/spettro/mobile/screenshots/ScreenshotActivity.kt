@@ -113,13 +113,19 @@ private fun Scene(scene: String, tablet: Boolean) {
     when (scene) {
         "chat" -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
         "chat_busy" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true)
-        // Orchestration: a workflow and an Ultra swarm, live and settled, plus
-        // a workflow whose script never started and a transcript with both
-        // kinds of run mixed into ordinary conversation.
+        // Orchestration: a workflow live and settled, waiting at a checkpoint,
+        // continued in a later turn and stopped, a workflow that never
+        // started, and a transcript with two runs mixed into ordinary
+        // conversation.
         "workflow" -> Shell(tablet, items = OrchestrationPreviewData.liveWorkflowTranscript, busy = true)
         "workflow_done" -> Shell(tablet, items = OrchestrationPreviewData.settledWorkflowTranscript, busy = false)
-        "swarm" -> Shell(tablet, items = OrchestrationPreviewData.liveSwarmTranscript, busy = true)
-        "swarm_done" -> Shell(tablet, items = OrchestrationPreviewData.settledSwarmTranscript, busy = false)
+        "workflow_paused" -> Shell(tablet, items = OrchestrationPreviewData.pausedWorkflowTranscript, busy = false)
+        "workflow_continued" -> Shell(
+            tablet,
+            items = OrchestrationPreviewData.continuedWorkflowTranscript,
+            busy = true,
+        )
+        "workflow_stopped" -> Shell(tablet, items = OrchestrationPreviewData.stoppedWorkflowTranscript, busy = false)
         "workflow_failed" -> Shell(tablet, items = OrchestrationPreviewData.failedScriptTranscript, busy = false)
         "orchestration" -> Shell(tablet, items = OrchestrationPreviewData.mixedTranscript, busy = true)
         // The phrase that arms multi-agent orchestration, lit in the composer
