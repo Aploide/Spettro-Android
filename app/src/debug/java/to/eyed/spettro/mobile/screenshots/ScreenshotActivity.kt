@@ -41,8 +41,10 @@ import to.eyed.spettro.mobile.ui.screens.home.previewProjects
 import to.eyed.spettro.mobile.ui.screens.settings.SettingsScreen
 import to.eyed.spettro.mobile.ui.screens.sheets.PermissionSheet
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
+import to.eyed.spettro.mobile.ui.theme.Accent
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
+import to.eyed.spettro.mobile.ui.theme.SystemBarsFor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -53,14 +55,14 @@ import java.util.TimeZone
  * fully populated from the preview fixtures, with no client and no network.
  *
  *     adb shell am start -n to.eyed.spettro.mobile/.screenshots.ScreenshotActivity \
- *         --es scene chat --es theme dark --es form phone
+ *         --es scene chat --es theme dark --es form phone [--es accent mono]
  *
  * With `--es form tablet` the scenes render inside the split shell (sidebar +
  * divider + detail pane) the way RemoteNavigator lays out expanded windows,
  * and Settings presents as the desktop-style centered modal.
  *
- * Dynamic color is switched off so every capture carries the Spettro palette
- * rather than the capture device's wallpaper. Driven by
+ * The theme comes from the extras, not the phone: `theme` is dark or light,
+ * `accent` is lilac (the default) or mono. Driven by
  * `tools/playstore-screenshots.sh`.
  */
 class ScreenshotActivity : ComponentActivity() {
@@ -71,8 +73,10 @@ class ScreenshotActivity : ComponentActivity() {
         val scene = intent.getStringExtra(EXTRA_SCENE) ?: SCENE_CHAT
         val dark = intent.getStringExtra(EXTRA_THEME) != "light"
         val tablet = intent.getStringExtra(EXTRA_FORM) == "tablet"
+        val accent = if (intent.getStringExtra(EXTRA_ACCENT) == "mono") Accent.Mono else Accent.Lilac
         setContent {
-            SpettroTheme(darkTheme = dark) {
+            SystemBarsFor(dark = dark)
+            SpettroTheme(darkTheme = dark, accent = accent) {
                 Scene(scene, tablet)
             }
         }
@@ -82,6 +86,7 @@ class ScreenshotActivity : ComponentActivity() {
         const val EXTRA_SCENE = "scene"
         const val EXTRA_THEME = "theme"
         const val EXTRA_FORM = "form"
+        const val EXTRA_ACCENT = "accent"
         const val SCENE_CHAT = "chat"
     }
 }

@@ -83,7 +83,12 @@ fun FormRow(
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        // With a value, the value takes the free width (right-aligned, and
+        // ellipsized if it must be) and the label keeps its own.
+        Column(
+            if (value != null) Modifier else Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             Text(label, color = labelColor, style = RowLabel)
             if (supporting != null) {
                 Text(supporting, color = colors.textSecondary, style = MaterialTheme.typography.bodySmall)
@@ -96,7 +101,8 @@ fun FormRow(
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                modifier = Modifier.weight(1f),
             )
         }
         if (trailing != null) {

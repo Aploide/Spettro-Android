@@ -92,6 +92,7 @@ import to.eyed.spettro.mobile.ui.screens.sheets.PermissionSheet
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
+import to.eyed.spettro.mobile.ui.theme.ThemeStore
 
 /**
  * How long the app stays on its screens through a dropped connection before
@@ -378,6 +379,7 @@ private fun RemoteNavigator(
                         BackHandler { screen = RemoteScreen.ChatList }
                         SettingsHost(
                             model = model,
+                            themeStore = container.themeStore,
                             connected = connected,
                             reconnecting = reconnecting,
                             agentReady = agentReady,
@@ -430,6 +432,7 @@ private fun RemoteNavigator(
                     BackHandler { screen = RemoteScreen.ChatList }
                     SettingsHost(
                         model = model,
+                        themeStore = container.themeStore,
                         connected = connected,
                         reconnecting = reconnecting,
                         agentReady = agentReady,
@@ -603,6 +606,7 @@ private fun PairingLinkPrompt(
 @Composable
 private fun SettingsHost(
     model: MobileModel,
+    themeStore: ThemeStore,
     connected: RemoteState.Connected,
     reconnecting: Boolean,
     agentReady: Boolean,
@@ -614,6 +618,7 @@ private fun SettingsHost(
     val login by model.login.collectAsState()
     val diagnostics by model.client.diagnostics.collectAsState()
     val credential by model.client.credential.collectAsState()
+    val theme by themeStore.choice.collectAsState()
     SettingsScreen(
         hostName = connected.host.hostName,
         hostKind = connected.host.hostKind,
@@ -639,6 +644,10 @@ private fun SettingsHost(
             onOpenProviders()
         },
         onBack = onBack,
+        appearance = theme.appearance,
+        accent = theme.accent,
+        onAppearanceChange = themeStore::setAppearance,
+        onAccentChange = themeStore::setAccent,
     )
 }
 

@@ -5,10 +5,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import to.eyed.spettro.mobile.coordinator.AppContainer
 import to.eyed.spettro.mobile.core.remote.RemotePairing
 import to.eyed.spettro.mobile.ui.AppRoot
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
+import to.eyed.spettro.mobile.ui.theme.SystemBarsFor
+import to.eyed.spettro.mobile.ui.theme.isDark
 
 class MainActivity : ComponentActivity() {
     private lateinit var container: AppContainer
@@ -20,7 +24,9 @@ class MainActivity : ComponentActivity() {
         // A recreated activity has already handed its link over.
         if (savedInstanceState == null) takePairingLink(intent)
         setContent {
-            SpettroTheme {
+            val theme by container.themeStore.choice.collectAsState()
+            SystemBarsFor(dark = theme.appearance.isDark())
+            SpettroTheme(appearance = theme.appearance, accent = theme.accent) {
                 AppRoot(container)
             }
         }

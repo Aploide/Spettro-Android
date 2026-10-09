@@ -14,6 +14,7 @@ import to.eyed.spettro.mobile.core.remote.AndroidNetworkEnvironment
 import to.eyed.spettro.mobile.core.remote.RemoteClient
 import to.eyed.spettro.mobile.core.remote.RemoteCredentialStore
 import to.eyed.spettro.mobile.core.remote.RemoteDiscovery
+import to.eyed.spettro.mobile.ui.theme.ThemeStore
 
 /**
  * Process-wide singletons, created once (DataStore instances must be unique
@@ -32,6 +33,9 @@ class AppContainer private constructor(context: Context) {
         environment = AndroidNetworkEnvironment(context),
     )
     val model = MobileModel(client, scope)
+
+    /** The phone's appearance and accent settings. */
+    val themeStore = ThemeStore(context)
 
     /** A pairing link opened from outside the app, waiting for the UI to act on it. */
     val pendingPairingLink = MutableStateFlow<String?>(null)
