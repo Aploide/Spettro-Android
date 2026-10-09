@@ -25,9 +25,19 @@ object AcpQuestionMeta {
 
 // MARK: - Permission request (agent -> client)
 
-/** A `session/request_permission` put to this client. */
+/**
+ * A `session/request_permission` put to this client.
+ *
+ * The CLI attaches a request to the card it is already drawing and then
+ * sends only the card's id, the pending status and the content — no title,
+ * no kind — so [title] is often empty and [toolKind] null here; the
+ * coordinator fills them in from that card (see `describedBy`). A request
+ * with no card to attach to names a fresh `perm-N` id and describes itself
+ * in full.
+ */
 data class AcpPermissionRequest(
     val sessionId: String,
+    /** The tool call's own title; empty when the request leaves it to its card. */
     val title: String,
     val toolKind: String? = null,
     val rawInput: JsonElement? = null,
@@ -37,6 +47,21 @@ data class AcpPermissionRequest(
      * is putting an agent question through this transport.
      */
     val meta: JsonObject? = null,
+    /** The card the request approves, as the agent numbers it (`call-3`, `perm-1`). */
+    val toolCallId: String? = null,
+    /**
+     * The approval's text content, in order: the command or URL in a fenced
+     * block, the reason, sometimes what "Always allow" would remember.
+     */
+    val texts: List<String> = emptyList(),
+    /** The file change being approved. */
+    val diffs: List<AcpToolContent.Diff> = emptyList(),
+    val locations: List<AcpToolLocation> = emptyList(),
+    /**
+     * The "context nearly full — compact now?" prompt, which approves no tool:
+     * its id is `compact-N`, or one of its options is `compact`.
+     */
+    val isCompact: Boolean = false,
 ) {
     data class Option(
         val optionId: String,
@@ -53,7 +78,9 @@ data class AcpPermissionRequest(
          * question — not one of the agent's answers.
          */
         val isCustomInput: Boolean = false,
-    )
+    ) {
+        val isReject: Boolean get() = kind.startsWith("reject")
+    }
 
     /** True when this request is really a question walked over the permission transport. */
     val isQuestion: Boolean get() = meta?.get(AcpQuestionMeta.QUESTION).asObj != null
@@ -75,13 +102,21 @@ data class AcpPermissionRequest(
                     isCustomInput = optMeta?.get("spettro.app/isCustomInput").asBool ?: false,
                 )
             }
+            val content = (toolCall["content"].asArr ?: emptyList()).mapNotNull(AcpToolContent::parse)
+            val toolCallId = toolCall["toolCallId"].asString
             return AcpPermissionRequest(
                 sessionId = sessionId,
-                title = toolCall["title"].asString ?: "Permission requested",
+                title = toolCall["title"].asString.trimmedOrNull() ?: "",
                 toolKind = toolCall["kind"].asString,
                 rawInput = toolCall["rawInput"],
                 options = options,
                 meta = params["_meta"].asObj,
+                toolCallId = toolCallId,
+                texts = content.filterIsInstance<AcpToolContent.Text>().map { it.text },
+                diffs = content.filterIsInstance<AcpToolContent.Diff>(),
+                locations = (toolCall["locations"].asArr ?: emptyList()).mapNotNull(AcpToolLocation::parse),
+                isCompact = toolCallId?.startsWith("compact-") == true ||
+                    options.any { it.optionId == "compact" },
             )
         }
     }

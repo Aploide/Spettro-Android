@@ -149,6 +149,12 @@ data class SpettroColors(
             return lerp(canvas, worst, CARD_WASH)
         }
 
+    /**
+     * Amber: something is waiting on the user — an approval, an answer, the
+     * "Needs you" badge. The desktop's `--warning` for this appearance.
+     */
+    val warning: Color get() = if (isDark) Color(0xFFE0A43F) else Color(0xFF9A6210)
+
     /** The accent as text. */
     val accentInk: Color get() = readable(accent)
 

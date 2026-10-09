@@ -414,6 +414,21 @@ class ChatSessionTest {
         assertEquals(listOf(AcpToolLocation("/p/a.go", 4)), t.locations)
     }
 
+    @Test
+    fun cardStatusAndDenialAreSetByTheIdTheTurnKnows() {
+        val s = session()
+        s.appendUserMessage("one")
+        s.applyToolEvent(tool("call-1", "Run a"), isStart = true)
+        s.appendUserMessage("two")
+        s.applyToolEvent(tool("call-1", "Run b"), isStart = true)
+        assertEquals(AcpToolStatus.IN_PROGRESS, s.setToolStatus("call-1", AcpToolStatus.PENDING))
+        s.markDenied("call-1")
+        assertEquals(
+            listOf(AcpToolStatus.IN_PROGRESS to false, AcpToolStatus.PENDING to true),
+            s.tools().map { it.status to it.denied },
+        )
+        assertNull(s.setToolStatus("call-9", AcpToolStatus.FAILED))
+    }
 
     // MARK: Restoring mid-turn
 
@@ -622,5 +637,60 @@ class ChatSessionTest {
         s.apply(AcpSessionUpdate.ModeUpdate("ask"))
         assertEquals(ConfigValue.Str("ask"), s.displayedConfigValues["mode"])
         assertTrue("mode" !in s.pendingConfigChanges)
+    }
+
+    // MARK: Approval cards (desktop acpGaps.test.ts "permission prompts")
+
+    private fun approval(id: String, title: String = "", kind: String? = null) =
+        to.eyed.spettro.mobile.core.acp.AcpPermissionRequest(
+            sessionId = "s1", title = title, toolKind = kind, toolCallId = id,
+        )
+
+    @Test
+    fun anApprovalMarksThisTurnsCardNotAnEarlierTurnsWithTheSameId() {
+        val s = session()
+        s.appendUserMessage("list")
+        s.applyToolEvent(AcpToolCallEvent("call-1", title = "Run ls", status = AcpToolStatus.COMPLETED), isStart = true)
+        s.appendUserMessage("touch it")
+        s.applyToolEvent(AcpToolCallEvent("call-1", title = "Run touch a", status = AcpToolStatus.IN_PROGRESS), isStart = true)
+        val card = s.adoptPermission(approval("call-1"))!!
+        assertEquals(ChatSession.ApprovalCard("call-1~2", AcpToolStatus.IN_PROGRESS), card)
+        assertEquals(
+            listOf("Run ls" to AcpToolStatus.COMPLETED, "Run touch a" to AcpToolStatus.PENDING),
+            s.tools().map { it.title to it.status },
+        )
+        // Withdrawn: back to what it was showing, not stuck waiting.
+        s.releaseApprovalCard(card, made = AcpToolStatus.FAILED)
+        assertEquals(AcpToolStatus.IN_PROGRESS, s.tools()[1].status)
+    }
+
+    @Test
+    fun aPermNRequestMakesExactlyOneTitledCardForItsSettleUpdate() {
+        val s = session()
+        val card = s.adoptPermission(approval("perm-1", title = "Run rm -rf build", kind = "execute"))!!
+        assertEquals(ChatSession.ApprovalCard("perm-1", null), card)
+        s.applyToolEvent(AcpToolCallEvent("perm-1", status = AcpToolStatus.COMPLETED), isStart = false)
+        val tool = s.tools().single()
+        assertEquals(Triple("Run rm -rf build", "execute", AcpToolStatus.COMPLETED), Triple(tool.title, tool.kind, tool.status))
+        // Moved on by the agent: releasing leaves it be.
+        s.releaseApprovalCard(card, made = AcpToolStatus.FAILED)
+        assertEquals(AcpToolStatus.COMPLETED, s.tools().single().status)
+    }
+
+    @Test
+    fun theCompactionPromptGetsNoCard() {
+        val s = session()
+        assertNull(s.adoptPermission(approval("compact-1").copy(isCompact = true)))
+        assertTrue(s.tools().isEmpty())
+    }
+
+    @Test
+    fun aCardAlreadyPendingInTheSnapshotIsPutBackToWhatTheAnswerMade() {
+        val s = session()
+        s.restoreFrom(snapshot(listOf(userItem("u1"), toolItem("call-2", "pending")).joinToString(",")), isBusy = true)
+        val card = s.adoptPermission(approval("call-2"))!!
+        assertEquals(ChatSession.ApprovalCard("call-2", null), card)
+        s.releaseApprovalCard(card, made = AcpToolStatus.IN_PROGRESS)
+        assertEquals(AcpToolStatus.IN_PROGRESS, s.tools().single().status)
     }
 }

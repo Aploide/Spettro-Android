@@ -12,6 +12,8 @@ import to.eyed.spettro.mobile.core.SpettroJson
 import to.eyed.spettro.mobile.core.acp.AcpParser
 import to.eyed.spettro.mobile.core.acp.AcpQuestionAnswer
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
+import to.eyed.spettro.mobile.core.acp.AcpToolContent
+import to.eyed.spettro.mobile.core.acp.AcpToolLocation
 
 private fun obj(text: String): JsonObject = SpettroJson.parseToJsonElement(text).jsonObject
 
@@ -52,11 +54,57 @@ class AcpPermissionQuestionTest {
     }
 
     @Test
-    fun permissionRequestMissingTitleFallsBack() {
+    fun permissionRequestMissingTitleLeavesItToTheCard() {
+        // The coordinator fills it in from the card, or writes a sentence.
         val req = AcpParser.parsePermissionRequest(
-            obj("""{"sessionId":"s","toolCall":{}}""")
+            obj("""{"sessionId":"s","toolCall":{"title":"  "}}""")
         )
-        assertEquals("Permission requested", req!!.title)
+        assertEquals("", req!!.title)
+        assertNull(req.toolCallId)
+        assertFalse(req.isCompact)
+    }
+
+    @Test
+    fun permissionAttachedToACardCarriesItsIdContentAndLocations() {
+        // permission.go requestApproval: only the card's id, the pending
+        // status and the content — no title, no kind.
+        val req = AcpParser.parsePermissionRequest(
+            obj(
+                """
+                {"sessionId":"s1",
+                 "toolCall":{"toolCallId":"call-3","status":"pending",
+                   "content":[
+                     {"type":"diff","path":"/p/src/a.ts","oldText":"a","newText":"b"},
+                     {"type":"content","content":{"type":"text","text":"outside the sandbox"}}],
+                   "locations":[{"path":"/p/src/a.ts","line":12}]},
+                 "options":[{"optionId":"allow-once","name":"Allow","kind":"allow_once"},
+                            {"optionId":"deny","name":"Deny","kind":"reject_once"}]}
+                """.trimIndent()
+            )
+        )!!
+        assertEquals("call-3", req.toolCallId)
+        assertEquals("", req.title)
+        assertNull(req.toolKind)
+        assertEquals(listOf(AcpToolContent.Diff("/p/src/a.ts", "a", "b")), req.diffs)
+        assertEquals(listOf("outside the sandbox"), req.texts)
+        assertEquals(listOf(AcpToolLocation("/p/src/a.ts", 12)), req.locations)
+        assertTrue(req.options[1].isReject)
+        assertFalse(req.options[0].isReject)
+    }
+
+    @Test
+    fun theCompactionPromptIsMarked() {
+        val byId = AcpParser.parsePermissionRequest(
+            obj("""{"sessionId":"s","toolCall":{"toolCallId":"compact-1","title":"Context nearly full"}}""")
+        )!!
+        assertTrue(byId.isCompact)
+        val byOption = AcpParser.parsePermissionRequest(
+            obj(
+                """{"sessionId":"s","toolCall":{"toolCallId":"x"},
+                    "options":[{"optionId":"compact","name":"Compact now","kind":"allow_once"}]}"""
+            )
+        )!!
+        assertTrue(byOption.isCompact)
     }
 
     @Test

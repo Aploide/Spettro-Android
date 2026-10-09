@@ -1,6 +1,12 @@
 package to.eyed.spettro.mobile.ui.screens.sheets
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,7 +15,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.Compress
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
@@ -24,25 +37,31 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import to.eyed.spettro.mobile.core.acp.AcpPermissionRequest
+import to.eyed.spettro.mobile.core.acp.AcpToolContent
+import to.eyed.spettro.mobile.model.Prompts
+import to.eyed.spettro.mobile.model.ToolCallItem
+import to.eyed.spettro.mobile.ui.screens.chat.ToolDiffView
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
+import to.eyed.spettro.mobile.ui.theme.MonoSmall
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
  * The modal approval prompt shown when the agent asks the user to authorize
  * something mid-turn — most commonly a shell command, but the same sheet
  * covers file edits and every other permission kind, because the options come
- * straight from the ACP request. Port of `PermissionSheet.swift` +
- * docs/30-permission-sheet.md, as a bottom sheet.
+ * straight from the ACP request. What it says — the headline, the command and
+ * reason, the diff, the order of the buttons — is the desktop's (see
+ * [Prompts]).
  *
  * Swiping the sheet away answers the request with a cancelled outcome —
  * [onSelect] receives null — so the agent is never left waiting on a prompt
@@ -85,27 +104,24 @@ fun PermissionSheet(
     }
 }
 
-/** Presentation order: allows first, rejects last, unknown kinds trailing. */
-private fun kindRank(kind: String): Int = when (kind) {
-    "allow_once" -> 0
-    "allow_always" -> 1
-    "reject_once" -> 2
-    "reject_always" -> 3
-    else -> 4
+/** The headline's icon, by kind. */
+private fun iconFor(request: AcpPermissionRequest): ImageVector = when {
+    request.isCompact -> Icons.Outlined.Compress
+    else -> when (request.toolKind) {
+        "execute" -> Icons.Outlined.Terminal
+        "edit" -> Icons.Outlined.Edit
+        "delete" -> Icons.Outlined.Delete
+        "move" -> Icons.Outlined.DriveFileMove
+        "read" -> Icons.Outlined.Description
+        "fetch" -> Icons.Outlined.Language
+        "search" -> Icons.Outlined.Search
+        "think" -> Icons.AutoMirrored.Outlined.HelpOutline
+        else -> Icons.Outlined.Shield
+    }
 }
 
-private fun iconFor(toolKind: String?): ImageVector = when (toolKind) {
-    "execute" -> Icons.Outlined.Terminal
-    "think" -> Icons.AutoMirrored.Outlined.HelpOutline
-    else -> Icons.Outlined.Shield
-}
-
-/** The command to show, when the tool's raw input carries one. */
-private fun commandText(request: AcpPermissionRequest): String? {
-    val obj = request.rawInput as? kotlinx.serialization.json.JsonObject ?: return null
-    val command = obj["command"] as? kotlinx.serialization.json.JsonPrimitive ?: return null
-    return if (command.isString) command.content else null
-}
+/** Fence languages that are a shell command, drawn with a `$ ` prompt. */
+private val SHELL_LANGS = setOf("sh", "bash", "shell", "zsh", "console")
 
 @Composable
 internal fun PermissionSheetContent(
@@ -115,39 +131,55 @@ internal fun PermissionSheetContent(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
+    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    val body = Prompts.permissionBody(request)
+    val diffPaths = request.diffs.map { it.path }.toSet()
+    // Locations a diff already shows say nothing new.
+    val locations = request.locations.filter { it.path !in diffPaths }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = Dimens.spacingLg, end = Dimens.spacingLg, bottom = Dimens.spacingLg),
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
     ) {
-        // Header: the tool kind's icon and the tool call's own title.
+        // Header: what is being asked, in a sentence, beside an amber tile —
+        // amber like the "Needs you" badge: something is waiting on you.
         Row(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.Top,
         ) {
-            Icon(
-                imageVector = iconFor(request.toolKind),
-                contentDescription = null,
-                tint = colors.accent,
-                modifier = Modifier.size(24.dp),
-            )
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(Dimens.radiusSm))
+                    .background(colors.warning.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = iconFor(request),
+                    contentDescription = null,
+                    tint = colors.warning,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = "Spettro needs your approval",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                    text = Prompts.permissionHeadline(request),
+                    style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp),
                 )
-                SelectionContainer {
-                    Text(
-                        text = request.title,
-                        style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp),
-                    )
+                if (Prompts.showsTitle(request)) {
+                    SelectionContainer {
+                        Text(
+                            text = request.title,
+                            color = secondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
                 if (chatTitle != null) {
                     Text(
                         text = chatTitle,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = secondary,
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                     )
@@ -155,21 +187,56 @@ internal fun PermissionSheetContent(
             }
         }
 
-        // The command block, only when the raw input carries a command string.
-        commandText(request)?.let { command ->
-            MonoBlock(
-                text = command,
-                fontSize = 12.sp,
-                maxLines = 8,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        Column(
+            modifier = Modifier
+                .heightIn(max = 360.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        ) {
+            if (request.isCompact) {
+                Text(
+                    text = Prompts.compactDetail(request),
+                    color = secondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            for (block in body) {
+                when (block) {
+                    is Prompts.BodyBlock.Code -> MonoBlock(
+                        text = if (block.lang in SHELL_LANGS) "$ ${block.text}" else block.text,
+                        fontSize = 12.5.sp,
+                        maxLines = 8,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    is Prompts.BodyBlock.Note -> Text(
+                        text = block.text,
+                        color = secondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+            if (request.diffs.isNotEmpty()) {
+                ToolDiffView(
+                    diffs = request.diffs.map { ToolCallItem.ToolDiff(it.path, it.oldText, it.newText) },
+                )
+            }
+            for (location in locations) {
+                Text(
+                    text = ToolCallItem.shortPath(location.path) + (location.line?.let { ":$it" } ?: ""),
+                    style = MonoSmall,
+                    color = secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
-        // One full-width button per option, allows before rejects. The
+        // One full-width button per option, in the one order they always
+        // take: Allow once, Always allow, Deny, then anything else. The
         // recommended option is tagged, never preselected.
         Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
-            for (option in request.options.sortedBy { kindRank(it.kind) }) {
-                PermissionOptionButton(option = option, onClick = { onSelect(option.optionId) })
+            for (option in Prompts.orderedOptions(request)) {
+                PermissionOptionButton(option = option, onClick = { onSelect(option.option.optionId) })
             }
         }
     }
@@ -177,7 +244,7 @@ internal fun PermissionSheetContent(
 
 @Composable
 private fun PermissionOptionButton(
-    option: AcpPermissionRequest.Option,
+    option: Prompts.CardOption,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -187,32 +254,47 @@ private fun PermissionOptionButton(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(option.name, style = MaterialTheme.typography.labelLarge)
-            if (option.isRecommended) RecommendedTag()
+            Text(option.label, style = MaterialTheme.typography.labelLarge)
+            if (option.option.isRecommended) RecommendedTag()
         }
     }
-    when (option.kind) {
-        "allow_once" -> Button(
-            onClick = onClick,
-            modifier = modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
-        ) { label() }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        when (option.role) {
+            Prompts.OptionRole.ALLOW_ONCE -> Button(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
+            ) { label() }
 
-        "allow_always" -> OutlinedButton(
-            onClick = onClick,
-            modifier = modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.accent),
-            border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.6f)),
-        ) { label() }
+            Prompts.OptionRole.ALLOW_ALWAYS -> OutlinedButton(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.accent),
+                border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.6f)),
+            ) { label() }
 
-        else -> OutlinedButton(
-            onClick = onClick,
-            modifier = modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
-            border = BorderStroke(Dimens.hairlineWidth, MaterialTheme.colorScheme.outline),
-        ) { label() }
+            else -> OutlinedButton(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                border = BorderStroke(Dimens.hairlineWidth, MaterialTheme.colorScheme.outline),
+            ) { label() }
+        }
+        option.caption?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -220,16 +302,24 @@ private fun PermissionOptionButton(
 
 private fun previewRequest(kind: String) = AcpPermissionRequest(
     sessionId = "s-1",
-    title = if (kind == "execute") "Run a shell command" else "Edit AppModel.swift",
+    title = if (kind == "execute") "Run a command" else "Edit AppModel.swift",
     toolKind = kind,
-    rawInput = if (kind == "execute") {
-        buildJsonObject { put("command", "rm -rf build/ && swift build --configuration release 2>&1 | tee build.log") }
+    texts = if (kind == "execute") {
+        listOf(
+            "```sh\nrm -rf build/ && swift build --configuration release 2>&1 | tee build.log\n```",
+            "needs approval: rm -rf build/",
+        )
     } else {
-        null
+        emptyList()
+    },
+    diffs = if (kind == "edit") {
+        listOf(AcpToolContent.Diff("/Users/dev/app/Sources/AppModel.swift", "let a = 1", "let a = 2"))
+    } else {
+        emptyList()
     },
     options = listOf(
         AcpPermissionRequest.Option("allow", "Allow", "allow_once"),
-        AcpPermissionRequest.Option("always", "Always Allow", "allow_always", isRecommended = true),
+        AcpPermissionRequest.Option("always", "Always allow this command", "allow_always", isRecommended = true),
         AcpPermissionRequest.Option("reject", "Reject", "reject_once"),
     ),
 )

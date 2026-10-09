@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import to.eyed.spettro.mobile.core.acp.AcpCommand
 import to.eyed.spettro.mobile.core.acp.AcpConfigOption
+import to.eyed.spettro.mobile.core.acp.AcpPermissionRequest
 import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpSessionUpdate
 import to.eyed.spettro.mobile.core.acp.AcpToolCallEvent
@@ -623,6 +624,81 @@ class ChatSession(
     fun toolById(toolCallId: String): ToolCallItem? {
         val index = turnToolIndex(toolCallId)
         return if (index < 0) null else (_items.value[index] as TranscriptItem.Tool).tool
+    }
+
+    /**
+     * Sets one card's status; returns the status it had, or null when there
+     * is no such card.
+     */
+    fun setToolStatus(toolCallId: String, status: AcpToolStatus): AcpToolStatus? =
+        updateTool(toolCallId) { it.copy(status = status) }?.status
+
+    /** Marks a card the user turned down in its approval ([ToolCallItem.denied]). */
+    fun markDenied(toolCallId: String) {
+        updateTool(toolCallId) { it.copy(denied = true) }
+    }
+
+    /**
+     * What an approval did to the card it names: the id the card is filed
+     * under, and the status it had before the approval made it "pending"
+     * (null when the approval made the card).
+     */
+    data class ApprovalCard(val toolCallId: String, val priorStatus: AcpToolStatus?)
+
+    /**
+     * Marks the card [request] approves as waiting on the user, the way the
+     * desktop does: the host makes that change on its own copy and never
+     * relays it. A request with nothing open to attach to names a fresh
+     * `perm-N` card and describes it in full; that card is put in the
+     * transcript now, titled, so the settle update that follows the answer
+     * lands on it instead of making an untitled one. The compaction prompt
+     * approves no tool and gets no card. [request] should already be
+     * described (see `Prompts.describedBy`).
+     */
+    fun adoptPermission(request: AcpPermissionRequest): ApprovalCard? {
+        val wireId = request.toolCallId ?: return null
+        if (request.isCompact) return null
+        toolById(wireId)?.let { card ->
+            // Already pending in a snapshot the host took after the ask: what
+            // it was before is the host's to know, not ours.
+            val prior = setToolStatus(card.id, AcpToolStatus.PENDING)
+            return ApprovalCard(card.id, prior.takeIf { it != AcpToolStatus.PENDING })
+        }
+        applyToolEvent(
+            AcpToolCallEvent(
+                toolCallId = wireId,
+                title = request.title,
+                kind = request.toolKind,
+                status = AcpToolStatus.PENDING,
+                rawInput = request.rawInput,
+                locations = request.locations,
+            ),
+            isStart = true,
+        )
+        return ApprovalCard(toolById(wireId)?.id ?: wireId, null)
+    }
+
+    /**
+     * Undoes the "pending" an approval put on its card, unless an update has
+     * moved the card on since: back to what it was, or to [made] for a card
+     * the approval itself made.
+     */
+    fun releaseApprovalCard(card: ApprovalCard, made: AcpToolStatus) {
+        if (toolById(card.toolCallId)?.status != AcpToolStatus.PENDING) return
+        setToolStatus(card.toolCallId, card.priorStatus ?: made)
+    }
+
+    /** Applies [change] to the card [toolCallId] names; returns the card as it was. */
+    private fun updateTool(toolCallId: String, change: (ToolCallItem) -> ToolCallItem): ToolCallItem? {
+        val index = turnToolIndex(toolCallId)
+        if (index < 0) return null
+        val list = _items.value
+        val before = (list[index] as TranscriptItem.Tool).tool
+        val after = change(before)
+        if (after != before) {
+            _items.value = list.toMutableList().also { it[index] = TranscriptItem.Tool(after) }
+        }
+        return before
     }
 
     /** Starts a turn at [at] (the end of the transcript, by default). */

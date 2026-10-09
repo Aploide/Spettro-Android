@@ -23,6 +23,7 @@ import to.eyed.spettro.mobile.core.acp.AcpPermissionRequest
 import to.eyed.spettro.mobile.core.acp.AcpProvidersList
 import to.eyed.spettro.mobile.core.acp.AcpQuestionAnswer
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
+import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 import to.eyed.spettro.mobile.core.remote.ChatSummary
 import to.eyed.spettro.mobile.core.remote.InboundNotification
 import to.eyed.spettro.mobile.core.remote.RemoteApi
@@ -36,14 +37,23 @@ import to.eyed.spettro.mobile.model.ChatMessage
 import to.eyed.spettro.mobile.model.ChatSession
 import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.model.ImageAttachment
+import to.eyed.spettro.mobile.model.Prompts.describedBy
 
 /** A permission or question the host is waiting on, addressed by prompt id. */
 data class PendingPermission(
     val promptID: String,
     val chatID: String?,
+    /**
+     * The request as the prompt shows it: the title and kind it left to its
+     * card filled in (see `Prompts.describedBy`).
+     */
     val request: AcpPermissionRequest,
     /** Non-null when the permission transport actually carries a question form. */
     val questionForm: AcpQuestionRequest?,
+    /** The open chat's card this request marked "pending", to put back once it is answered. */
+    val card: ChatSession.ApprovalCard? = null,
+    /** The request as it arrived, before its card filled anything in. */
+    val received: AcpPermissionRequest = request,
 )
 
 data class PendingQuestion(
@@ -259,15 +269,32 @@ class MobileModel(
                 notification.message?.let { _banner.value = Banner(it) }
             }
             is RemoteNotification.PermissionAsk -> {
-                val request = AcpParser.parsePermissionRequest(notification.request) ?: return
-                val form = AcpParser.parseQuestionFromPermission(request)
-                val pending = PendingPermission(notification.promptID, notification.chatID, request, form)
+                val received = AcpParser.parsePermissionRequest(notification.request) ?: return
+                val form = AcpParser.parseQuestionFromPermission(received)
+                // A replayed ask (pendingReplay) is one we may already hold.
+                val known = _pendingPermissions.value.firstOrNull { it.promptID == notification.promptID }
+                val session = sessionFor(notification.chatID, received.sessionId)
+                val pending = adoptCard(
+                    PendingPermission(
+                        promptID = notification.promptID,
+                        chatID = notification.chatID ?: session?.chatId,
+                        request = received.describedBy(null),
+                        questionForm = form,
+                        card = known?.card,
+                        received = received,
+                    ),
+                    session,
+                )
                 _pendingPermissions.value =
                     _pendingPermissions.value.filterNot { it.promptID == pending.promptID } + pending
             }
             is RemoteNotification.PermissionResolved -> {
+                val pending = _pendingPermissions.value.firstOrNull { it.promptID == notification.promptID }
                 _pendingPermissions.value =
                     _pendingPermissions.value.filterNot { it.promptID == notification.promptID }
+                // Answered elsewhere, or withdrawn: whatever comes next for
+                // the card says what happened to it.
+                pending?.let { releaseCard(it, made = AcpToolStatus.IN_PROGRESS) }
             }
             is RemoteNotification.QuestionAsk -> {
                 val request = AcpParser.parseQuestionRequest(notification.request) ?: return
@@ -345,6 +372,10 @@ class MobileModel(
             // What streamed in after the snapshot was taken, before the
             // session is visible — so it never shows a half-applied state.
             openBuffer.finish(chatID, mark).forEach { applyToSession(session, it) }
+            // Prompts this chat asked while it wasn't open.
+            _pendingPermissions.value = _pendingPermissions.value.map {
+                if (it.chatID.equals(chatID, ignoreCase = true)) adoptCard(it.copy(card = null), session) else it
+            }
             _openChat.value = session
             true
         } catch (e: Exception) {
@@ -500,9 +531,58 @@ class MobileModel(
 
     // MARK: Prompts (permissions & questions)
 
+    /**
+     * Answers a permission; a null option dismisses it, which the CLI reads
+     * as a denial. A reject marks the card as the user's own answer, so its
+     * failure reads as that rather than as something going wrong.
+     */
     fun replyToPermission(promptID: String, selectedOptionID: String?) {
+        val pending = _pendingPermissions.value.firstOrNull { it.promptID == promptID }
         _pendingPermissions.value = _pendingPermissions.value.filterNot { it.promptID == promptID }
+        if (pending != null) {
+            val option = pending.request.options.firstOrNull { it.optionId == selectedOptionID }
+            val allowed = option != null && !option.isReject
+            val card = pending.card
+            if (card != null && option?.isReject == true) {
+                sessionFor(pending.chatID, pending.request.sessionId)?.markDenied(card.toolCallId)
+            }
+            releaseCard(pending, made = if (allowed) AcpToolStatus.IN_PROGRESS else AcpToolStatus.FAILED)
+        }
         scope.launch { runCatching { api.permissionReply(promptID, selectedOptionID) } }
+    }
+
+    /**
+     * [pending] with what its card in [session] gives it. The host relays
+     * the raw request, without the title, kind and card the desktop gives
+     * it, so they come from the open chat's card here, as they do there —
+     * and the card is marked as waiting on the user. Unchanged when
+     * [session] isn't the chat that asked, or the card is already adopted.
+     */
+    private fun adoptCard(pending: PendingPermission, session: ChatSession?): PendingPermission {
+        if (session == null || pending.card != null) return pending
+        val wireId = pending.received.toolCallId
+        val request = pending.received.describedBy(wireId?.let(session::toolById))
+        val card = if (pending.questionForm == null) session.adoptPermission(request) else null
+        return pending.copy(request = request, card = card)
+    }
+
+    /** Puts back the "pending" [pending] put on its card in the open chat. */
+    private fun releaseCard(pending: PendingPermission, made: AcpToolStatus) {
+        val card = pending.card ?: return
+        sessionFor(pending.chatID, pending.request.sessionId)?.releaseApprovalCard(card, made)
+    }
+
+    /**
+     * The open chat, when it is the one [chatID] names — or, for a prompt
+     * that names no chat, the one whose ACP session is [sessionId].
+     */
+    private fun sessionFor(chatID: String?, sessionId: String?): ChatSession? {
+        val session = _openChat.value ?: return null
+        return when {
+            chatID != null -> session.takeIf { it.chatId.equals(chatID, ignoreCase = true) }
+            !sessionId.isNullOrEmpty() -> session.takeIf { it.acpSessionId.value == sessionId }
+            else -> null
+        }
     }
 
     /** Answers a question form that arrived over the permission transport. */
