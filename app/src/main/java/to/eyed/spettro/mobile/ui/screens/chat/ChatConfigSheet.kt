@@ -266,6 +266,22 @@ internal object PermissionCopy {
     fun description(value: String?): String? = DESCRIPTIONS[value]
 }
 
+/**
+ * What each mode does, in the desktop's words (ConfigBar `MODE_COPY`): the
+ * CLI describes its modes by the agent that runs them, which is accurate and
+ * means nothing to the person picking one. A mode this app doesn't know
+ * keeps the CLI's own text.
+ */
+internal object ModeCopy {
+    private val DESCRIPTIONS = mapOf(
+        "plan" to "Think it through and propose a plan before changing anything",
+        "coding" to "Make the changes for you",
+        "ask" to "Answer questions without changing any files",
+    )
+
+    fun description(value: String?): String? = DESCRIPTIONS[value]
+}
+
 /** A compact flat choice — the N-way horizontal toggle (mode, permission). */
 @Composable
 private fun SegmentedSection(
@@ -291,7 +307,11 @@ private fun SegmentedSection(
         )
         // Segments have no room for descriptions; explain the active choice below.
         val active = choices.firstOrNull { it.value == current }
-        val described = PermissionCopy.description(active?.value)?.takeIf { isPermission }
+        val described = when (option.id) {
+            "permission" -> PermissionCopy.description(active?.value)
+            "mode" -> ModeCopy.description(active?.value)
+            else -> null
+        }
         (described ?: active?.description ?: option.description)?.takeIf { it.isNotEmpty() }?.let { text ->
             Text(
                 text = text,

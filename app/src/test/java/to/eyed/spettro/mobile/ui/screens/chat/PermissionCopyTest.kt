@@ -28,3 +28,18 @@ class PermissionCopyTest {
         assertNull(PermissionCopy.description("paranoid"))
     }
 }
+
+class ModeCopyTest {
+
+    @Test
+    fun `the modes are explained the desktop's way`() {
+        assertEquals("Think it through and propose a plan before changing anything", ModeCopy.description("plan"))
+        assertEquals("Make the changes for you", ModeCopy.description("coding"))
+        assertEquals("Answer questions without changing any files", ModeCopy.description("ask"))
+    }
+
+    @Test
+    fun `an unknown mode keeps the CLI's own words`() {
+        assertNull(ModeCopy.description("review"))
+    }
+}
