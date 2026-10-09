@@ -23,6 +23,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -45,7 +46,6 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Icon
@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import to.eyed.spettro.mobile.ui.theme.TabularNums
 import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 import to.eyed.spettro.mobile.model.ToolCallItem
 import to.eyed.spettro.mobile.model.ToolIcon
@@ -376,11 +377,6 @@ private fun SubAgentCard(
     val isRunning = tool.status == AcpToolStatus.PENDING || tool.status == AcpToolStatus.IN_PROGRESS
     val failed = tool.status == AcpToolStatus.FAILED || result?.status == "error"
     val shape = RoundedCornerShape(Dimens.radiusMd)
-    val chevronAngle by animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = SpettroMotion.chevron(),
-        label = "agentChevron",
-    )
 
     Column(
         modifier = modifier
@@ -398,76 +394,119 @@ private fun SubAgentCard(
             }
             .animateContentSize(transcriptSpring()),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = hasSummary) { expanded = !expanded }
-                .padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.SmartToy,
-                contentDescription = "Agent",
-                tint = colors.agentAccent,
-                modifier = Modifier.size(16.dp),
-            )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = call.agent,
-                        style = ToolVerb,
-                        color = colors.textPrimary,
+        AgentCardHeader(
+            agent = call.agent,
+            task = call.task,
+            expanded = expanded,
+            hasBody = hasSummary,
+            onToggle = { expanded = !expanded },
+            glyph = {
+                when {
+                    isRunning -> StatusDot(color = colors.accent, pulsing = true)
+                    failed -> Icon(
+                        imageVector = Icons.Outlined.ErrorOutline,
+                        contentDescription = "Failed",
+                        tint = colors.danger,
+                        modifier = Modifier.size(14.dp),
                     )
-                    if (isRunning) {
-                        Shimmer(
-                            text = "Working…",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-                call.task?.takeIf { it.isNotEmpty() }?.let { task ->
-                    Text(
-                        text = task,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.textSecondary,
-                        maxLines = if (expanded) Int.MAX_VALUE else 2,
-                        overflow = TextOverflow.Ellipsis,
+                    else -> StatusDot(
+                        color = colors.success,
+                        modifier = Modifier.semantics { contentDescription = "Completed" },
                     )
                 }
-            }
-            when {
-                isRunning -> StatusDot(color = colors.accent, pulsing = true)
-                failed -> Icon(
-                    imageVector = Icons.Outlined.ErrorOutline,
-                    contentDescription = "Failed",
-                    tint = colors.danger,
-                    modifier = Modifier.size(14.dp),
-                )
-                else -> StatusDot(
-                    color = colors.success,
-                    modifier = Modifier.semantics { contentDescription = "Completed" },
-                )
-            }
-            if (hasSummary) {
-                Icon(
-                    imageVector = Icons.Outlined.ChevronRight,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = colors.textTertiary,
-                    modifier = Modifier
-                        .size(15.dp)
-                        .rotate(chevronAngle),
-                )
-            }
-        }
+            },
+        )
         if (expanded && result != null && result.summary.isNotEmpty()) {
             HairlineDivider()
             MarkdownText(
                 text = result.summary,
                 modifier = Modifier.padding(Dimens.spacingMd),
+            )
+        }
+    }
+}
+
+/**
+ * A sub-agent card's head, as the desktop's `.tr-agent-header`: the status
+ * glyph, "Agent" in 600 · the agent's name in the secondary ink, how many
+ * tools it ran, and the task underneath in 13sp secondary — one line until
+ * the card opens. The card's rail says "another agent"; no icon or eyebrow
+ * repeats it.
+ */
+@Composable
+internal fun AgentCardHeader(
+    agent: String,
+    task: String?,
+    expanded: Boolean,
+    hasBody: Boolean,
+    onToggle: () -> Unit,
+    glyph: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    toolCount: Int = 0,
+) {
+    val colors = LocalSpettroColors.current
+    val chevronAngle by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = SpettroMotion.chevron(),
+        label = "agentChevron",
+    )
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = hasBody, onClick = onToggle)
+            .padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(Modifier.padding(top = 3.dp).size(14.dp), contentAlignment = Alignment.Center) { glyph() }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Agent",
+                    style = TextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                    color = colors.textPrimary,
+                )
+                Text("·", style = TextStyle(fontSize = 13.5.sp), color = colors.textTertiary)
+                Text(
+                    agent,
+                    style = TextStyle(fontSize = 13.5.sp),
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (toolCount > 0) {
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        if (toolCount == 1) "1 tool call" else "$toolCount tool calls",
+                        style = TextStyle(fontSize = 12.sp, fontFeatureSettings = TabularNums),
+                        color = colors.textTertiary,
+                        maxLines = 1,
+                    )
+                }
+            }
+            task?.takeIf { it.isNotEmpty() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textSecondary,
+                    maxLines = if (expanded) Int.MAX_VALUE else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (hasBody) {
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = colors.textTertiary,
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .size(15.dp)
+                    .rotate(chevronAngle),
             )
         }
     }

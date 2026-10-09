@@ -8,19 +8,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.SmartToy
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.animation.animateContentSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
+import to.eyed.spettro.mobile.ui.components.HairlineDivider
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import to.eyed.spettro.mobile.model.MemberCall
@@ -79,16 +79,13 @@ fun TranscriptRowView(
 }
 
 /**
- * A delegation that belongs to no run: the plain `agent` tool call.
+ * A delegation that belongs to no run: the plain `agent` tool call, as the
+ * desktop's sub-agent card — the straight rail, then [AgentCardHeader]
+ * (status, "Agent · name", how many tools it ran, the task).
  *
- * It keeps the agent-tinted card chrome the app has always given a sub-agent,
- * but its contents are a [MemberRow] — so a lone delegation shows the same
- * status glyph, the same live "what it is doing now" detail, and the same
- * reachable list of the tools it ran as a member of a twenty-agent workflow
- * does.
- * Before the fold existed those nested calls were loose rows in the transcript
- * with no visible owner; now they belong to the agent that made them, and this
- * is the surface that has to show them.
+ * Opened, it lists the tools the agent ran — before the fold existed those
+ * were loose rows in the transcript with no visible owner — then its report,
+ * and a failure says why without being opened.
  */
 @Composable
 private fun StandaloneAgentCard(
@@ -99,6 +96,9 @@ private fun StandaloneAgentCard(
 ) {
     val colors = LocalSpettroColors.current
     val shape = RoundedCornerShape(Dimens.radiusMd)
+    val summary = member.resultText
+    val hasBody = member.children.isNotEmpty() || summary.isNotEmpty()
+    val reason = member.failureReason
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -115,22 +115,39 @@ private fun StandaloneAgentCard(
                     size = androidx.compose.ui.geometry.Size(2.dp.toPx(), (size.height - inset * 2).coerceAtLeast(0f)),
                 )
             }
-            .padding(horizontal = Dimens.spacingSm, vertical = 5.dp),
+            .animateContentSize(transcriptSpring()),
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.SmartToy,
-                contentDescription = null,
-                tint = colors.agentAccent,
-                modifier = Modifier.size(13.dp),
+        AgentCardHeader(
+            agent = member.instance,
+            task = member.task,
+            expanded = expanded,
+            hasBody = hasBody,
+            onToggle = onToggle,
+            toolCount = member.children.size,
+            glyph = { OrchStatusGlyph(status = member.status, size = 12.dp) },
+        )
+        if (reason.isNotEmpty()) {
+            Text(
+                text = reason.replace("\n", " "),
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.danger,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 34.dp, end = Dimens.spacingMd, bottom = 8.dp),
             )
-            OrchSectionLabel("agent")
         }
-        MemberRow(member = member, expanded = expanded, onToggle = onToggle)
+        if (expanded && hasBody) {
+            HairlineDivider()
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(Dimens.spacingMd),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                member.children.forEach { ToolCallRow(tool = it) }
+                if (summary.isNotEmpty()) {
+                    if (member.resultIsJSON) OrchCodeBlock(text = summary) else MarkdownText(text = summary)
+                }
+            }
+        }
     }
 }
 
