@@ -22,16 +22,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        // Foreground: reconnect immediately with fresh backoff (iOS parity).
-        container.client.start()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        // Background: drop the socket deliberately; the credential is the
-        // durable thing, not the connection.
-        container.client.stop()
-    }
+    // Starting and stopping the connection with the app's lifecycle lives
+    // in AppContainer (ProcessLifecycleOwner), with a grace period on stop.
 }

@@ -2,6 +2,9 @@ package to.eyed.spettro.mobile.coordinator
 
 import android.content.Context
 import android.os.Build
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,6 +31,28 @@ class AppContainer private constructor(context: Context) {
         environment = AndroidNetworkEnvironment(context),
     )
     val model = MobileModel(client, scope)
+
+    init {
+        // The connection follows the app, not an activity: rotating, or a
+        // second activity on top, must not count as leaving. Leaving itself
+        // only drops the socket after a grace period — the system photo
+        // picker runs in another process, so picking an image backgrounds
+        // the whole app, and coming back to a reloaded chat would lose what
+        // was in flight. Must be created on the main thread (it is: from
+        // MainActivity.onCreate).
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                // Foreground: reconnect immediately with fresh backoff (iOS parity).
+                client.start()
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                // Background: the credential is the durable thing, not the
+                // connection — let it go, but not straight away.
+                client.stopSoon()
+            }
+        })
+    }
 
     companion object {
         @Volatile

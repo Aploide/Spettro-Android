@@ -380,8 +380,13 @@ class MobileModel(
 
     // MARK: Prompting
 
-    fun sendPrompt(text: String, attachments: List<ImageAttachment> = emptyList()) {
-        val session = _openChat.value ?: return
+    /**
+     * Sends a prompt to the open chat. Returns false — leaving the draft
+     * where it is — when there is no chat or no connection to send it on.
+     */
+    fun sendPrompt(text: String, attachments: List<ImageAttachment> = emptyList()): Boolean {
+        val session = _openChat.value ?: return false
+        if (client.state.value !is RemoteState.Connected) return false
         // Optimistic: we draw our own message; the host will not echo it back.
         session.appendUserMessage(text, attachments)
         session.beginRun()
@@ -396,6 +401,7 @@ class MobileModel(
                     session.appendNotice("Send failed: ${it.message}", isError = true)
                 }
         }
+        return true
     }
 
     fun cancelRun() {

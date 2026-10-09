@@ -53,6 +53,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,6 +69,7 @@ import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.ImageProcessing
 import to.eyed.spettro.mobile.ui.components.AppIconImage
 import to.eyed.spettro.mobile.ui.components.SpettroCard
+import to.eyed.spettro.mobile.ui.components.StatusDot
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
@@ -81,6 +85,24 @@ import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 
+/**
+ * How long the app stays on its screens through a dropped connection before
+ * giving way to the disconnected screen. Counted only while the app is in
+ * the foreground: a reconnect after coming back usually takes a second.
+ */
+private const val RECONNECT_GRACE_MS = 20_000L
+
+/** Drops worth riding out with the UI mounted — the loop is retrying them on its own. */
+private fun isTransientDrop(state: RemoteState): Boolean = when (state) {
+    RemoteState.Searching, RemoteState.Connecting -> true
+    is RemoteState.Offline -> when (state.reason) {
+        OfflineReason.HostNotFound, OfflineReason.TunnelUnreachable, OfflineReason.Transport -> true
+        // Each of these needs the user to see why, and usually to act.
+        else -> false
+    }
+    else -> false
+}
+
 /** Top-level router: connection state first, then which screen. */
 @Composable
 fun AppRoot(container: AppContainer) {
@@ -88,6 +110,51 @@ fun AppRoot(container: AppContainer) {
     val model = container.model
     val scope = rememberCoroutineScope()
     val state by client.state.collectAsState()
+
+    // The last good connection, kept so a transient drop doesn't unmount the
+    // chat — and with it the draft, the picked images and the scroll
+    // position — for what is usually a few seconds of reconnecting.
+    var lastConnected by remember { mutableStateOf<RemoteState.Connected?>(null) }
+    var graceOver by remember { mutableStateOf(false) }
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val inForeground = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
+    val dropped = isTransientDrop(state)
+
+    LaunchedEffect(state) {
+        when (val s = state) {
+            is RemoteState.Connected -> {
+                lastConnected = s
+                graceOver = false
+            }
+            RemoteState.Unpaired -> lastConnected = null
+            else -> Unit
+        }
+    }
+    LaunchedEffect(dropped, inForeground, lastConnected != null) {
+        if (dropped && inForeground && lastConnected != null) {
+            kotlinx.coroutines.delay(RECONNECT_GRACE_MS)
+            graceOver = true
+        }
+    }
+
+    // One call site for the navigator, whether live or riding out a drop, so
+    // going from one to the other recomposes it instead of remounting it.
+    val navigatorConnection = (state as? RemoteState.Connected)
+        ?: lastConnected?.takeIf { dropped && !graceOver }
+    if (navigatorConnection != null) {
+        RemoteNavigator(
+            model = model,
+            container = container,
+            connected = navigatorConnection,
+            reconnecting = state !is RemoteState.Connected,
+            onDisconnect = {
+                // Deliberate: go straight to the disconnected screen.
+                lastConnected = null
+                client.stop()
+            },
+        )
+        return
+    }
 
     when (val s = state) {
         is RemoteState.Unpaired -> {
@@ -122,8 +189,6 @@ fun AppRoot(container: AppContainer) {
                 onManualEntry = pair,
             )
         }
-
-        is RemoteState.Connected -> RemoteNavigator(model, container, s)
 
         else -> {
             val credential by client.credential.collectAsState()
@@ -164,7 +229,13 @@ private val ExpandedMinWidth = 780.dp
 private val ExpandedMinHeight = 500.dp
 
 @Composable
-private fun RemoteNavigator(model: MobileModel, container: AppContainer, connected: RemoteState.Connected) {
+private fun RemoteNavigator(
+    model: MobileModel,
+    container: AppContainer,
+    connected: RemoteState.Connected,
+    reconnecting: Boolean,
+    onDisconnect: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     var screen by rememberSaveable { mutableStateOf(RemoteScreen.ChatList) }
     var showProjectPicker by remember { mutableStateOf(false) }
@@ -248,6 +319,7 @@ private fun RemoteNavigator(model: MobileModel, container: AppContainer, connect
                             model = model,
                             connected = connected,
                             agentReady = agentReady,
+                            onDisconnect = onDisconnect,
                             onOpenProviders = { screen = RemoteScreen.Providers },
                             onBack = { screen = RemoteScreen.ChatList },
                         )
@@ -297,6 +369,7 @@ private fun RemoteNavigator(model: MobileModel, container: AppContainer, connect
                         model = model,
                         connected = connected,
                         agentReady = agentReady,
+                        onDisconnect = onDisconnect,
                         onOpenProviders = { screen = RemoteScreen.Providers },
                         onBack = { screen = RemoteScreen.ChatList },
                     )
@@ -337,6 +410,44 @@ private fun RemoteNavigator(model: MobileModel, container: AppContainer, connect
 
         RemotePromptOverlays(model)
         BannerOverlay(model)
+        ReconnectingPill(visible = reconnecting)
+    }
+}
+
+/**
+ * Says the link dropped and is coming back, without taking the screen away:
+ * the transcript and the draft stay put, and sending waits for the socket.
+ */
+@Composable
+private fun ReconnectingPill(visible: Boolean) {
+    val colors = LocalSpettroColors.current
+    Box(Modifier.fillMaxSize().statusBarsPadding(), contentAlignment = Alignment.TopCenter) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn() + slideInVertically { -it / 2 },
+            exit = fadeOut() + slideOutVertically { -it / 2 },
+            modifier = Modifier.padding(top = 64.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = colors.surfaceRaised,
+                border = BorderStroke(1.dp, colors.hairline),
+                shadowElevation = 2.dp,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StatusDot(color = colors.modeColor("yellow"), pulsing = true)
+                    Text(
+                        "Reconnecting…",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -346,6 +457,7 @@ private fun SettingsHost(
     model: MobileModel,
     connected: RemoteState.Connected,
     agentReady: Boolean,
+    onDisconnect: () -> Unit,
     onOpenProviders: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -361,7 +473,7 @@ private fun SettingsHost(
         login = login,
         diagnostics = diagnostics,
         appVersion = to.eyed.spettro.mobile.BuildConfig.VERSION_NAME,
-        onDisconnect = { model.client.stop() },
+        onDisconnect = onDisconnect,
         onForget = { model.client.forget() },
         onSignIn = model::signIn,
         onSignOut = model::signOut,
@@ -615,8 +727,8 @@ private fun RemoteChatHost(
         onAddImages = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         onSend = {
             val text = composerText.trim()
-            if (text.isNotEmpty() || attachments.isNotEmpty()) {
-                model.sendPrompt(text, attachments)
+            // While reconnecting the send waits: the draft stays in the field.
+            if ((text.isNotEmpty() || attachments.isNotEmpty()) && model.sendPrompt(text, attachments)) {
                 composerText = ""
                 attachments = emptyList()
             }
