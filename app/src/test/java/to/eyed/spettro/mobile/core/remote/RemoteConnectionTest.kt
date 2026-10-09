@@ -115,6 +115,16 @@ class EndpointPlanTest {
     }
 
     @Test
+    fun `a tunnel closed to pairing can't win the pairing race`() {
+        val tunnel = Endpoint.Tunnel("spettro.example.com")
+        val lan = Endpoint.Lan("192.168.1.20", 7879)
+        assertFalse(EndpointPlan.canPairOver(tunnel, pairingOpen = false))
+        assertTrue(EndpointPlan.canPairOver(tunnel, pairingOpen = true))
+        // On the LAN the host's own answer to auth explains a closed window.
+        assertTrue(EndpointPlan.canPairOver(lan, pairingOpen = false))
+    }
+
+    @Test
     fun `duplicates collapse`() {
         val plan = EndpointPlan.candidates(bonjour, "192.168.1.30", 7879, null, environment())
         assertEquals(listOf(Endpoint.Lan("192.168.1.30", 7879)), plan)

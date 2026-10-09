@@ -120,6 +120,15 @@ object EndpointPlan {
     }.distinct()
 
     /**
+     * Whether a `hello` on [endpoint] can lead to a pairing. Over the tunnel
+     * `pairingOpen` is false while the host only pairs on its own network
+     * (the default), and such a hello must not win the pairing race. On
+     * the LAN it only means the window closed, and auth says so better.
+     */
+    fun canPairOver(endpoint: Endpoint, pairingOpen: Boolean): Boolean =
+        endpoint !is Endpoint.Tunnel || pairingOpen
+
+    /**
      * What to tell the user when nothing in [tried] answered:
      *  - Bonjour sees the host right now, so it's there and the socket
      *    failed — a plain transport problem;

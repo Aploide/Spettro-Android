@@ -348,9 +348,19 @@ class RemoteClient(
         val candidates = EndpointPlan.pairingCandidates(payload, discovery.host(payload.hostID), environment)
         var opened: Attempt? = null
         var lastError: Throwable? = null
+        // A tunnel that says pairing isn't open there (internet pairing is
+        // off by default) can't pair this phone, however fast it answered —
+        // so it doesn't win the race: a LAN route that is merely slower, or
+        // Bonjour below, still gets to.
+        var tunnelWontPair = false
         if (candidates.isNotEmpty()) {
             try {
-                opened = race(candidates, payload.hostID)
+                opened = race(candidates, payload.hostID) { attempt ->
+                    if (!EndpointPlan.canPairOver(attempt.endpoint, attempt.hello.pairingOpen)) {
+                        tunnelWontPair = true
+                        throw RpcException(RemoteAuthError.PAIRING_EXPIRED, "the tunnel isn't open for pairing")
+                    }
+                }
             } catch (e: RaceFailure) {
                 lastError = e.cause
                 log("pairing: no candidate answered (${e.message})")
@@ -362,7 +372,8 @@ class RemoteClient(
         // declaring it gone — the user just scanned a code off a computer
         // that is clearly running.
         if (opened == null && environment.localNetworkAllowed) {
-            val wait = if (payload.remoteHost != null) DISCOVERY_WAIT_WITH_TUNNEL_MS else DISCOVERY_WAIT_MS
+            // With the tunnel out of the running, Bonjour is the last hope.
+            val wait = if (payload.remoteHost != null && !tunnelWontPair) DISCOVERY_WAIT_WITH_TUNNEL_MS else DISCOVERY_WAIT_MS
             val discovered = withTimeoutOrNull(wait) {
                 discovery.hosts.first { payload.hostID in it }[payload.hostID]
             }
@@ -385,6 +396,11 @@ class RemoteClient(
             throw RemotePairingException(
                 when {
                     lastError is WrongHostException -> "That code belongs to a different computer."
+                    // The computer answered over the internet, and only
+                    // pairs on its own network.
+                    tunnelWontPair && !environment.localNetworkAllowed ->
+                        "Pair on the same network as this computer first, and allow Spettro to reach devices on your local network."
+                    tunnelWontPair -> "Pair on the same network as this computer first."
                     !environment.localNetworkAllowed && payload.remoteHost == null ->
                         "Allow Spettro to reach devices on your local network, then scan again."
                     !environment.localNetworkAllowed ->
@@ -620,15 +636,30 @@ class RemoteClient(
     /** The socket answered, but as another host — a reused address, most likely. */
     private class WrongHostException : Exception("a different computer answered")
 
-    /** Races every candidate to a `hello` from [hostID]; losers are closed before this returns. */
-    private suspend fun race(candidates: List<Endpoint>, hostID: String): Attempt {
+    /**
+     * Races every candidate to a `hello` from [hostID]; losers are closed
+     * before this returns. [vet] may turn a hello down by throwing — the
+     * attempt is closed and counts as failed, and the race goes on.
+     */
+    private suspend fun race(
+        candidates: List<Endpoint>,
+        hostID: String,
+        vet: (Attempt) -> Unit = {},
+    ): Attempt {
         log("trying ${candidates.joinToString { it.label }}")
         return raceStaggered(
             candidates = candidates,
             stagger = RACE_HEAD_START_MS,
             attempt = { endpoint ->
                 try {
-                    openAndHello(endpoint, hostID)
+                    openAndHello(endpoint, hostID).also { opened ->
+                        try {
+                            vet(opened)
+                        } catch (e: Exception) {
+                            discard(opened)
+                            throw e
+                        }
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -636,7 +667,7 @@ class RemoteClient(
                     throw e
                 }
             },
-            discard = { it.peer.close() },
+            discard = ::discard,
         )
     }
 
