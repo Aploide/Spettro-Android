@@ -118,6 +118,8 @@ fun DisconnectedScreen(
      */
     onAllowLocalNetwork: (() -> Unit)? = null,
     localNetworkMissing: Boolean = false,
+    /** The host has turned down more than one handshake in a row. */
+    refusedRepeatedly: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     val host = hostName ?: "your computer"
@@ -160,8 +162,15 @@ fun DisconnectedScreen(
         // reads as Unreachable, with the permission offered alongside.
         DisconnectReason.NoLocalNetwork ->
             "Spettro talks to $host directly over your Wi-Fi, and Android asks before an app can reach devices on your local network."
+        // One refusal is usually passing. A run of them may well be a
+        // pairing that no longer matches, so stop vouching for it — but
+        // leave the forgetting to the user.
         DisconnectReason.TurnedAway ->
-            "It answered, but didn’t let this phone in just now. Your pairing is fine — Spettro keeps trying."
+            if (refusedRepeatedly) {
+                "It answered, but keeps turning this phone away. Spettro tries again every so often; if this keeps happening, forget this computer and pair again."
+            } else {
+                "It answered, but didn’t let this phone in just now. Spettro keeps trying."
+            }
         DisconnectReason.VersionMismatch ->
             "This phone and $host run versions of Spettro that can’t talk to each other. Update whichever is older, then try again."
         DisconnectReason.Revoked ->

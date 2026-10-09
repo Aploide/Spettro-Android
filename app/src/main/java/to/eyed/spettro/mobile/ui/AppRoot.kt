@@ -97,11 +97,16 @@ import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
  */
 private const val RECONNECT_GRACE_MS = 20_000L
 
-/** Drops worth riding out with the UI mounted — the loop is retrying them on its own. */
-private fun isTransientDrop(state: RemoteState): Boolean = when (state) {
+/**
+ * Drops worth riding out with the UI mounted — the loop is retrying them on
+ * its own. A first refusal counts ([refusals] in a row): it's retried
+ * at once, and usually gets through.
+ */
+internal fun isTransientDrop(state: RemoteState, refusals: Int = 0): Boolean = when (state) {
     RemoteState.Searching, RemoteState.Connecting -> true
     is RemoteState.Offline -> when (state.reason) {
         OfflineReason.HostNotFound, OfflineReason.TunnelUnreachable, OfflineReason.Transport -> true
+        OfflineReason.Rejected -> refusals <= 1
         // Each of these needs the user to see why, and usually to act.
         else -> false
     }
@@ -115,6 +120,7 @@ fun AppRoot(container: AppContainer) {
     val model = container.model
     val scope = rememberCoroutineScope()
     val state by client.state.collectAsState()
+    val refusals by client.refusals.collectAsState()
 
     // The last good connection, kept so a transient drop doesn't unmount the
     // chat — and with it the draft, the picked images and the scroll
@@ -123,15 +129,21 @@ fun AppRoot(container: AppContainer) {
     var graceOver by remember { mutableStateOf(false) }
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     val inForeground = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
-    val dropped = isTransientDrop(state)
+    val dropped = isTransientDrop(state, refusals)
 
-    LaunchedEffect(state) {
+    LaunchedEffect(state, dropped) {
         when (val s = state) {
             is RemoteState.Connected -> {
                 lastConnected = s
                 graceOver = false
             }
             RemoteState.Unpaired -> lastConnected = null
+            // Once the disconnected screen has had to say why, stay on it
+            // until the next real connection: the loop's own retries
+            // (Connecting, then the same refusal) must not remount the chat
+            // for a second each time, and the grace timer restarting with
+            // every flip would never run out.
+            is RemoteState.Offline -> if (!dropped) graceOver = true
             else -> Unit
         }
     }
@@ -250,6 +262,7 @@ fun AppRoot(container: AppContainer) {
                 hasRemoteHost = credential?.remoteHost != null,
                 onAllowLocalNetwork = localNetwork::request,
                 localNetworkMissing = !localNetwork.isGranted,
+                refusedRepeatedly = refusals > 1,
             )
         }
     }

@@ -158,6 +158,15 @@ class RemoteClient(
     /** Rolling connection log, last 40 lines, shown in Settings. */
     val diagnostics: StateFlow<List<String>> = _diagnostics.asStateFlow()
 
+    private val _refusals = MutableStateFlow(0)
+
+    /**
+     * How many handshakes in a row the host has turned down
+     * ([OfflineReason.Rejected]); zero once one gets through. One is
+     * usually a passing thing; a run of them likely isn't.
+     */
+    val refusals: StateFlow<Int> = _refusals.asStateFlow()
+
     private val _inbound = MutableSharedFlow<InboundNotification>(
         extraBufferCapacity = 256,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
@@ -302,6 +311,7 @@ class RemoteClient(
         connectJob = null
         holdReason = null
         teardown()
+        _refusals.value = 0
         _state.value = RemoteState.Unpaired
         scope.launch { store.clear() }
         log("credential forgotten")
@@ -482,8 +492,12 @@ class RemoteClient(
                 continue
             }
 
-            // A goodbye stays on screen while it is quietly re-checked.
-            if (hold == null) _state.value = RemoteState.Connecting
+            // A goodbye stays on screen while it is quietly re-checked, and
+            // so does a refusal — flashing "Looking for…" between two
+            // refusals would only make it flicker.
+            if (hold == null && _state.value != RemoteState.Offline(OfflineReason.Rejected)) {
+                _state.value = RemoteState.Connecting
+            }
             try {
                 val attempt = connectOnce(cred, candidates)
                 // Connected; the close handler restarts the loop — unless the
@@ -506,11 +520,19 @@ class RemoteClient(
                     log("auth rejected permanently (${e.code}): ${e.message}")
                     return
                 }
+                val refused = hold == null && RemoteAuthError.isAuthCode(e.code)
+                if (refused) _refusals.update { it + 1 }
                 _state.value = RemoteState.Offline(
-                    hold ?: if (RemoteAuthError.isAuthCode(e.code)) OfflineReason.Rejected
-                    else offlineTransportReason(cred, candidates),
+                    hold ?: if (refused) OfflineReason.Rejected else offlineTransportReason(cred, candidates),
                 )
                 log("connect failed (${e.code}): ${e.message}")
+                if (refused && _refusals.value > 1) {
+                    // The host counts failed handshakes per address and
+                    // blocks a run of them; over the tunnel that address may
+                    // be shared. Ask rarely enough never to trip it.
+                    withTimeoutOrNull(REFUSED_RETRY_MS) { retrySignal.receive() }
+                    continue
+                }
             } catch (e: Exception) {
                 teardown()
                 _state.value = RemoteState.Offline(hold ?: offlineTransportReason(cred, candidates))
@@ -723,6 +745,7 @@ class RemoteClient(
         )
         backoffMs = INITIAL_BACKOFF_MS
         holdReason = null
+        _refusals.value = 0
         _inbound.tryEmit(
             InboundNotification(RemoteNotification.Hello(attempt.hello), FrameMark(attempt.connection, 0)),
         )
@@ -886,6 +909,12 @@ class RemoteClient(
 
         /** Between quiet checks on a host that said goodbye. */
         private const val HOST_STOPPED_POLL_MS = 45_000L
+
+        /**
+         * Between handshakes once the host has refused more than one in a
+         * row: well clear of its limit of five failures in five minutes.
+         */
+        private const val REFUSED_RETRY_MS = 90_000L
 
         private const val MAX_DIAGNOSTICS = 40
 
