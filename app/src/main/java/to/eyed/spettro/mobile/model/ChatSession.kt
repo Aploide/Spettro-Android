@@ -103,6 +103,27 @@ class ChatSession(
      */
     val pendingConfigChanges: MutableMap<String, ConfigValue> = mutableMapOf()
 
+    /**
+     * spettro numbers a turn's tool calls from 1 again every prompt (`call-1`,
+     * `perm-1`, `compact-1`), so those ids are only unique within their turn.
+     * Matched across the whole chat, the second turn's `call-1` would land on
+     * the first turn's card: overwriting it, and taking an approval to the
+     * wrong card. So they are matched only within the current turn (from
+     * [turnStart]), and a new call whose id an earlier turn already used is
+     * filed under a fresh one (`call-1~2`); [turnIds] maps this turn's wire
+     * ids to the ids they were filed under. Workflow cards keep their ids
+     * across turns on purpose (a run updates its card after the turn ends)
+     * and are matched chat-wide. Port of the desktop's ChatSession.
+     */
+    private var turnStart = 0
+    private val turnIds = mutableMapOf<String, String>()
+
+    /**
+     * The highest number a per-turn id has started with since [turnStart]:
+     * one turn's counter only goes up (see [noteTurnSeq]).
+     */
+    private var turnSeq = 0
+
     /** Tokens streamed during the in-flight turn. */
     val liveRunTokens: Int
         get() {
@@ -174,6 +195,7 @@ class ChatSession(
         isEmptyFlag = _items.value.isEmpty()
         _configOptions.value = stored.configOptions ?: emptyList()
         replayTail = ""
+        seedTurn()
     }
 
     /** [items] with the trailing answer or reasoning streaming, unless one already is. */
@@ -192,6 +214,31 @@ class ChatSession(
         val steering = m.steering.takeIf { it == ChatMessage.Steering.DELIVERED }
         if (!m.isStreaming && steering == m.steering) return item
         return TranscriptItem.Message(m.copy(isStreaming = false, steering = steering))
+    }
+
+    /**
+     * Picks up the per-turn id state a restored transcript implies: the turn
+     * started at the newest message that wasn't a steer, and its cards'
+     * numbering is replayed in order — so a live `call-1` finds the card the
+     * snapshot filed as `call-1~2`, instead of filing a duplicate `call-1~3`.
+     */
+    private fun seedTurn() {
+        val list = _items.value
+        val opener = list.indexOfLast {
+            it is TranscriptItem.Message &&
+                it.message.role == ChatMessage.Role.User &&
+                it.message.steering == null
+        }
+        beginTurn(at = if (opener < 0) 0 else opener)
+        for (i in turnStart until list.size) {
+            val tool = (list[i] as? TranscriptItem.Tool)?.tool ?: continue
+            val m = FILED_TOOL_ID.matchEntire(tool.id) ?: continue
+            val base = m.groupValues[1]
+            val seq = m.groupValues[3].toInt()
+            if (seq <= turnSeq) beginTurn(at = i)
+            turnSeq = seq
+            turnIds[base] = tool.id
+        }
     }
 
     private fun transcriptItem(stored: StoredItemData): TranscriptItem = when (stored) {
@@ -332,7 +379,8 @@ class ChatSession(
 
     /**
      * Appends the user's message and returns it. [steering] marks a message
-     * sent while a turn was running.
+     * sent while a turn was running; one without it starts a turn, and with
+     * it the agent's tool-call numbering (see [turnStart]).
      */
     fun appendUserMessage(
         text: String,
@@ -345,6 +393,7 @@ class ChatSession(
             attachments = attachments,
             steering = steering,
         )
+        if (steering == null) beginTurn()
         _items.value = _items.value + TranscriptItem.Message(message)
         isEmptyFlag = false
         if (_title.value == projectName || _title.value.isEmpty()) {
@@ -525,7 +574,8 @@ class ChatSession(
             }
         }
 
-        val index = _items.value.indexOfFirst { it is TranscriptItem.Tool && it.tool.id == event.toolCallId }
+        if (isStart) noteTurnSeq(event.toolCallId)
+        val index = turnToolIndex(event.toolCallId)
         if (index >= 0) {
             val list = _items.value.toMutableList()
             var existing = (list[index] as TranscriptItem.Tool).tool
@@ -546,7 +596,7 @@ class ChatSession(
         }
 
         val tool = ToolCallItem(
-            id = event.toolCallId,
+            id = fileToolId(event.toolCallId),
             title = event.title ?: "Tool call",
             kind = event.kind,
             status = event.status
@@ -564,6 +614,70 @@ class ChatSession(
         // at…" would keep its typing dots for the rest of the turn.
         endOpenBubbles()
         _items.value = _items.value + TranscriptItem.Tool(tool)
+    }
+
+    /**
+     * The card a tool call id names: a wire id of this turn's (see
+     * [turnStart]), or the id a card was filed under.
+     */
+    fun toolById(toolCallId: String): ToolCallItem? {
+        val index = turnToolIndex(toolCallId)
+        return if (index < 0) null else (_items.value[index] as TranscriptItem.Tool).tool
+    }
+
+    /** Starts a turn at [at] (the end of the transcript, by default). */
+    private fun beginTurn(at: Int = _items.value.size) {
+        turnStart = at
+        turnIds.clear()
+        turnSeq = 0
+    }
+
+    /**
+     * Starts a turn where the agent's numbering says one started without a
+     * message from here to mark it. Within a turn spettro's counter only goes
+     * up, shared by every prefix (call-3 follows perm-2), and each new call
+     * takes the next number; so a call starting at or below a number this
+     * turn already used belongs to a new turn. That happens when a steer
+     * reaches the CLI just after the turn it meant to steer ended: it runs as
+     * a turn of its own, and its call-1 must not land on the finished turn's.
+     */
+    private fun noteTurnSeq(toolCallId: String) {
+        val m = PER_TURN_TOOL_ID.matchEntire(toolCallId) ?: return
+        val seq = m.groupValues[2].toInt()
+        if (seq <= turnSeq) beginTurn()
+        turnSeq = seq
+    }
+
+    /**
+     * The index of the card for [toolCallId] — this turn's only, for an id
+     * the agent numbers per turn (see [turnStart]) — or -1.
+     */
+    private fun turnToolIndex(toolCallId: String): Int {
+        val filed = turnIds[toolCallId]
+        val perTurn = filed == null && PER_TURN_TOOL_ID.matches(toolCallId)
+        val id = filed ?: toolCallId
+        val list = _items.value
+        val floor = if (perTurn) turnStart else 0
+        for (i in list.indices.reversed()) {
+            if (i < floor) break
+            val item = list[i]
+            if (item is TranscriptItem.Tool && item.tool.id == id) return i
+        }
+        return -1
+    }
+
+    /**
+     * The id a new card is filed under: the agent's own, unless an earlier
+     * turn's card already has it.
+     */
+    private fun fileToolId(toolCallId: String): String {
+        val list = _items.value
+        val taken = { id: String -> list.any { it is TranscriptItem.Tool && it.tool.id == id } }
+        var id = toolCallId
+        var n = 2
+        while (taken(id)) id = "$toolCallId~${n++}"
+        if (PER_TURN_TOOL_ID.matches(toolCallId)) turnIds[toolCallId] = id
+        return id
     }
 
     /** Marks the current streamed bubbles as finished at turn's end. */
@@ -612,6 +726,12 @@ class ChatSession(
          */
         private const val STEERING_QUEUED = "→ steering queued"
         private const val STEERING_DELIVERED = "✔ steering delivered"
+
+        /** Tool-call ids spettro numbers per turn; see [turnStart]. */
+        private val PER_TURN_TOOL_ID = Regex("^(call|perm|compact)-(\\d+)$")
+
+        /** A per-turn id as a card was filed under it: its own, or `call-1~2`. */
+        private val FILED_TOOL_ID = Regex("^((call|perm|compact)-(\\d+))(?:~\\d+)?$")
 
         private val ChatMessage.Steering?.isPending: Boolean
             get() = this == ChatMessage.Steering.SENDING || this == ChatMessage.Steering.QUEUED

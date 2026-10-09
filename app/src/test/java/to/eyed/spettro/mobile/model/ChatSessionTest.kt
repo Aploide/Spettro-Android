@@ -323,6 +323,67 @@ class ChatSessionTest {
         items.value.filterIsInstance<TranscriptItem.Tool>().map { it.tool }
 
     @Test
+    fun laterTurnsCall1StaysOffTheEarlierTurnsCard() {
+        // spettro numbers tool calls per turn, so every turn has a call-1.
+        val s = session()
+        s.appendUserMessage("ls")
+        s.applyToolEvent(tool("call-1", "Run ls -la"), isStart = true)
+        s.applyToolEvent(tool("call-1", status = AcpToolStatus.COMPLETED), isStart = false)
+        s.appendUserMessage("touch it")
+        assertNull(s.toolById("call-1")) // that one is the last turn's
+        s.applyToolEvent(tool("call-1", "Run touch a.txt"), isStart = true)
+        s.applyToolEvent(tool("call-1", status = AcpToolStatus.FAILED), isStart = false)
+
+        assertEquals(
+            listOf(
+                Triple("call-1", "Run ls -la", AcpToolStatus.COMPLETED),
+                Triple("call-1~2", "Run touch a.txt", AcpToolStatus.FAILED),
+            ),
+            s.tools().map { Triple(it.id, it.title, it.status) },
+        )
+        assertEquals("Run touch a.txt", s.toolById("call-1")?.title)
+        assertEquals("Run touch a.txt", s.toolById("call-1~2")?.title)
+        // A steer is part of the running turn, not a new one.
+        s.appendUserMessage("also b.txt", steering = ChatMessage.Steering.SENDING)
+        assertEquals("Run touch a.txt", s.toolById("call-1")?.title)
+    }
+
+    @Test
+    fun aSteerThatRanAsItsOwnTurnGetsItsOwnCall1() {
+        // The steer reached the CLI just after the turn ended, so it ran as a
+        // new turn, numbered from 1 again — with no non-steering message here
+        // to say a turn began.
+        val s = session()
+        s.appendUserMessage("ls")
+        s.applyToolEvent(tool("call-1", "Run ls -la"), isStart = true)
+        s.applyToolEvent(tool("call-1", status = AcpToolStatus.COMPLETED), isStart = false)
+        s.appendUserMessage("then touch a.txt", steering = ChatMessage.Steering.SENDING)
+        s.applyToolEvent(tool("call-1", "Run touch a.txt"), isStart = true)
+        s.applyToolEvent(tool("call-1", status = AcpToolStatus.FAILED), isStart = false)
+        s.applyToolEvent(tool("perm-2", "Write b.txt"), isStart = true)
+
+        assertEquals(
+            listOf(
+                Triple("call-1", "Run ls -la", AcpToolStatus.COMPLETED),
+                Triple("call-1~2", "Run touch a.txt", AcpToolStatus.FAILED),
+                Triple("perm-2", "Write b.txt", AcpToolStatus.IN_PROGRESS),
+            ),
+            s.tools().map { Triple(it.id, it.title, it.status) },
+        )
+    }
+
+    @Test
+    fun aWorkflowCardFromAnEarlierTurnIsStillFound() {
+        val s = session()
+        s.appendUserMessage("run it")
+        s.applyToolEvent(tool("workflow-wf_1", "workflow review"), isStart = true)
+        s.appendUserMessage("next")
+        s.applyToolEvent(tool("workflow-wf_1", status = AcpToolStatus.COMPLETED), isStart = false)
+        assertEquals(1, s.tools().size)
+        assertEquals(AcpToolStatus.COMPLETED, s.toolById("workflow-wf_1")?.status)
+    }
+
+    @Test
     fun aWorkflowCardsMetadataIsReplacedWholeByEachUpdateThatCarriesIt() {
         val s = session()
         val running = SpettroJson.parseToJsonElement("""{"version":1,"status":"running"}""").jsonObject
@@ -374,6 +435,50 @@ class ChatSessionTest {
     private fun assistantItem(text: String, streaming: Boolean? = null) =
         """{"message":{"_0":{"id":"a-$text","role":"assistant","noticeIsError":false,"text":"$text",
             "timestamp":"ts"${if (streaming != null) ",\"isStreaming\":$streaming" else ""}}}}"""
+
+    @Test
+    fun aRestoredTurnFindsTheCardItsSnapshotFiledUnderANewId() {
+        // The desktop filed this turn's call-1 as call-1~2; live updates
+        // keep saying call-1.
+        val s = session()
+        s.restoreFrom(
+            snapshot(
+                listOf(
+                    userItem("u1"), toolItem("call-1"),
+                    userItem("u2"), toolItem("call-1~2", "in_progress"), toolItem("call-2", "in_progress"),
+                ).joinToString(","),
+            ),
+            isBusy = true,
+        )
+        s.applyToolEvent(tool("call-1", status = AcpToolStatus.COMPLETED), isStart = false)
+        s.applyToolEvent(tool("call-2", status = AcpToolStatus.COMPLETED), isStart = false)
+        // The next call this turn continues the numbering; a call-1 start
+        // after it is a new turn's.
+        s.applyToolEvent(tool("call-3", "third"), isStart = true)
+        assertEquals(
+            listOf(
+                "call-1" to AcpToolStatus.COMPLETED,
+                "call-1~2" to AcpToolStatus.COMPLETED,
+                "call-2" to AcpToolStatus.COMPLETED,
+                "call-3" to AcpToolStatus.IN_PROGRESS,
+            ),
+            s.tools().map { it.id to it.status },
+        )
+        s.applyToolEvent(tool("call-1", "fresh"), isStart = true)
+        assertEquals("call-1~3", s.tools().last().id)
+    }
+
+    @Test
+    fun aRestoredSteerIsPartOfTheTurnBeforeIt() {
+        val s = session()
+        s.restoreFrom(
+            snapshot(listOf(userItem("u1"), toolItem("call-1", "in_progress"), userItem("u2", "queued")).joinToString(",")),
+            isBusy = true,
+        )
+        s.applyToolEvent(tool("call-1", status = AcpToolStatus.COMPLETED), isStart = false)
+        assertEquals(listOf("call-1" to AcpToolStatus.COMPLETED), s.tools().map { it.id to it.status })
+        assertEquals(ChatMessage.Steering.QUEUED, s.messages().last().steering)
+    }
 
     @Test
     fun aChatOpenedMidAnswerKeepsWritingTheSameBubble() {
