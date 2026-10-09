@@ -519,14 +519,8 @@ class RemoteClient(
             environment = environment,
         )
 
-    private fun offlineTransportReason(cred: RemoteCredential, tried: List<Endpoint>): OfflineReason = when {
-        // Nothing on the LAN could even be tried; granting the permission is
-        // the likeliest fix, tunnel or not.
-        !environment.localNetworkAllowed -> OfflineReason.NoLocalNetwork
-        discovery.host(cred.hostID) != null -> OfflineReason.Transport
-        tried.any { it is Endpoint.Tunnel } -> OfflineReason.TunnelUnreachable
-        else -> OfflineReason.HostNotFound
-    }
+    private fun offlineTransportReason(cred: RemoteCredential, tried: List<Endpoint>): OfflineReason =
+        EndpointPlan.offlineReason(tried, hostDiscovered = discovery.host(cred.hostID) != null, environment)
 
     /** Sleeps out the backoff (or the slow goodbye poll), or less if something pokes [retrySignal]. */
     private suspend fun awaitRetry(slow: Boolean = false) {
@@ -765,9 +759,10 @@ class RemoteClient(
         if (_state.value !is RemoteState.Connected) return
         teardown()
         val cred = store.credential.value
-        _state.value = RemoteState.Offline(
-            if (cred != null) offlineTransportReason(cred, candidatesFor(cred)) else OfflineReason.HostNotFound,
-        )
+        // It was there a moment ago, by whichever route: a lost connection,
+        // ridden out while the loop finds it again — not a verdict on where
+        // the host is, or on a permission the working route didn't need.
+        _state.value = RemoteState.Offline(OfflineReason.Transport)
         log("connection lost: ${reason.ifEmpty { "closed" }}")
         if (cred != null) {
             // A loop that just connected may not have returned yet; a fresh

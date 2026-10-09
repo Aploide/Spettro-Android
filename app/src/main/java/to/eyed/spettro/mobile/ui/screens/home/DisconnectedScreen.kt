@@ -111,8 +111,13 @@ fun DisconnectedScreen(
     onForget: () -> Unit,
     modifier: Modifier = Modifier,
     hasRemoteHost: Boolean = false,
-    /** Asks for the local-network permission; shown for [DisconnectReason.NoLocalNetwork]. */
+    /**
+     * Asks for the local-network permission: the main action for
+     * [DisconnectReason.NoLocalNetwork], and a second one when the tunnel
+     * didn't answer while [localNetworkMissing] kept the LAN out of reach.
+     */
     onAllowLocalNetwork: (() -> Unit)? = null,
+    localNetworkMissing: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     val host = hostName ?: "your computer"
@@ -151,12 +156,10 @@ fun DisconnectedScreen(
             "Spettro keeps trying, and this screen updates by itself the moment it’s back."
         DisconnectReason.SharingOff ->
             "Turn it back on in Settings › Remote on your computer. This screen updates by itself once it’s on."
+        // Only shown with no tunnel to try: one that was tried and failed
+        // reads as Unreachable, with the permission offered alongside.
         DisconnectReason.NoLocalNetwork ->
-            if (hasRemoteHost) {
-                "On the same Wi-Fi, Spettro talks to $host directly, and Android asks before an app can reach devices on your local network. Over the internet it didn’t answer either."
-            } else {
-                "Spettro talks to $host directly over your Wi-Fi, and Android asks before an app can reach devices on your local network."
-            }
+            "Spettro talks to $host directly over your Wi-Fi, and Android asks before an app can reach devices on your local network."
         DisconnectReason.TurnedAway ->
             "It answered, but didn’t let this phone in just now. Your pairing is fine — Spettro keeps trying."
         DisconnectReason.VersionMismatch ->
@@ -229,6 +232,13 @@ fun DisconnectedScreen(
                         icon = Icons.Outlined.Refresh,
                         onClick = onRetry,
                     )
+            }
+            // Over the internet it didn't answer, and the LAN was never
+            // tried: on the same Wi-Fi as the computer, this is the way in.
+            if (reason == DisconnectReason.Unreachable && localNetworkMissing && onAllowLocalNetwork != null) {
+                TextButton(onClick = onAllowLocalNetwork) {
+                    Text("On the same Wi-Fi? Allow local network access")
+                }
             }
             // Settings is only reachable once connected, so this screen is
             // the sole way out of a stale pairing — offer it in every state,

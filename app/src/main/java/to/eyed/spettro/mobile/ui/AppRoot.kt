@@ -249,6 +249,7 @@ fun AppRoot(container: AppContainer) {
                 onForget = { client.forget() },
                 hasRemoteHost = credential?.remoteHost != null,
                 onAllowLocalNetwork = localNetwork::request,
+                localNetworkMissing = !localNetwork.isGranted,
             )
         }
     }

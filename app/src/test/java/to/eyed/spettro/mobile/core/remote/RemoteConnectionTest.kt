@@ -76,6 +76,45 @@ class EndpointPlanTest {
     }
 
     @Test
+    fun `a tunnel that didn't answer is unreachable, permission or not`() {
+        val tunnel = listOf(Endpoint.Tunnel("spettro.example.com"))
+        // On mobile data with the permission refused, the tunnel was the
+        // only route there was: a blip on it is not a permission problem.
+        assertEquals(
+            OfflineReason.TunnelUnreachable,
+            EndpointPlan.offlineReason(tunnel, hostDiscovered = false, environment(onLocalNetwork = false, allowed = false)),
+        )
+        assertEquals(
+            OfflineReason.TunnelUnreachable,
+            EndpointPlan.offlineReason(tunnel, hostDiscovered = false, environment(allowed = false)),
+        )
+        assertEquals(
+            OfflineReason.TunnelUnreachable,
+            EndpointPlan.offlineReason(listOf(Endpoint.Lan("192.168.1.20", 7879)) + tunnel, false, environment()),
+        )
+    }
+
+    @Test
+    fun `the permission is the reason only when nothing could be tried`() {
+        assertEquals(
+            OfflineReason.NoLocalNetwork,
+            EndpointPlan.offlineReason(emptyList(), hostDiscovered = false, environment(allowed = false)),
+        )
+        // A stale Bonjour sighting doesn't count while browsing is refused.
+        assertEquals(
+            OfflineReason.NoLocalNetwork,
+            EndpointPlan.offlineReason(emptyList(), hostDiscovered = true, environment(allowed = false)),
+        )
+    }
+
+    @Test
+    fun `seen on Bonjour is a transport fault, not seen is not here`() {
+        val lan = listOf(Endpoint.Lan("192.168.1.30", 7879))
+        assertEquals(OfflineReason.Transport, EndpointPlan.offlineReason(lan, hostDiscovered = true, environment()))
+        assertEquals(OfflineReason.HostNotFound, EndpointPlan.offlineReason(lan, hostDiscovered = false, environment()))
+    }
+
+    @Test
     fun `duplicates collapse`() {
         val plan = EndpointPlan.candidates(bonjour, "192.168.1.30", 7879, null, environment())
         assertEquals(listOf(Endpoint.Lan("192.168.1.30", 7879)), plan)

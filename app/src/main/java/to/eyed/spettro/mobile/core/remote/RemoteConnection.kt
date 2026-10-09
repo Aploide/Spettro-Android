@@ -118,6 +118,32 @@ object EndpointPlan {
         }
         payload.remoteHost?.let { add(Endpoint.Tunnel(it)) }
     }.distinct()
+
+    /**
+     * What to tell the user when nothing in [tried] answered:
+     *  - Bonjour sees the host right now, so it's there and the socket
+     *    failed — a plain transport problem;
+     *  - the tunnel was tried and didn't answer — wherever the phone is,
+     *    that's the route that failed (a passing blip, more often than not);
+     *  - nothing at all could be tried because the local-network
+     *    permission is missing (no tunnel to fall back on);
+     *  - otherwise the host simply isn't on this network.
+     *
+     * A missing permission alone never wins over a tunnel that was tried:
+     * a phone on mobile data has no LAN to allow, and "allow local network
+     * access" there would be the wrong story — and one that can't be ridden
+     * out like a dropped tunnel can.
+     */
+    fun offlineReason(
+        tried: List<Endpoint>,
+        hostDiscovered: Boolean,
+        environment: NetworkEnvironment,
+    ): OfflineReason = when {
+        hostDiscovered && environment.localNetworkAllowed -> OfflineReason.Transport
+        tried.any { it is Endpoint.Tunnel } -> OfflineReason.TunnelUnreachable
+        !environment.localNetworkAllowed -> OfflineReason.NoLocalNetwork
+        else -> OfflineReason.HostNotFound
+    }
 }
 
 // MARK: - Racing
