@@ -188,4 +188,22 @@ class JsonRpcPeerTest {
         peer.handleMessage("""{"jsonrpc":"2.0","id":1,"result":null}""")
         assertEquals(kotlinx.serialization.json.JsonNull, pending.await())
     }
+
+    @Test
+    fun `a response reports its frame, ordered against notifications around it`() = runBlocking {
+        val transport = FakeTransport()
+        val peer = JsonRpcPeer(transport)
+        val seen = mutableListOf<Pair<String, Long>>()
+        peer.onNotification = { method, _ -> seen.add(method to peer.currentFrame) }
+
+        val reply = async(start = CoroutineStart.UNDISPATCHED) { peer.requestFramed("chats/open") }
+        peer.handleMessage("""{"jsonrpc":"2.0","method":"before","params":{}}""")
+        peer.handleMessage("""{"jsonrpc":"2.0","id":1,"result":{"ok":true}}""")
+        peer.handleMessage("""{"jsonrpc":"2.0","method":"after","params":{}}""")
+
+        val framed = reply.await()
+        assertEquals(2L, framed.frame)
+        assertEquals(listOf("before" to 1L, "after" to 3L), seen)
+        assertTrue(seen.first().second < framed.frame && seen.last().second > framed.frame)
+    }
 }

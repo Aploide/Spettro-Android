@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
+import to.eyed.spettro.mobile.core.remote.AndroidNetworkEnvironment
 import to.eyed.spettro.mobile.core.remote.RemoteClient
 import to.eyed.spettro.mobile.core.remote.RemoteCredentialStore
 import to.eyed.spettro.mobile.core.remote.RemoteDiscovery
@@ -24,6 +25,7 @@ class AppContainer private constructor(context: Context) {
         discovery = discovery,
         deviceName = deviceName(),
         platform = "Android ${Build.VERSION.RELEASE}",
+        environment = AndroidNetworkEnvironment(context),
     )
     val model = MobileModel(client, scope)
 

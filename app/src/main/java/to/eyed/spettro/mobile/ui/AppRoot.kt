@@ -130,8 +130,8 @@ fun AppRoot(container: AppContainer) {
             val reason = when (val st = state) {
                 is RemoteState.Searching, is RemoteState.Connecting -> DisconnectReason.Searching
                 is RemoteState.Offline -> when (st.reason) {
-                    OfflineReason.HostNotFound -> DisconnectReason.HostAsleep
-                    OfflineReason.Rejected -> DisconnectReason.Revoked
+                    OfflineReason.HostNotFound, OfflineReason.TunnelUnreachable -> DisconnectReason.HostAsleep
+                    OfflineReason.Rejected, OfflineReason.VersionMismatch -> DisconnectReason.Revoked
                     OfflineReason.NotRecognised -> DisconnectReason.Revoked
                     OfflineReason.HostStopped -> DisconnectReason.SharingOff
                     OfflineReason.NoLocalNetwork -> DisconnectReason.NoLocalNetwork
