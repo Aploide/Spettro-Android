@@ -254,22 +254,56 @@ class AcpPermissionQuestionTest {
     // MARK: Answers
 
     @Test
-    fun answerEncodesPlainSynthesizedShape() {
+    fun anOptionWithWordsBesideItSendsTheWordsAsNotes() {
+        // The desktop host drops `text` on an option answer, and turns a
+        // `text` with no kind into a custom answer that drops the options:
+        // only `notes` survives beside a choice.
         val json = AcpQuestionAnswer(
             questionId = "db",
             optionIds = listOf("pg"),
             text = "prefer managed",
         ).toJson()
         assertEquals("db", json["questionId"]!!.toString().trim('"'))
+        assertEquals("\"option\"", json["kind"].toString())
         assertEquals("""["pg"]""", json["optionIds"].toString())
-        assertEquals("\"prefer managed\"", json["text"].toString())
-        assertNull(json["notes"])
-        assertNull(json["kind"]) // the host adds the kind tag, not us
+        assertEquals("\"pg\"", json["optionId"].toString())
+        assertEquals("\"prefer managed\"", json["notes"].toString())
+        assertNull(json["text"])
     }
 
     @Test
-    fun answerWithNoSelectionKeepsEmptyOptionIds() {
-        val json = AcpQuestionAnswer(questionId = "q-0", text = "my own words").toJson()
+    fun severalOptionsKeepTheirNotesAndTheTypedWordsTogether() {
+        val json = AcpQuestionAnswer(
+            questionId = "q",
+            optionIds = listOf("a", "b"),
+            text = "and c",
+            notes = "only on weekdays",
+        ).toJson()
+        assertEquals("""["a","b"]""", json["optionIds"].toString())
+        assertNull(json["optionId"])
+        assertEquals("\"and c\\n\\nonly on weekdays\"", json["notes"].toString())
+    }
+
+    @Test
+    fun wordsAloneAreACustomAnswer() {
+        val json = AcpQuestionAnswer(questionId = "q-0", text = " my own words ").toJson()
+        assertEquals("\"custom\"", json["kind"].toString())
+        assertEquals("\"my own words\"", json["text"].toString())
         assertEquals("[]", json["optionIds"].toString())
+        assertNull(json["notes"])
+    }
+
+    @Test
+    fun aQuestionOverThePermissionTransportNamesTheRequestsSession() {
+        val req = AcpParser.parsePermissionRequest(
+            obj(
+                """
+                {"sessionId":"sess-9","toolCall":{"toolCallId":"call-2","title":"Question"},
+                 "options":[{"optionId":"a","name":"A","kind":"allow_once"}],
+                 "_meta":{"spettro.app/question":{"question":"Pick","options":[{"id":"a","label":"A"}]}}}
+                """.trimIndent()
+            )
+        )!!
+        assertEquals("sess-9", AcpParser.parseQuestionFromPermission(req)!!.sessionId)
     }
 }

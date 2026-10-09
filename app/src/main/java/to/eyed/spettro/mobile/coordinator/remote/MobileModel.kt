@@ -297,8 +297,11 @@ class MobileModel(
                 pending?.let { releaseCard(it, made = AcpToolStatus.IN_PROGRESS) }
             }
             is RemoteNotification.QuestionAsk -> {
-                val request = AcpParser.parseQuestionRequest(notification.request) ?: return
-                val pending = PendingQuestion(notification.promptID, notification.chatID, request)
+                val request = questionFrom(notification.request) ?: return
+                // A question over the permission transport names its chat
+                // only through its session.
+                val chatID = notification.chatID ?: sessionFor(null, request.sessionId)?.chatId
+                val pending = PendingQuestion(notification.promptID, chatID, request)
                 _pendingQuestions.value =
                     _pendingQuestions.value.filterNot { it.promptID == pending.promptID } + pending
             }
@@ -312,6 +315,20 @@ class MobileModel(
                 }
             }
         }
+    }
+
+    /**
+     * The question a `question/ask` carries: `_spettro/question/ask` params,
+     * or — from an older CLI walking the form over the permission transport —
+     * a `session/request_permission` with the form in its `_meta`. Either
+     * way it is answered with `question/reply`; the host turns that into the
+     * reply the transport needs.
+     */
+    private fun questionFrom(request: JsonObject): AcpQuestionRequest? {
+        if (request["toolCall"] is JsonObject) {
+            return AcpParser.parsePermissionRequest(request)?.let(AcpParser::parseQuestionFromPermission)
+        }
+        return AcpParser.parseQuestionRequest(request)
     }
 
     private fun upsertChat(chat: ChatSummary) {

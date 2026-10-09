@@ -214,14 +214,19 @@ data class AcpQuestionRequest(
             val payload = permission.meta?.get(AcpQuestionMeta.QUESTION).asObj ?: return null
             val custom = permission.options.firstOrNull { it.isCustomInput }?.optionId
                 ?: if (payload["allowCustomInput"].asBool == true) AcpQuestionMeta.CUSTOM_OPTION_ID else null
-            return fromPayload(payload, Transport.Permission(custom))
+            // The payload names its session when it can; the request always does.
+            return fromPayload(payload, Transport.Permission(custom), fallbackSessionId = permission.sessionId)
         }
 
-        private fun fromPayload(payload: JsonObject, transport: Transport): AcpQuestionRequest? {
+        private fun fromPayload(
+            payload: JsonObject,
+            transport: Transport,
+            fallbackSessionId: String = "",
+        ): AcpQuestionRequest? {
             val questions = questionsFrom(payload)
             if (questions.isEmpty()) return null
             return AcpQuestionRequest(
-                sessionId = payload["sessionId"].asString ?: "",
+                sessionId = payload["sessionId"].asString.trimmedOrNull() ?: fallbackSessionId,
                 context = payload["context"].asString.trimmedOrNull(),
                 questions = questions,
                 transport = transport,
@@ -246,10 +251,9 @@ data class AcpQuestionRequest(
 // MARK: - Answer
 
 /**
- * One question's answer, in the plain synthesized shape the Spettro Remote
- * host reads (`RemoteProtocol.swift`); the host translates it to the
- * kind-tagged ACP reply. A question with no answer is left out of the reply
- * entirely.
+ * One question's answer, as the user gave it: the options they chose and
+ * the words they typed. [toJson] puts it in the shape the host reads.
+ * A question with no answer is left out of the reply entirely.
  */
 data class AcpQuestionAnswer(
     val questionId: String,
@@ -260,10 +264,29 @@ data class AcpQuestionAnswer(
     /** A free-text annotation on the answer, not an answer itself. */
     val notes: String? = null,
 ) {
+    /**
+     * The `question/reply` entry. The desktop host reads a `text` with no
+     * `kind` as a custom answer and drops the options, and ignores `text`
+     * on an option answer — so the kind is always said, and words typed
+     * beside a choice travel as `notes`, which both kinds keep (as the
+     * desktop's own question card sends them). Words alone are a custom
+     * answer.
+     */
     fun toJson(): JsonObject = buildJsonObject {
         put("questionId", questionId)
         put("optionIds", buildJsonArray { optionIds.forEach { add(it) } })
-        text?.let { put("text", it) }
-        notes?.let { put("notes", it) }
+        val words = text?.trim().orEmpty()
+        val note = notes?.trim().orEmpty()
+        if (optionIds.isNotEmpty()) {
+            put("kind", "option")
+            if (optionIds.size == 1) put("optionId", optionIds[0])
+            listOf(words, note).filter { it.isNotEmpty() }.joinToString("\n\n")
+                .takeIf { it.isNotEmpty() }
+                ?.let { put("notes", it) }
+        } else {
+            put("kind", "custom")
+            put("text", words)
+            if (note.isNotEmpty()) put("notes", note)
+        }
     }
 }
