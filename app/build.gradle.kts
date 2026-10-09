@@ -11,7 +11,7 @@ android {
     defaultConfig {
         applicationId = "to.eyed.spettro.mobile"
         minSdk = 33
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 17
         versionName = "0.1.7"
 
