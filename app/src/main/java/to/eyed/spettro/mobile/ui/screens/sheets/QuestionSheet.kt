@@ -3,6 +3,8 @@ package to.eyed.spettro.mobile.ui.screens.sheets
 import to.eyed.spettro.mobile.ui.components.SpettroSheet
 import to.eyed.spettro.mobile.ui.components.SpettroButton
 import to.eyed.spettro.mobile.ui.components.ButtonStyle
+import to.eyed.spettro.mobile.ui.components.SectionHeader
+import to.eyed.spettro.mobile.ui.components.SpettroTextField
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,17 +32,12 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.QuestionAnswer
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -430,11 +427,12 @@ private fun QuestionPage(
         if (question.allowCustomInput) {
             if (question.options.isEmpty()) {
                 // Free text is the only way to answer — no card to expand.
-                OutlinedTextField(
+                SpettroTextField(
                     value = customText,
                     onValueChange = onCustomChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Your answer…") },
+                    placeholder = "Your answer…",
+                    singleLine = false,
                     minLines = 2,
                     maxLines = 4,
                 )
@@ -450,15 +448,17 @@ private fun QuestionPage(
     }
 
     if (question.multiSelect) {
-        OutlinedTextField(
-            value = note,
-            onValueChange = onNoteChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Notes (optional)") },
-            placeholder = { Text("Anything the agent should know about this answer") },
-            textStyle = MaterialTheme.typography.bodyMedium,
-            maxLines = 3,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionHeader("Notes (optional)")
+            SpettroTextField(
+                value = note,
+                onValueChange = onNoteChange,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "Anything the agent should know about this answer",
+                singleLine = false,
+                maxLines = 3,
+            )
+        }
     }
 }
 
@@ -578,12 +578,12 @@ private fun OtherCard(
                         color = colors.textSecondary,
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    OutlinedTextField(
+                    SpettroTextField(
                         value = text,
                         onValueChange = onTextChange,
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Your answer…") },
-                        textStyle = MaterialTheme.typography.bodyMedium,
+                        placeholder = "Your answer…",
+                        singleLine = false,
                         maxLines = 4,
                     )
                 }

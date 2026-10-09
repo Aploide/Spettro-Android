@@ -43,16 +43,11 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -620,17 +615,18 @@ internal fun ConnectProviderSheetContent(
             style = MaterialTheme.typography.titleMedium,
             color = colors.textPrimary,
         )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API key") },
-            placeholder = { Text(provider.envKey ?: "sk-…") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionHeader("API key")
+            SpettroTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = provider.envKey ?: "sk-…",
+                mono = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically,
@@ -723,32 +719,36 @@ internal fun AddLocalServerSheetContent(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
             for (preset in LocalPresets) {
-                AssistChip(
+                SpettroButton(
+                    preset.name,
                     onClick = { endpoint = "http://localhost:${preset.port}" },
-                    label = { Text(preset.name, style = MaterialTheme.typography.labelMedium) },
+                    size = ButtonSize.Small,
                 )
             }
         }
-        OutlinedTextField(
-            value = endpoint,
-            onValueChange = { endpoint = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Endpoint") },
-            placeholder = { Text("http://localhost:1234") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-        )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API key (optional)") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionHeader("Endpoint")
+            SpettroTextField(
+                value = endpoint,
+                onValueChange = { endpoint = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "http://localhost:1234",
+                mono = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionHeader("API key (optional)")
+            SpettroTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "Only if the server asks for one",
+                mono = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+        }
         Text(
             "The address as your computer sees it — localhost here means your computer, not this phone.",
             color = colors.textSecondary,
