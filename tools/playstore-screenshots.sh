@@ -28,6 +28,10 @@
 #   activation_askfirst      (the same under Ask first: muted, with the way out)
 #   permission_edit          (an approval with a diff, beside the listed command one)
 #   providers  archived  new_chat  new_session  tunnel  disconnected_<reason>
+#   thinking  thinking_meteor  thinking_smoulder  thinking_paused  thinking_off
+#   thinking_inert  thinking_live   (the slider open over the chat; a meteor's
+#                                    instant via --es progress 0.35 [--es from 4],
+#                                    the smoulder's via --es idle 1.5)
 #
 # Every scene takes the phone's accent too: add `--es accent mono` for
 # Monochrome (Lilac is the default).

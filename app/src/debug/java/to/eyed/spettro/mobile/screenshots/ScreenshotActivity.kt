@@ -16,6 +16,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -26,7 +27,14 @@ import to.eyed.spettro.mobile.core.acp.AcpToolContent
 import to.eyed.spettro.mobile.core.acp.AcpQuestionItem
 import to.eyed.spettro.mobile.core.acp.AcpQuestionOption
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
+import to.eyed.spettro.mobile.core.acp.AcpConfigOption
 import to.eyed.spettro.mobile.core.remote.ChatSummary
+import to.eyed.spettro.mobile.model.ConfigValue
+import to.eyed.spettro.mobile.model.Thinking
+import to.eyed.spettro.mobile.model.ThinkingCommitter
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingFrame
+import to.eyed.spettro.mobile.ui.screens.chat.workflowGate
 import to.eyed.spettro.mobile.ui.DesktopModal
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
@@ -52,6 +60,8 @@ import to.eyed.spettro.mobile.ui.theme.Appearance
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.SystemBarsFor
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -81,10 +91,18 @@ class ScreenshotActivity : ComponentActivity() {
         val dark = intent.getStringExtra(EXTRA_THEME) != "light"
         val tablet = intent.getStringExtra(EXTRA_FORM) == "tablet"
         val accent = if (intent.getStringExtra(EXTRA_ACCENT) == "mono") Accent.Mono else Accent.Lilac
+        val frame = SliderExtras(
+            progress = intent.getStringExtra(EXTRA_PROGRESS)?.toDoubleOrNull(),
+            from = intent.getStringExtra(EXTRA_FROM)?.toIntOrNull(),
+            idle = intent.getStringExtra(EXTRA_IDLE)?.toDoubleOrNull(),
+        )
         setContent {
             SystemBarsFor(dark = dark)
             SpettroTheme(darkTheme = dark, accent = accent) {
-                CompositionLocalProvider(LocalSceneTheme provides SceneTheme(dark, accent)) {
+                CompositionLocalProvider(
+                    LocalSceneTheme provides SceneTheme(dark, accent),
+                    LocalSliderExtras provides frame,
+                ) {
                     Scene(scene, tablet)
                 }
             }
@@ -96,6 +114,9 @@ class ScreenshotActivity : ComponentActivity() {
         const val EXTRA_THEME = "theme"
         const val EXTRA_FORM = "form"
         const val EXTRA_ACCENT = "accent"
+        const val EXTRA_PROGRESS = "progress"
+        const val EXTRA_FROM = "from"
+        const val EXTRA_IDLE = "idle"
         const val SCENE_CHAT = "chat"
     }
 }
@@ -107,6 +128,15 @@ class ScreenshotActivity : ComponentActivity() {
 private data class SceneTheme(val dark: Boolean, val accent: Accent)
 
 private val LocalSceneTheme = staticCompositionLocalOf { SceneTheme(dark = true, accent = Accent.Lilac) }
+
+/**
+ * The thinking slider's frozen instant, from the extras: `progress` (0…1)
+ * of a meteor's run from stop `from`, or lit Ultra's smoulder `idle`
+ * seconds in.
+ */
+private data class SliderExtras(val progress: Double? = null, val from: Int? = null, val idle: Double? = null)
+
+private val LocalSliderExtras = staticCompositionLocalOf { SliderExtras() }
 
 // MARK: - Scenes
 
@@ -168,6 +198,36 @@ private fun Scene(scene: String, tablet: Boolean) {
             composerText = "ultracode: port the settings screen too",
             workflowGate = WorkflowGate(ultraOn = false, askFirst = true, canRestrict = true),
         )
+        // The thinking slider, open over the chat: at rest on High; frozen
+        // mid-meteor (`--es progress 0.35 [--es from 4]`, seed 7); lit
+        // Ultra smouldering (`--es idle 1.5`, seed 11); Ultra paused under
+        // Ask first; Off; a model that doesn't think; and a live one to
+        // drive by hand, its moves answered by a stand-in CLI.
+        "thinking" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("high", ultra = false))
+        "thinking_meteor" -> {
+            val extras = LocalSliderExtras.current
+            ThinkingScene(
+                tablet,
+                options = ChatPreviewData.configOptionsWith("high", ultra = true),
+                frame = ThinkingFrame(meteorProgress = extras.progress ?: 0.35, meteorFrom = extras.from),
+            )
+        }
+        "thinking_smoulder" -> ThinkingScene(
+            tablet,
+            options = ChatPreviewData.configOptionsWith("high", ultra = true),
+            frame = ThinkingFrame(idleTime = LocalSliderExtras.current.idle ?: 1.5),
+        )
+        "thinking_paused" -> ThinkingScene(
+            tablet,
+            options = ChatPreviewData.configOptionsWith("high", ultra = true, permission = "ask-first"),
+        )
+        "thinking_off" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("off", ultra = false))
+        "thinking_inert" -> ThinkingScene(
+            tablet,
+            options = ChatPreviewData.configOptionsWith("high", ultra = true),
+            reasons = false,
+        )
+        "thinking_live" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("max", ultra = false), live = true)
         "list" -> if (tablet) SplitShell(items = null) else ChatList()
         "split" -> SplitShell(items = ChatPreviewData.transcript, busy = false)
         "config" -> {
@@ -272,13 +332,89 @@ private fun Shell(
     busy: Boolean,
     composerText: String = "",
     workflowGate: WorkflowGate = WorkflowGate(),
+    thinking: ThinkingControl? = previewThinking(ChatPreviewData.configOptions),
+    thinkingFrame: ThinkingFrame? = null,
 ) {
     if (tablet) {
-        SplitShell(items = items, busy = busy, composerText = composerText, workflowGate = workflowGate)
+        SplitShell(
+            items = items,
+            busy = busy,
+            composerText = composerText,
+            workflowGate = workflowGate,
+            thinking = thinking,
+            thinkingFrame = thinkingFrame,
+        )
     } else {
-        Chat(items = items, busy = busy, composerText = composerText, workflowGate = workflowGate)
+        Chat(
+            items = items,
+            busy = busy,
+            composerText = composerText,
+            workflowGate = workflowGate,
+            thinking = thinking,
+            thinkingFrame = thinkingFrame,
+        )
     }
 }
+
+/**
+ * The chat with its thinking slider open over [options]. A [frame] freezes
+ * one instant of it; [live] answers its moves with a stand-in CLI that takes
+ * each call, a beat apart, so the meteor can be driven by hand.
+ */
+@Composable
+private fun ThinkingScene(
+    tablet: Boolean,
+    options: List<AcpConfigOption>,
+    frame: ThinkingFrame = ThinkingFrame(),
+    reasons: Boolean? = null,
+    live: Boolean = false,
+) {
+    var current by remember { mutableStateOf(options) }
+    val scope = rememberCoroutineScope()
+    val queue = remember {
+        ThinkingCommitter(
+            scope = scope,
+            ultraOnNow = { Thinking.state(current)?.ultraOn == true },
+            send = { call ->
+                delay(80)
+                current = current.map { option ->
+                    if (option.id != call.configId) return@map option
+                    when (val value = call.value) {
+                        is ConfigValue.Str -> option.copy(
+                            kind = (option.kind as AcpConfigOption.Kind.Select).copy(current = value.value),
+                        )
+                        is ConfigValue.Bool -> option.copy(kind = AcpConfigOption.Kind.Bool(value.value))
+                    }
+                }
+            },
+        )
+    }
+    val control = ThinkingControl(
+        options = current,
+        reasons = reasons,
+        onCommit = { stop -> if (live) queue.commit(stop) else CompletableDeferred(true) },
+        onSwitchToRestricted = {},
+        onTurnOffUltra = {},
+    )
+    val gate = workflowGate(current)
+    Shell(
+        tablet,
+        items = ChatPreviewData.transcript,
+        busy = false,
+        workflowGate = gate,
+        thinking = control,
+        thinkingFrame = frame,
+    )
+}
+
+/** A thinking chip over fixed [options], its moves going nowhere. */
+private fun previewThinking(options: List<AcpConfigOption>) = ThinkingControl(
+    options = options,
+    reasons = null,
+    onCommit = { CompletableDeferred(true) },
+    onSwitchToRestricted = {},
+    onTurnOffUltra = {},
+)
 
 /**
  * The tablet split shell: sidebar + divider + detail pane, as RemoteNavigator
@@ -291,6 +427,8 @@ private fun SplitShell(
     busy: Boolean = false,
     composerText: String = "",
     workflowGate: WorkflowGate = WorkflowGate(),
+    thinking: ThinkingControl? = previewThinking(ChatPreviewData.configOptions),
+    thinkingFrame: ThinkingFrame? = null,
 ) {
     val colors = LocalSpettroColors.current
     Row(Modifier.fillMaxSize()) {
@@ -306,6 +444,8 @@ private fun SplitShell(
                     showBack = false,
                     composerText = composerText,
                     workflowGate = workflowGate,
+                    thinking = thinking,
+                    thinkingFrame = thinkingFrame,
                 )
             } else {
                 NewSession(onBack = null)
@@ -321,6 +461,8 @@ private fun Chat(
     showBack: Boolean = true,
     composerText: String = "",
     workflowGate: WorkflowGate = WorkflowGate(),
+    thinking: ThinkingControl? = null,
+    thinkingFrame: ThinkingFrame? = null,
 ) {
     var text by remember { mutableStateOf(composerText) }
     ChatScreen(
@@ -361,6 +503,8 @@ private fun Chat(
         showBack = showBack,
         workflowGate = workflowGate,
         onSwitchPermission = {},
+        thinking = thinking,
+        thinkingFrame = thinkingFrame,
     )
 }
 
