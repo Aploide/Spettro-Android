@@ -15,9 +15,9 @@ throughout (no RxJava, no Hilt — manual DI via `AppContainer`).
 **Spettro for Android** talks to a `spettro` agent host and renders
 everything it emits: chats, streamed tokens, tool calls, diffs, plans,
 permission prompts, and ask-user questions. It pairs with the **Spettro
-desktop app** on your PC — Linux, macOS, or Windows — over the local network
+desktop app** on your computer — Linux, macOS, or Windows — over the local network
 (Bonjour discovery, QR-code pairing, WebSocket + JSON-RPC 2.0) and mirrors
-its chat list; the PC owns the agent. Every prompt, config change, and
+its chat list; the computer owns the agent. Every prompt, config change, and
 permission reply is a request; every chat update is a notification. The app
 owns the display transcript, the composer, and the sheets; the agent owns
 the model, the tool loop, and the file edits.
@@ -50,7 +50,7 @@ content; `core.acp` does.
 Failed connections retry on their own: exponential backoff from 1s to 30s,
 reset the moment anything succeeds, the app comes to the foreground, or
 Bonjour sees the host reappear. While the app is offline, the disconnected
-screen keeps a "Forget This PC" escape hatch so a stale pairing can always
+screen keeps a "Forget this computer…" escape hatch so a stale pairing can always
 be discarded.
 
 ## Project layout
@@ -73,7 +73,7 @@ app/src/main/java/to/eyed/spettro/mobile/
 │   │                          ToolCallItem, image attachments
 │   └── Orchestration.kt       folds the flat wire back into runs (see below)
 └── ui/
-    ├── theme/                 Spettro colors/type — M3 Expressive with Spettro tokens
+    ├── theme/                 the desktop's tokens (Lilac/Monochrome × light/dark), type, motion
     ├── components/            shared composables (cards, chips, badges, spinners…)
     ├── screens/
     │   ├── home/              PairingScreen, QR scanner, ChatListScreen,
@@ -157,7 +157,7 @@ by name has to spell it out in full rather than using the `.Foo` shorthand.
 `tools/playstore-screenshots.sh` already does. Release builds are untouched:
 still `to.eyed.spettro.mobile`, still labelled *Spettro*.
 
-To actually use the app you need the Spettro desktop app running on a PC on
+To actually use the app you need the Spettro desktop app running on a computer on
 the same network with remote hosting enabled — scan its pairing QR code from
 the app's pairing screen (or paste the `spettro-pair://` URL manually). Each
 application id pairs separately, so the dev copy needs its own pairing.
@@ -174,7 +174,7 @@ JVM unit tests (`app/src/test`) cover the parts that must not drift:
 - **Model** — `ChatSession` transcript mutation and replay suppression,
   `ToolCallItem` title parsing
 
-End-to-end verification is manual: the Spettro desktop app hosting on a PC
+End-to-end verification is manual: the Spettro desktop app hosting on a computer
 plus this app on a device.
 
 ## Conventions

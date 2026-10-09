@@ -128,14 +128,38 @@ dedupe by `seq`; heartbeat `: ping` every 15s; dedupe `ask_user` by `question_id
 
 ### Agent D exposes (package `ui.theme`, `ui.components`)
 
-Design tokens from `../Spettro/docs/18-design-system.md`:
-accent #526FFF light / #6073CC dark; canvas #F9F9F7 / #0E0E0E; surfaceRaised #FFFFFF / ~#1C1C1C;
-diffAdded #40C977; diffRemoved #FA423E; agentAccent #AD7BF9; hairline 8% on/;
-mode colors: plan #BD93F9, coding #34D399, ask #60A5FA, yellow #F59E0B, red #EF4444, purple #BD93F9, magenta #C084FC, cyan #60A5FA, green #34D399, blue #A78BFA.
-Use `MaterialExpressiveTheme` (`@OptIn(ExperimentalMaterial3ExpressiveApi::class)`) with
-`expressiveLightColorScheme()` / dark scheme seeded from the accent, canvas/surface overrides.
-Spacing 4/8/12/16/24; radii 8/12/18, bubble 16. User bubble = solid accent, white text;
-assistant = full-width prose, no chrome; cards = surfaceRaised + 1dp hairline border, no shadow.
+Design tokens are the desktop's (`Spettro-Desktop/src/renderer/src/design/theme.css`),
+ported 1:1 in `SpettroColors.kt`: true neutral greys in both schemes and one accent used
+sparingly — **Lilac** (default) or **Monochrome**, where the accent is the ink. One
+`SpettroColors` per (scheme × accent); Monochrome overrides only the accent tokens.
+
+| Token | Dark | Light |
+|---|---|---|
+| canvas / sidebar / raised / sunken | #1C1C1E / #161618 / #2C2C2E / #161618 | #FAFAFA / #F4F4F5 / #FFFFFF / #F2F2F3 |
+| user bubble | #2A2A2D | #F0F0F2 |
+| text primary / secondary / tertiary | #F5F5F7 / #AEAEB2 / #98989D | #1D1D1F / #5C5C61 / #6E6E73 |
+| hairline / hover / selected / scrim | white 10% / 5.5% / 9% / black 50% | black 10% / 4.5% / 7% / black 25% |
+| accent (Lilac) / contrast / text | #B9A3F5 / #1B1530 / #B9A3F5 | #7A66C6 / #FFFFFF / #6852B8 |
+| accent (Mono) / contrast / text | #F5F5F7 / #1D1D1F / #F5F5F7 | #1D1D1F / #FFFFFF / #1D1D1F |
+| success / danger / danger fill / warning | #4FBF7A / #EF6F65 / #D0433A / #E0A43F | #237A48 / #C93A30 / #C93A30 / #9A6210 |
+
+Plus the mode colours (plan/coding/ask follow the accent; the named agent colours stay in
+Monochrome), plan-badge tokens, Ultra's fire and the activation glow ramp. Every text token
+passes WCAG AA on every surface — `ContrastTest` asserts it over (Lilac|Mono)×(light|dark).
+
+- **No dynamic (Material You) colour.** The Material `ColorScheme` is derived from the tokens.
+  Appearance (System/Light/Dark) and accent are phone-local settings (`ThemeStore`, DataStore),
+  chosen in Settings › Appearance; the desktop doesn't relay its own.
+- Spacing 2/4/8/12/16/24/32; radii 6/8/12/20, bubble 18, prompt card 16, option 10.
+- Type: prose 15/24, UI body 13, titles 17 / 15 semibold, greeting 28; eyebrows 11sp semibold,
+  uppercased at render time (pass sentence case).
+- Motion: `MotionScheme.standard()` and the desktop's short ease-outs (`SpettroMotion`); nothing springs.
+- User bubble = neutral `userBubble` under primary text (the activation phrase stays lit in it);
+  assistant = full-width prose, no chrome; cards = raised + 1dp hairline, never a shadow —
+  only floating layers (menus, sheets, dialogs, toasts, the composer) cast one.
+- Buttons are pills (`SpettroButton`): neutral by default, one accent action per pane, in-chat
+  primaries (send, Allow once, Send answer) in the ink. Copy is sentence case, plain words,
+  "computer" not "PC", "…" on actions that open more UI; errors go through `core/Humanize`.
 
 ## UI screen inventory (wave 2)
 
