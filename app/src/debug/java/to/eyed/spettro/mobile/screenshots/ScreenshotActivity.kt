@@ -286,7 +286,13 @@ private fun Chat(
         onSend = {},
         onStop = {},
         enabled = true,
-        configSummary = ChatPreviewData.CONFIG_SUMMARY,
+        // The bar names the permission level the gate was read from, so the
+        // Ask first scene doesn't say YOLO above a line about Ask first.
+        configSummary = if (workflowGate.askFirst) {
+            "Coding · GPT-5 · Ask first"
+        } else {
+            ChatPreviewData.CONFIG_SUMMARY
+        },
         onConfigTap = {},
         commands = ChatPreviewData.commands,
         onCommandPick = {},
