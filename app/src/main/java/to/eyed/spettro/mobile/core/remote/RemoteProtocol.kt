@@ -71,6 +71,38 @@ object RemoteMethod {
 }
 
 /**
+ * Host capabilities, announced in `hello` and the auth result's `features`.
+ * The protocol version stays 1 — a different version is refused outright —
+ * so everything newer than the original surface is detected here instead.
+ * An old host sends no list at all, which reads as "none of these".
+ */
+object RemoteFeature {
+    /** `chats/config` waits for the set and answers `{configOptions}`, or an error after a rollback. */
+    const val CONFIG_RESULT = "configResult"
+
+    /** Local desktop notices arrive as `chat/state` with a notice and no stopReason. */
+    const val NOTICES = "notices"
+
+    /** Still-pending permission and question asks are re-sent right after auth. */
+    const val PENDING_REPLAY = "pendingReplay"
+
+    /** `chats/prompt` accepts `mentions`. */
+    const val MENTIONS = "mentions"
+
+    /** `chats/rename` exists. */
+    const val RENAME = "rename"
+
+    /** `projects/files` exists. */
+    const val PROJECT_FILES = "projectFiles"
+
+    /** The auth result and `host/state` carry `remoteHost`. */
+    const val REMOTE_HOST = "remoteHost"
+
+    /** `chats/open` snapshots carry the extra message and tool fields. */
+    const val SNAPSHOT_V2 = "snapshotV2"
+}
+
+/**
  * Auth failure codes, and which of them are permanent (retrying can never
  * fix them — only a fresh pairing can).
  */
@@ -95,6 +127,14 @@ object RemoteAuthError {
     /** True for verdicts that stay wrong no matter how often we retry. */
     fun isPermanent(code: Int): Boolean =
         code == NOT_PAIRED || code == VERSION_MISMATCH || code == REVOKED
+
+    /**
+     * The host no longer knows this device. The only verdicts that should
+     * ever invite the user to pair again — a bad proof, a closed pairing
+     * window or a version mismatch are not a lost pairing, and unpairing
+     * over one of them would throw away a credential that still works.
+     */
+    fun isRevocation(code: Int): Boolean = code == NOT_PAIRED || code == REVOKED
 }
 
 // MARK: - Handshake
@@ -110,8 +150,13 @@ data class RemoteHello(
     val hostVersion: String = "",
     /** Random per-connection nonce, base64url. */
     val challenge: String,
-    /** True while the host is showing a pairing QR. */
+    /**
+     * True while the host is showing a pairing QR. Always false on a
+     * connection that came in over the internet while internet pairing is off.
+     */
     val pairingOpen: Boolean = false,
+    /** Host capabilities ([RemoteFeature]); empty from hosts that predate them. */
+    val features: List<String> = emptyList(),
 )
 
 /** Client -> host auth request. */
@@ -147,6 +192,14 @@ data class RemoteAuthResult(
     val hostKind: String = "app",
     /** Whether the host currently has a live agent behind it. */
     val agentReady: Boolean = false,
+    /** Host capabilities ([RemoteFeature]); authoritative over the hello's list. */
+    val features: List<String> = emptyList(),
+    /**
+     * Bare public hostname the host can be reached at over the internet
+     * (`wss://<remoteHost>/`). Present only while its tunnel is on and
+     * configured; an older host never sends it.
+     */
+    val remoteHost: String? = null,
 )
 
 // MARK: - Chats
@@ -254,6 +307,11 @@ data class HostStateParams(
     /** True when the host is going away deliberately. */
     val shuttingDown: Boolean = false,
     val message: String? = null,
+    /**
+     * The host's public hostname: `""` means no tunnel, absent means an
+     * older host that doesn't say.
+     */
+    val remoteHost: String? = null,
 )
 
 @Serializable
@@ -270,6 +328,13 @@ data class QuestionAskParams(
     val chatID: String? = null,
     /** The ask-user form verbatim. */
     val request: JsonObject,
+)
+
+/** `chats/config` answer from a host with [RemoteFeature.CONFIG_RESULT]. */
+@Serializable
+data class ChatConfigResult(
+    /** The chat's options after the set, in the same shape as `chats/open`. */
+    val configOptions: JsonElement? = null,
 )
 
 @Serializable

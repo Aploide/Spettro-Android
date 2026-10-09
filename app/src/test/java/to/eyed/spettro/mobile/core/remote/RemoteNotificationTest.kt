@@ -144,6 +144,52 @@ class RemoteNotificationTest {
         assertFalse(host.agentReady)
         assertTrue(host.shuttingDown)
         assertEquals("sharing was turned off", host.message)
+        // An older host doesn't say anything about a tunnel.
+        assertNull(host.remoteHost)
+    }
+
+    @Test
+    fun `host state carries the tunnel hostname, blank meaning none`() {
+        val on = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":true,"shuttingDown":false,"remoteHost":"spettro.example.com"}""",
+        ) as RemoteNotification.HostState
+        assertEquals("spettro.example.com", on.remoteHost)
+        val off = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":true,"shuttingDown":false,"remoteHost":""}""",
+        ) as RemoteNotification.HostState
+        assertEquals("", off.remoteHost)
+    }
+
+    @Test
+    fun `hello and auth result carry features, absent meaning none`() {
+        val hello = (parse(
+            RemoteMethod.HELLO,
+            """{"protocolVersion":1,"hostID":"H1","hostName":"Spettro","challenge":"AAAA",
+               "features":["configResult","remoteHost","somethingNewer"]}""",
+        ) as RemoteNotification.Hello).hello
+        assertEquals(listOf("configResult", "remoteHost", "somethingNewer"), hello.features)
+
+        val old = (parse(
+            RemoteMethod.HELLO,
+            """{"protocolVersion":1,"hostID":"H1","hostName":"Spettro","challenge":"AAAA"}""",
+        ) as RemoteNotification.Hello).hello
+        assertTrue(old.features.isEmpty())
+
+        val result = SpettroJson.decodeFromString(
+            RemoteAuthResult.serializer(),
+            """{"hostID":"H1","hostName":"Mac","hostKind":"app","agentReady":true,
+               "features":["remoteHost"],"remoteHost":"spettro.example.com"}""",
+        )
+        assertEquals(listOf(RemoteFeature.REMOTE_HOST), result.features)
+        assertEquals("spettro.example.com", result.remoteHost)
+        val oldResult = SpettroJson.decodeFromString(
+            RemoteAuthResult.serializer(),
+            """{"hostID":"H1","hostName":"Mac","agentReady":false}""",
+        )
+        assertNull(oldResult.remoteHost)
+        assertTrue(oldResult.features.isEmpty())
     }
 
     @Test

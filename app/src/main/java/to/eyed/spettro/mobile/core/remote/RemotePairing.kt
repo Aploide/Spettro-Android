@@ -110,7 +110,11 @@ object RemoteCrypto {
 
 /**
  * What the QR code encodes:
- * `spettro-pair://pair?v=1&h=<hostID>&n=<hostName>&k=<kind>&s=<secret>&a=<addr>&p=<port>`
+ * `spettro-pair://pair?v=1&h=<hostID>&n=<hostName>&k=<kind>&s=<secret>&a=<addr>&p=<port>&r=<hostname>`
+ *
+ * `r` is only there while the host's internet tunnel is on: it is the bare
+ * public hostname the phone reaches it at (`wss://<r>/`) once it leaves the
+ * network it paired on.
  */
 class PairPayload(
     val protocolVersion: Int,
@@ -122,6 +126,8 @@ class PairPayload(
     /** Optional address hint for networks that filter mDNS. */
     val address: String?,
     val port: Int?,
+    /** Public tunnel hostname, already normalized; null when the host has none. */
+    val remoteHost: String? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -132,13 +138,14 @@ class PairPayload(
             hostKind == other.hostKind &&
             secret.contentEquals(other.secret) &&
             address == other.address &&
-            port == other.port
+            port == other.port &&
+            remoteHost == other.remoteHost
     }
 
     override fun hashCode(): Int = hostID.hashCode() * 31 + secret.contentHashCode()
 
     override fun toString(): String =
-        "PairPayload(hostID=$hostID, hostName=$hostName, kind=$hostKind, address=$address, port=$port)"
+        "PairPayload(hostID=$hostID, hostName=$hostName, kind=$hostKind, address=$address, port=$port, remoteHost=$remoteHost)"
 }
 
 object RemotePairing {
@@ -177,8 +184,29 @@ object RemotePairing {
             secret = secret,
             address = params["a"]?.takeIf { it.isNotEmpty() },
             port = params["p"]?.toIntOrNull(),
+            remoteHost = params["r"]?.let(::normalizeRemoteHost),
         )
     }
+
+    /**
+     * Reduces whatever a host sent as its public hostname to the bare,
+     * lowercase name the client builds `wss://<name>/` from. Tolerates a
+     * scheme, a path, a port-less trailing dot and stray whitespace; returns
+     * null for anything that isn't a plausible DNS name (blank included,
+     * which is how a host says "no tunnel").
+     */
+    fun normalizeRemoteHost(raw: String): String? {
+        var host = raw.trim().lowercase()
+        host = host.substringAfter("://")
+        host = host.substringBefore('/').substringBefore('?').substringBefore('#')
+        host = host.trimEnd('.')
+        if (host.isEmpty() || host.length > 253) return null
+        return host.takeIf { HOSTNAME.matches(it) }
+    }
+
+    /** Dot-separated labels of letters, digits and inner hyphens, with a letters-only TLD. */
+    private val HOSTNAME =
+        Regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$")
 
     private fun parseQuery(query: String): Map<String, String> {
         val out = LinkedHashMap<String, String>()
@@ -217,12 +245,21 @@ class RemoteCredential(
     val deviceKey: ByteArray,
     /** ISO-8601. */
     val pairedAt: String,
-    /** Last address the host was reachable at — a hint while discovery runs. */
+    /** Last LAN address the host was reachable at — a hint while discovery runs. */
     val lastAddress: String? = null,
     val lastPort: Int? = null,
+    /**
+     * The host's public tunnel hostname, if it has one: the route that still
+     * works off the home network. Learned from the QR, the auth result and
+     * `host/state`; never overwritten by a LAN address.
+     */
+    val remoteHost: String? = null,
 ) {
     fun copyWithEndpoint(address: String?, port: Int?): RemoteCredential =
-        RemoteCredential(hostID, hostName, hostKind, deviceKey, pairedAt, address, port)
+        RemoteCredential(hostID, hostName, hostKind, deviceKey, pairedAt, address, port, remoteHost)
+
+    fun copyWithRemoteHost(host: String?): RemoteCredential =
+        RemoteCredential(hostID, hostName, hostKind, deviceKey, pairedAt, lastAddress, lastPort, host)
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -233,11 +270,13 @@ class RemoteCredential(
             deviceKey.contentEquals(other.deviceKey) &&
             pairedAt == other.pairedAt &&
             lastAddress == other.lastAddress &&
-            lastPort == other.lastPort
+            lastPort == other.lastPort &&
+            remoteHost == other.remoteHost
     }
 
     override fun hashCode(): Int = hostID.hashCode() * 31 + deviceKey.contentHashCode()
 
     override fun toString(): String =
-        "RemoteCredential(hostID=$hostID, hostName=$hostName, kind=$hostKind, lastAddress=$lastAddress, lastPort=$lastPort)"
+        "RemoteCredential(hostID=$hostID, hostName=$hostName, kind=$hostKind, " +
+            "lastAddress=$lastAddress, lastPort=$lastPort, remoteHost=$remoteHost)"
 }
