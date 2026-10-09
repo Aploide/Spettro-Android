@@ -142,53 +142,73 @@ suspend fun <E, R> raceStaggered(
     stagger: Long,
     attempt: suspend (E) -> R,
     discard: (R) -> Unit,
-): R = coroutineScope {
+): R {
     if (candidates.isEmpty()) throw RaceFailure(null)
     val results = Channel<Result<R>>(Channel.UNLIMITED)
-    val gates = List(candidates.size) { CompletableDeferred<Unit>() }
-    gates[0].complete(Unit)
-    val jobs = candidates.mapIndexed { index, candidate ->
-        launch {
-            gates[index].await()
-            val next = gates.getOrNull(index + 1)
-            val headStart = next?.let { gate -> launch { delay(stagger); gate.complete(Unit) } }
-            val outcome = try {
-                Result.success(attempt(candidate))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-            if (outcome.isFailure) {
-                headStart?.cancel()
-                next?.complete(Unit)
-            }
-            results.send(outcome)
-        }
-    }
-
+    // Outside the scope so a cancelled race can still give its winner back.
     var winner: R? = null
     var won = false
-    var lastError: Exception? = null
-    for (i in candidates.indices) {
-        val outcome = results.receive()
-        if (outcome.isSuccess) {
-            winner = outcome.getOrNull()
-            won = true
-            break
+    try {
+        return coroutineScope {
+            val gates = List(candidates.size) { CompletableDeferred<Unit>() }
+            gates[0].complete(Unit)
+            val jobs = candidates.mapIndexed { index, candidate ->
+                launch {
+                    gates[index].await()
+                    val next = gates.getOrNull(index + 1)
+                    val headStart = next?.let { gate -> launch { delay(stagger); gate.complete(Unit) } }
+                    val outcome = try {
+                        Result.success(attempt(candidate))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Result.failure(e)
+                    }
+                    if (outcome.isFailure) {
+                        headStart?.cancel()
+                        next?.complete(Unit)
+                    }
+                    // Never suspends (the channel is unbounded), so a success
+                    // can't be lost to a cancellation between here and there.
+                    results.trySend(outcome)
+                }
+            }
+
+            var lastError: Exception? = null
+            for (i in candidates.indices) {
+                val outcome = results.receive()
+                if (outcome.isSuccess) {
+                    winner = outcome.getOrNull()
+                    won = true
+                    break
+                }
+                lastError = outcome.exceptionOrNull() as? Exception
+            }
+            jobs.forEach { it.cancel() }
+            jobs.forEach { it.join() }
+            // Anything that finished between the win and the cancellation.
+            drainSuccesses(results, discard)
+            @Suppress("UNCHECKED_CAST")
+            if (won) winner as R else throw RaceFailure(lastError)
         }
-        lastError = outcome.exceptionOrNull() as? Exception
+    } catch (e: CancellationException) {
+        // The caller went away mid-race. The scope has waited for every
+        // attempt by now, so whatever succeeded is in hand: close it all
+        // rather than leave an open socket nobody holds.
+        @Suppress("UNCHECKED_CAST")
+        if (won) discard(winner as R)
+        drainSuccesses(results, discard)
+        throw e
+    } finally {
+        results.close()
     }
-    jobs.forEach { it.cancel() }
-    jobs.forEach { it.join() }
-    // Anything that finished between the win and the cancellation.
+}
+
+private fun <R> drainSuccesses(results: Channel<Result<R>>, discard: (R) -> Unit) {
     while (true) {
         val late = results.tryReceive().getOrNull() ?: break
         late.getOrNull()?.let(discard)
     }
-    results.close()
-    @Suppress("UNCHECKED_CAST")
-    if (won) winner as R else throw RaceFailure(lastError)
 }
 
 // MARK: - Notification ordering

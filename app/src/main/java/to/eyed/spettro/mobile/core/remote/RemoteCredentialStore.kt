@@ -63,22 +63,38 @@ class RemoteCredentialStore(
         _credential.value = credential
     }
 
-    /** Remembers where the host was last reachable on the LAN, for the next cold start. */
-    suspend fun updateEndpoint(address: String?, port: Int?) {
-        val current = _credential.value ?: load() ?: return
-        save(current.copyWithEndpoint(address ?: current.lastAddress, port ?: current.lastPort))
+    /**
+     * Remembers where [hostID] was last reachable on the LAN, for the next
+     * cold start. Ignored when the stored pairing is for another host by now.
+     */
+    suspend fun updateEndpoint(hostID: String, address: String?, port: Int?) = modify(hostID) { current ->
+        current.copyWithEndpoint(address ?: current.lastAddress, port ?: current.lastPort)
     }
 
     /**
-     * Remembers (or, for null or blank, forgets) the host's public tunnel
-     * hostname. A no-op when it is unchanged, so the host repeating itself in
-     * every `host/state` costs no disk write.
+     * Remembers (or, for blank, forgets) [hostID]'s public tunnel hostname.
+     * A value that isn't a usable hostname is ignored rather than taken to
+     * mean "no tunnel", and an unchanged one costs no disk write — the host
+     * repeats itself in every `host/state`.
      */
-    suspend fun updateRemoteHost(host: String?) {
-        val current = _credential.value ?: load() ?: return
-        val normalized = host?.let(RemotePairing::normalizeRemoteHost)
-        if (normalized == current.remoteHost) return
-        save(current.copyWithRemoteHost(normalized))
+    suspend fun updateRemoteHost(hostID: String, host: String) {
+        val normalized = if (host.isBlank()) null else RemotePairing.normalizeRemoteHost(host) ?: return
+        modify(hostID) { current -> current.copyWithRemoteHost(normalized) }
+    }
+
+    /**
+     * Read-modify-write in one DataStore transaction, so two updates landing
+     * together (a new LAN address from the connect, a new hostname from
+     * `host/state`) can't each overwrite the other with a stale copy.
+     */
+    private suspend fun modify(hostID: String, transform: (RemoteCredential) -> RemoteCredential) {
+        val prefs = dataStore.edit { prefs ->
+            val current = CredentialPrefs.read(prefs) ?: return@edit
+            if (current.hostID != hostID) return@edit
+            val next = transform(current)
+            if (next != current) CredentialPrefs.write(prefs, next)
+        }
+        _credential.value = CredentialPrefs.read(prefs)
     }
 
     /** Drops the pairing. The device id is kept — it identifies the install, not the pairing. */

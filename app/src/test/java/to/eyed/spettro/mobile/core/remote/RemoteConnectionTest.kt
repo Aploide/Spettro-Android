@@ -1,8 +1,11 @@
 package to.eyed.spettro.mobile.core.remote
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -168,6 +171,40 @@ class RaceStaggeredTest {
             discard = { discarded.add(it) },
         )
         assertEquals(1, discarded.size)
+    }
+
+    @Test
+    fun `a race cancelled after its win still gives the winner back`() = runBlocking {
+        val discarded = Collections.synchronizedList(mutableListOf<String>())
+        val stubbornStarted = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val race = launch {
+            raceStaggered(
+                candidates = listOf("fast", "stubborn"),
+                stagger = 0,
+                attempt = { name ->
+                    if (name == "fast") {
+                        stubbornStarted.await()
+                    } else {
+                        stubbornStarted.complete(Unit)
+                        // Ignores cancellation, so the race is still waiting
+                        // on it when the caller goes away.
+                        withContext(NonCancellable) { release.await() }
+                    }
+                    name
+                },
+                discard = { discarded.add(it) },
+            )
+            fail("the race should have been cancelled")
+        }
+        stubbornStarted.await()
+        delay(20) // "fast" has won; the race waits on "stubborn"
+        race.cancel()
+        release.complete(Unit)
+        race.join()
+        // The caller never got the winner, and the straggler succeeded
+        // after all: neither may stay open.
+        assertEquals(listOf("fast", "stubborn"), discarded.toList())
     }
 
     @Test

@@ -196,6 +196,27 @@ class RemoteClient(
     /** Poked to cut a backoff wait short (foreground, host reappeared). */
     private val retrySignal = Channel<Unit>(Channel.CONFLATED)
 
+    /**
+     * Credential writes learnt from the wire, applied one at a time in the
+     * order they were learnt — never on the connect path, which must not
+     * wait on the disk once the connection is up.
+     */
+    private val persistQueue = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+
+    init {
+        scope.launch {
+            for (write in persistQueue) {
+                try {
+                    write()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log("couldn't save the pairing's details: ${e.message}")
+                }
+            }
+        }
+    }
+
     // MARK: Lifecycle
 
     /**
@@ -453,8 +474,12 @@ class RemoteClient(
             // A goodbye stays on screen while it is quietly re-checked.
             if (hold == null) _state.value = RemoteState.Connecting
             try {
-                connectOnce(cred, candidates)
-                return // connected; the close handler restarts the loop
+                val attempt = connectOnce(cred, candidates)
+                // Connected; the close handler restarts the loop — unless the
+                // socket already went in the instant before this returned,
+                // when the handler found this loop still running.
+                if (active === attempt) return
+                continue
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RpcException) {
@@ -513,23 +538,37 @@ class RemoteClient(
         backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
     }
 
-    private suspend fun connectOnce(cred: RemoteCredential, candidates: List<Endpoint>) {
+    private suspend fun connectOnce(cred: RemoteCredential, candidates: List<Endpoint>): Attempt {
         teardown()
         val attempt = try {
             race(candidates, cred.hostID)
         } catch (e: RaceFailure) {
             throw (e.cause as? Exception) ?: e
         }
-        val gate = installHandlers(attempt)
-        val result = authenticate(attempt, mode = RemoteAuthRequest.MODE_RESUME, key = cred.deviceKey)
-        finishConnected(attempt, result, gate)
+        val result = try {
+            val gate = installHandlers(attempt)
+            authenticate(attempt, mode = RemoteAuthRequest.MODE_RESUME, key = cred.deviceKey)
+                .also { finishConnected(attempt, it, gate) }
+        } catch (e: CancellationException) {
+            // stop() may have torn down before this attempt became active,
+            // and the auth frame may already be out: close it here, or it
+            // lives on as a signed-in socket nobody holds.
+            discard(attempt)
+            throw e
+        }
         // Only a LAN route is an address worth remembering; the tunnel has
         // its own field, and must never overwrite the LAN hint.
-        (attempt.endpoint as? Endpoint.Lan)?.let { store.updateEndpoint(it.host, it.port) }
+        (attempt.endpoint as? Endpoint.Lan)?.let { lan ->
+            persist { store.updateEndpoint(cred.hostID, lan.host, lan.port) }
+        }
+        // A host that announces the feature omits the field when it has no
+        // tunnel, so absence is an answer; from an older host it says nothing.
         if (result.features.contains(RemoteFeature.REMOTE_HOST) || result.remoteHost != null) {
-            store.updateRemoteHost(advertisedRemoteHost(result))
+            val advertised = result.remoteHost.orEmpty()
+            persist { store.updateRemoteHost(cred.hostID, advertised) }
         }
         log("connected to ${result.hostName} via ${attempt.endpoint.label}")
+        return attempt
     }
 
     /**
@@ -693,7 +732,8 @@ class RemoteClient(
     }
 
     private fun applyHostState(note: RemoteNotification.HostState) {
-        note.remoteHost?.let { host -> scope.launch { store.updateRemoteHost(host) } }
+        val hostID = (_state.value as? RemoteState.Connected)?.host?.hostID
+        if (hostID != null) note.remoteHost?.let { host -> persist { store.updateRemoteHost(hostID, host) } }
         if (note.shuttingDown) {
             // Deliberate, so don't dress it up as a network fault — and don't
             // retry into a host that just told us it left. Over a tunnel there
@@ -729,7 +769,13 @@ class RemoteClient(
             if (cred != null) offlineTransportReason(cred, candidatesFor(cred)) else OfflineReason.HostNotFound,
         )
         log("connection lost: ${reason.ifEmpty { "closed" }}")
-        if (cred != null) launchConnectLoop()
+        if (cred != null) {
+            // A loop that just connected may not have returned yet; a fresh
+            // one, rather than "already running", so the drop is retried.
+            connectJob?.cancel()
+            connectJob = null
+            launchConnectLoop()
+        }
     }
 
     // MARK: Discovery
@@ -775,6 +821,21 @@ class RemoteClient(
     }
 
     // MARK: Plumbing
+
+    private fun persist(write: suspend () -> Unit) {
+        persistQueue.trySend(write)
+    }
+
+    /** Closes [attempt], whether or not it got as far as being [active]. */
+    private fun discard(attempt: Attempt) {
+        if (active === attempt) {
+            teardown()
+        } else {
+            attempt.peer.onNotification = null
+            attempt.peer.onClose = null
+            attempt.peer.close()
+        }
+    }
 
     private fun teardown() {
         val old = active
