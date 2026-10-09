@@ -1,5 +1,16 @@
 package to.eyed.spettro.mobile.ui.screens.sheets
 
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
+import to.eyed.spettro.mobile.ui.components.SpettroButton
+import to.eyed.spettro.mobile.ui.components.ButtonStyle
+import to.eyed.spettro.mobile.ui.components.ButtonSize
+import kotlinx.coroutines.delay
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -83,13 +94,7 @@ fun PermissionSheet(
     onSelect: (optionId: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         PermissionSheetContent(
             request = request,
             chatTitle = chatTitle,
@@ -128,8 +133,16 @@ internal fun PermissionSheetContent(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    val secondary = colors.textSecondary
     val body = Prompts.permissionBody(request)
+    // The desktop's arm delay: for the first 600ms the answers are dimmed
+    // and inert, so a tap meant for whatever was on screen a moment ago
+    // cannot approve something the user hasn't read.
+    var armed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(PROMPT_ARM_DELAY_MS)
+        armed = true
+    }
     val diffPaths = request.diffs.map { it.path }.toSet()
     // Locations a diff already shows say nothing new.
     val locations = request.locations.filter { it.path !in diffPaths }
@@ -145,24 +158,12 @@ internal fun PermissionSheetContent(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.Top,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(Dimens.radiusSm))
-                    .background(colors.warning.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = iconFor(request),
-                    contentDescription = null,
-                    tint = colors.warning,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
+            PromptIconTile(icon = iconFor(request))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = Prompts.permissionHeadline(request),
-                    style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = colors.textPrimary,
                 )
                 if (Prompts.showsTitle(request)) {
                     SelectionContainer {
@@ -233,64 +234,72 @@ internal fun PermissionSheetContent(
         // recommended option is tagged, never preselected.
         Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
             for (option in Prompts.orderedOptions(request)) {
-                PermissionOptionButton(option = option, onClick = { onSelect(option.option.optionId) })
+                PermissionOptionButton(
+                    option = option,
+                    enabled = armed,
+                    onClick = { onSelect(option.option.optionId) },
+                )
             }
         }
     }
 }
 
+/**
+ * One answer, as the desktop's prompt buttons: 8dp corners rather than a
+ * pill, a hairline on the raised surface — and the main answer, Allow once,
+ * in the ink rather than the accent (in-chat primaries are ink). The
+ * "Always allow" scope sits under its button as a small caption.
+ */
 @Composable
 private fun PermissionOptionButton(
     option: Prompts.CardOption,
+    enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    val label: @Composable () -> Unit = {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(option.label, style = MaterialTheme.typography.labelLarge)
-            if (option.option.isRecommended) RecommendedTag()
-        }
-    }
     Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.6f),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        when (option.role) {
-            Prompts.OptionRole.ALLOW_ONCE -> Button(
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SpettroButton(
+                text = option.label,
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
-            ) { label() }
-
-            Prompts.OptionRole.ALLOW_ALWAYS -> OutlinedButton(
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.accent),
-                border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.6f)),
-            ) { label() }
-
-            else -> OutlinedButton(
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-                border = BorderStroke(Dimens.hairlineWidth, MaterialTheme.colorScheme.outline),
-            ) { label() }
-        }
-        option.caption?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                // Inert while arming, but without the faded disabled look on
+                // top of the arming dim.
+                enabled = true,
+                style = if (option.role == Prompts.OptionRole.ALLOW_ONCE) ButtonStyle.Ink else ButtonStyle.Neutral,
+                size = ButtonSize.Large,
+                shape = RoundedCornerShape(Dimens.radiusSm),
+                modifier = Modifier
+                    .weight(1f)
+                    .then(if (enabled) Modifier else Modifier.consumeTaps()),
             )
+        }
+        if (option.option.isRecommended || option.caption != null) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (option.option.isRecommended) RecommendedTag()
+                option.caption?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+                        color = colors.textTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }
@@ -321,7 +330,7 @@ private fun previewRequest(kind: String) = AcpPermissionRequest(
     ),
 )
 
-@Preview(name = "Execute dark", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Execute dark", showBackground = true, backgroundColor = 0xFF2C2C2E)
 @Composable
 private fun PermissionSheetPreviewDark() {
     SpettroTheme(darkTheme = true) {
@@ -334,7 +343,7 @@ private fun PermissionSheetPreviewDark() {
     }
 }
 
-@Preview(name = "Edit light", showBackground = true, backgroundColor = 0xFFF9F9F7)
+@Preview(name = "Edit light", showBackground = true, backgroundColor = 0xFFFFFFFF)
 @Composable
 private fun PermissionSheetPreviewLight() {
     SpettroTheme(darkTheme = false) {

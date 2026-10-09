@@ -1,5 +1,8 @@
 package to.eyed.spettro.mobile.ui.screens.sheets
 
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
+import to.eyed.spettro.mobile.ui.components.SpettroButton
+import to.eyed.spettro.mobile.ui.components.ButtonStyle
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,13 +35,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -82,13 +84,7 @@ fun QuestionSheet(
     onDecline: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         QuestionSheetContent(
             request = request,
             onSubmit = onSubmit,
@@ -194,25 +190,21 @@ internal fun QuestionSheetContent(
                 horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.QuestionAnswer,
-                    contentDescription = null,
-                    tint = colors.accent,
-                    modifier = Modifier.size(22.dp),
-                )
+                PromptIconTile(icon = Icons.Outlined.QuestionAnswer, info = true)
                 Text(
                     text = if (questions.size > 1) {
                         "Spettro has ${questions.size} questions"
                     } else {
                         "Spettro has a question"
                     },
-                    style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = colors.textPrimary,
                 )
             }
             if (request.context != null) {
                 Text(
                     text = request.context!!,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.textSecondary,
                     style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
                 )
             }
@@ -296,40 +288,33 @@ internal fun QuestionSheetContent(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            TextButton(
-                onClick = onDecline,
-                colors = ButtonDefaults.textButtonColors(contentColor = colors.danger),
-            ) { Text("Decline") }
+            SpettroButton("Decline", onClick = onDecline, style = ButtonStyle.Plain, shape = RoundedCornerShape(Dimens.radiusSm))
 
             androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
 
             if (hasReview) {
-                OutlinedButton(
+                SpettroButton(
+                    "Back",
                     onClick = { tab = (tab - 1).coerceAtLeast(0) },
                     enabled = tab > 0,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    border = BorderStroke(Dimens.hairlineWidth, MaterialTheme.colorScheme.outline),
-                ) { Text("Back") }
+                    shape = RoundedCornerShape(Dimens.radiusSm),
+                )
             }
 
-            Button(
+            SpettroButton(
+                text = when {
+                    isSubmitting -> if (questions.size > 1) "Send answers" else "Send answer"
+                    tab == questions.size - 1 -> "Review"
+                    else -> "Next"
+                },
                 onClick = {
                     if (isSubmitting) onSubmit(buildAnswers()) else tab += 1
                 },
                 // An empty submission is a decline with extra steps.
                 enabled = !isSubmitting || hasAnyAnswer,
-                colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
-            ) {
-                Text(
-                    when {
-                        isSubmitting -> "Submit"
-                        tab == questions.size - 1 -> "Review"
-                        else -> "Next"
-                    },
-                )
-            }
+                style = ButtonStyle.Ink,
+                shape = RoundedCornerShape(Dimens.radiusSm),
+            )
         }
     }
 }
@@ -348,11 +333,11 @@ private fun QuestionTabChip(
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = if (isActive) colors.accent.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        color = if (isActive) colors.selectedFill else androidx.compose.ui.graphics.Color.Transparent,
+        contentColor = colors.textPrimary,
         border = BorderStroke(
             Dimens.hairlineWidth,
-            if (isActive) colors.accent.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline,
+            colors.hairline,
         ),
     ) {
         Row(
@@ -367,7 +352,7 @@ private fun QuestionTabChip(
                     else -> Icons.Outlined.RadioButtonUnchecked
                 },
                 contentDescription = null,
-                tint = if (isDone) colors.success else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (isDone) colors.success else colors.textSecondary,
                 modifier = Modifier.size(13.dp),
             )
             Text(
@@ -409,8 +394,8 @@ private fun QuestionPage(
     }
     if (question.multiSelect) {
         Text(
-            text = "Pick as many as apply.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = "Choose all that apply.",
+            color = colors.textSecondary,
             style = MaterialTheme.typography.bodySmall,
         )
     }
@@ -434,7 +419,7 @@ private fun QuestionPage(
                     value = customText,
                     onValueChange = onCustomChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Type your answer") },
+                    placeholder = { Text("Your answer…") },
                     minLines = 2,
                     maxLines = 4,
                 )
@@ -486,7 +471,7 @@ private fun OptionCard(
                     else -> Icons.Outlined.RadioButtonUnchecked
                 },
                 contentDescription = null,
-                tint = if (isSelected) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (isSelected) colors.accent else colors.textTertiary,
                 modifier = Modifier.size(20.dp),
             )
             Column(
@@ -507,7 +492,7 @@ private fun OptionCard(
                 if (option.description != null) {
                     Text(
                         text = option.description!!,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.textSecondary,
                         style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
                     )
                 }
@@ -529,7 +514,7 @@ private fun OptionCard(
                         Icons.AutoMirrored.Filled.KeyboardArrowRight
                     },
                     contentDescription = if (previewExpanded) "Hide preview" else "Show preview",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = colors.textSecondary,
                     modifier = Modifier
                         .size(18.dp)
                         .clickable(onClick = onTogglePreview),
@@ -561,7 +546,7 @@ private fun OtherCard(
             Icon(
                 imageVector = Icons.Outlined.Edit,
                 contentDescription = null,
-                tint = if (text.isNotBlank()) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (text.isNotBlank()) colors.accent else colors.textTertiary,
                 modifier = Modifier.size(20.dp),
             )
             Column(
@@ -569,20 +554,20 @@ private fun OtherCard(
                 verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             ) {
                 Text(
-                    text = "Other",
+                    text = "Other…",
                     style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 )
                 if (isOpen) {
                     Text(
                         text = "Or answer in your own words",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.textSecondary,
                         style = MaterialTheme.typography.bodySmall,
                     )
                     OutlinedTextField(
                         value = text,
                         onValueChange = onTextChange,
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Type your own answer") },
+                        placeholder = { Text("Your answer…") },
                         textStyle = MaterialTheme.typography.bodyMedium,
                         maxLines = 4,
                     )
@@ -603,7 +588,7 @@ private fun ReviewPage(
     onJump: (index: Int) -> Unit,
 ) {
     val colors = LocalSpettroColors.current
-    val warn = colors.modeColor("yellow")
+    val warn = colors.warning
     Text(
         text = "Review your answers",
         style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Medium),
@@ -625,7 +610,7 @@ private fun ReviewPage(
                 ) {
                     Text(
                         text = question.header,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.textSecondary,
                         style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                     )
                     val summary = summaryOf(question)
@@ -642,7 +627,7 @@ private fun ReviewPage(
                     if (note.isNotEmpty()) {
                         Text(
                             text = "Note: $note",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.textSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -650,7 +635,7 @@ private fun ReviewPage(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -733,7 +718,7 @@ private val previewForm = AcpQuestionRequest(
     transport = AcpQuestionRequest.Transport.ExtensionCall(2),
 )
 
-@Preview(name = "Single dark", showBackground = true, backgroundColor = 0xFF0E0E0E, heightDp = 640)
+@Preview(name = "Single dark", showBackground = true, backgroundColor = 0xFF2C2C2E, heightDp = 640)
 @Composable
 private fun QuestionSheetPreviewSingle() {
     SpettroTheme(darkTheme = true) {
@@ -746,7 +731,7 @@ private fun QuestionSheetPreviewSingle() {
     }
 }
 
-@Preview(name = "Form light", showBackground = true, backgroundColor = 0xFFF9F9F7, heightDp = 720)
+@Preview(name = "Form light", showBackground = true, backgroundColor = 0xFFFFFFFF, heightDp = 720)
 @Composable
 private fun QuestionSheetPreviewForm() {
     SpettroTheme(darkTheme = false) {

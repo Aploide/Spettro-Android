@@ -1,5 +1,8 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import to.eyed.spettro.mobile.ui.components.SpettroSwitch
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
+import to.eyed.spettro.mobile.ui.components.SegmentedControl
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -112,10 +115,7 @@ fun ChatConfigSheet(
     onSetBool: (configId: String, value: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = LocalSpettroColors.current.canvas,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         ChatConfigSheetContent(
             options = options,
             pendingValues = pendingValues,
@@ -519,30 +519,15 @@ private fun SegmentedSection(
     val choices = kind.groups.flatMap { it.options }
     Column {
         SectionLabel(option)
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            choices.forEachIndexed { index, choice ->
-                SegmentedButton(
-                    selected = choice.value == current,
-                    onClick = { onSelect(choice.value) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
-                    colors = SegmentedButtonDefaults.colors(
-                        activeContainerColor = colors.accent.copy(alpha = 0.16f),
-                        activeContentColor = MaterialTheme.colorScheme.onSurface,
-                        activeBorderColor = colors.accent,
-                        inactiveContainerColor = colors.surfaceRaised,
-                        inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        inactiveBorderColor = colors.hairline,
-                    ),
-                    icon = {},
-                ) {
-                    Text(
-                        text = choice.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
+        // The desktop's segmented control: a tinted track with the active
+        // choice raised on it.
+        SegmentedControl(
+            options = choices,
+            selected = choices.firstOrNull { it.value == current } ?: choices.first(),
+            onSelect = { onSelect(it.value) },
+            label = { it.name },
+            modifier = Modifier.fillMaxWidth(),
+        )
         // Segments have no room for descriptions; explain the active choice below.
         val active = choices.firstOrNull { it.value == current }
         (active?.description ?: option.description)?.takeIf { it.isNotEmpty() }?.let { text ->
@@ -905,11 +890,7 @@ private fun BoolSection(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
-                Switch(
-                    checked = current,
-                    onCheckedChange = onToggle,
-                    colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
-                )
+                SpettroSwitch(checked = current, onCheckedChange = onToggle)
             }
         }
         option.description?.takeIf { it.isNotEmpty() }?.let { description ->
@@ -925,7 +906,7 @@ private fun BoolSection(
 
 // MARK: Previews
 
-@Preview(name = "Config sheet dark", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380, heightDp = 760)
+@Preview(name = "Config sheet dark", showBackground = true, backgroundColor = 0xFF2C2C2E, widthDp = 380, heightDp = 760)
 @Composable
 private fun ChatConfigSheetPreviewDark() {
     SpettroTheme(darkTheme = true) {
@@ -938,7 +919,7 @@ private fun ChatConfigSheetPreviewDark() {
     }
 }
 
-@Preview(name = "Config sheet light", showBackground = true, backgroundColor = 0xFFF9F9F7, widthDp = 380, heightDp = 760)
+@Preview(name = "Config sheet light", showBackground = true, backgroundColor = 0xFFFFFFFF, widthDp = 380, heightDp = 760)
 @Composable
 private fun ChatConfigSheetPreviewLight() {
     SpettroTheme(darkTheme = false) {

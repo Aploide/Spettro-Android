@@ -1,5 +1,11 @@
 package to.eyed.spettro.mobile.ui.screens.sheets
 
+import androidx.compose.ui.Alignment
+import to.eyed.spettro.mobile.ui.components.PillTone
+import to.eyed.spettro.mobile.ui.components.Pill
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -32,7 +38,7 @@ import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
  */
 
 /**
- * Preformatted content on a raised surface with a hairline stroke: the
+ * Preformatted content on the sunken surface with a hairline stroke: the
  * command a permission request wants to run, an option's preview. No wrap —
  * long lines scroll horizontally, exactly like the TUI renders them.
  */
@@ -47,8 +53,8 @@ internal fun MonoBlock(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(Dimens.radiusSm),
-        color = colors.surfaceRaised,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        color = colors.surfaceSunken,
+        contentColor = colors.textPrimary,
         border = BorderStroke(Dimens.hairlineWidth, colors.hairline),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
@@ -57,7 +63,7 @@ internal fun MonoBlock(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(Dimens.spacingSm),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
         ) {
             SelectionContainer {
                 Text(
@@ -83,21 +89,49 @@ internal fun MonoBlock(
  */
 @Composable
 internal fun RecommendedTag(modifier: Modifier = Modifier) {
-    val accent = LocalSpettroColors.current.accent
-    Text(
-        text = "Recommended",
-        modifier = modifier
-            .background(accent.copy(alpha = 0.16f), CircleShape)
-            .padding(horizontal = 7.dp, vertical = 2.dp),
-        color = accent,
-        style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-    )
+    Pill("Recommended", modifier = modifier, tone = PillTone.Success)
+}
+
+/** How long a prompt's answers stay inert after it appears (the desktop's ARM_DELAY_MS). */
+internal const val PROMPT_ARM_DELAY_MS = 600L
+
+/**
+ * The prompt card's header tile: 24dp, 7dp corners, the icon in amber on
+ * amber at 14% — something is waiting on you. [info] is the accent variant.
+ */
+@Composable
+internal fun PromptIconTile(icon: androidx.compose.ui.graphics.vector.ImageVector, info: Boolean = false) {
+    val colors = LocalSpettroColors.current
+    val tint = if (info) colors.accentText else colors.warning
+    Box(
+        modifier = Modifier
+            .padding(top = 1.dp)
+            .size(24.dp)
+            .background(tint.copy(alpha = if (info) 0.12f else 0.14f), RoundedCornerShape(7.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.material3.Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(14.dp),
+        )
+    }
+}
+
+/** Swallows taps, for an answer that isn't armed yet. */
+internal fun Modifier.consumeTaps(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial).changes.forEach { it.consume() }
+        }
+    }
 }
 
 /**
- * A tappable card in the option lists: the [SpettroCard] look (raised fill,
- * hairline stroke, no shadow) that swaps its stroke for the accent while
- * selected.
+ * A tappable option in the lists (the desktop's prompt option): a hairline
+ * on the raised surface with 10dp corners; selected, the border turns accent
+ * at 55% over an accent 7% wash.
  */
 @Composable
 internal fun SelectableCard(
@@ -112,11 +146,11 @@ internal fun SelectableCard(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        shape = RoundedCornerShape(Dimens.radiusSm),
-        color = colors.surfaceRaised,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(Dimens.radiusOption),
+        color = if (selected) colors.accent.copy(alpha = 0.07f).compositeOver(colors.surfaceRaised) else colors.surfaceRaised,
+        contentColor = colors.textPrimary,
         border = if (selected) {
-            BorderStroke(1.5.dp, colors.accent.copy(alpha = 0.7f))
+            BorderStroke(1.dp, colors.accent.copy(alpha = 0.55f))
         } else {
             BorderStroke(Dimens.hairlineWidth, colors.hairline)
         },
