@@ -254,7 +254,7 @@ fun DisconnectedScreen(
             // even while retries run in the background.
             TextButton(
                 onClick = { confirmingForget = true },
-                colors = ButtonDefaults.textButtonColors(contentColor = colors.diffRemoved),
+                colors = ButtonDefaults.textButtonColors(contentColor = colors.danger),
             ) {
                 Text("Forget this computer")
             }
@@ -307,7 +307,7 @@ fun DisconnectedScreen(
                         confirmingForget = false
                         onForget()
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = colors.diffRemoved),
+                    colors = ButtonDefaults.textButtonColors(contentColor = colors.danger),
                 ) { Text("Forget") }
             },
             dismissButton = {

@@ -183,14 +183,14 @@ private fun StripLine(
 ) {
     val colors = LocalSpettroColors.current
     val accent = when {
-        !settled -> colors.accentInk
-        run.status == RunStatus.FAILED -> colors.dangerInk
+        !settled -> colors.accentText
+        run.status == RunStatus.FAILED -> colors.danger
         run.status == RunStatus.PAUSED -> colors.warning
         run.status == RunStatus.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
         // A run that merely vanished from the live list without a final word
         // is reported from what its last snapshot knew.
-        run.status == RunStatus.RUNNING && run.counts.failed > 0 -> colors.dangerInk
-        else -> colors.successInk
+        run.status == RunStatus.RUNNING && run.counts.failed > 0 -> colors.danger
+        else -> colors.success
     }
     val latest = latestActivity(run)
 
@@ -311,7 +311,7 @@ private fun LiveRunSheet(
 @Composable
 private fun LiveRunSection(run: WorkflowRun) {
     val colors = LocalSpettroColors.current
-    val accent = colors.accentInk
+    val accent = colors.accentText
 
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
         Row(
@@ -359,9 +359,9 @@ private fun LivePhase(
 ) {
     val colors = LocalSpettroColors.current
     val tint = when (state) {
-        PhaseState.RUNNING -> colors.accentMark
-        PhaseState.FAILED -> colors.dangerMark
-        PhaseState.DONE -> colors.successMark
+        PhaseState.RUNNING -> colors.accent
+        PhaseState.FAILED -> colors.danger
+        PhaseState.DONE -> colors.success
         PhaseState.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
     }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

@@ -152,15 +152,15 @@ fun WorkflowCard(
     // on — never the accent, which would read as still moving.
     val accent = when {
         continued -> muted
-        run.status == RunStatus.FAILED -> colors.dangerInk
-        run.status == RunStatus.RUNNING -> colors.accentInk
+        run.status == RunStatus.FAILED -> colors.danger
+        run.status == RunStatus.RUNNING -> colors.accentText
         run.status == RunStatus.PAUSED -> colors.warning
         run.status == RunStatus.STOPPED -> muted
-        else -> colors.agentInk
+        else -> colors.agentAccent
     }
     val wash = when {
         continued -> muted
-        run.status == RunStatus.FAILED -> colors.diffRemoved
+        run.status == RunStatus.FAILED -> colors.danger
         run.status == RunStatus.RUNNING -> colors.accent
         run.status == RunStatus.PAUSED -> colors.warning
         run.status == RunStatus.STOPPED -> muted
@@ -400,19 +400,19 @@ private fun RunBadge(run: WorkflowRun) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SpettroSpinner(size = 8.dp, color = colors.accentInk)
+            SpettroSpinner(size = 8.dp, color = colors.accentText)
             Text(
                 text = "Running",
                 fontSize = 9.sp,
                 lineHeight = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.3.sp,
-                color = colors.accentInk,
+                color = colors.accentText,
             )
         }
         RunStatus.PAUSED -> OrchPill(text = "Paused", tint = colors.warning, icon = Icons.Filled.PauseCircle)
         RunStatus.STOPPED -> OrchPill(text = "Stopped", tint = muted, icon = Icons.Filled.StopCircle)
-        RunStatus.FAILED -> OrchPill(text = "Failed", tint = colors.dangerInk, icon = Icons.Filled.Cancel)
+        RunStatus.FAILED -> OrchPill(text = "Failed", tint = colors.danger, icon = Icons.Filled.Cancel)
         RunStatus.DONE -> OrchStatusGlyph(status = OrchStatus.DONE, size = 13.dp)
     }
 }
@@ -429,7 +429,7 @@ private fun StateLine(run: WorkflowRun, text: String) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val ground = when {
         run.continued -> Color.Transparent
-        run.status == RunStatus.FAILED -> colors.diffRemoved.copy(alpha = 0.09f)
+        run.status == RunStatus.FAILED -> colors.danger.copy(alpha = 0.09f)
         run.status == RunStatus.PAUSED -> colors.warning.copy(alpha = 0.10f)
         else -> Color.Transparent
     }
@@ -500,7 +500,7 @@ private fun SummaryTail(
                 return@buildAnnotatedString
             }
             append(text.substring(0, at))
-            withStyle(SpanStyle(color = colors.dangerInk, fontWeight = FontWeight.SemiBold)) {
+            withStyle(SpanStyle(color = colors.danger, fontWeight = FontWeight.SemiBold)) {
                 append(failedTerm)
             }
             append(text.substring(at + failedTerm.length))
@@ -583,9 +583,9 @@ private fun PhaseGroup(
     }
 
     val railTint = when (state) {
-        PhaseState.RUNNING -> colors.accentMark
-        PhaseState.FAILED -> colors.dangerMark
-        PhaseState.DONE -> colors.successMark
+        PhaseState.RUNNING -> colors.accent
+        PhaseState.FAILED -> colors.danger
+        PhaseState.DONE -> colors.success
         PhaseState.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
     }
 

@@ -548,7 +548,7 @@ private fun SearchField(
             null
         },
         singleLine = true,
-        shape = RoundedCornerShape(Dimens.radiusInputPill),
+        shape = RoundedCornerShape(Dimens.radiusLg),
         textStyle = MaterialTheme.typography.bodyMedium,
         colors = TextFieldDefaults.colors(
             focusedContainerColor = colors.surfaceRaised,
@@ -654,7 +654,7 @@ private fun SwipeRevealRow(
                 SwipeAction(
                     label = "Delete",
                     icon = Icons.Outlined.Delete,
-                    background = colors.diffRemoved,
+                    background = colors.danger,
                     onClick = {
                         onDelete()
                         settle(0f)

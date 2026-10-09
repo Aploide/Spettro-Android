@@ -294,8 +294,8 @@ internal fun ErrorCard(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(Dimens.radiusMd),
-        color = colors.diffRemoved.copy(alpha = 0.12f),
-        contentColor = colors.diffRemoved,
+        color = colors.danger.copy(alpha = 0.12f),
+        contentColor = colors.danger,
     ) {
         Row(
             modifier = Modifier.padding(

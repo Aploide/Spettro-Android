@@ -18,7 +18,7 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.TabularNums
 
 /**
- * The git-stat readout: "+N" in [to.eyed.spettro.mobile.ui.theme.SpettroColors.diffAdded]
+ * The git-stat readout: "+N" in [to.eyed.spettro.mobile.ui.theme.SpettroColors.success]
  * and "-N" in diffRemoved, with monospaced digits so the label doesn't
  * shimmy as counts change.
  */
@@ -40,8 +40,8 @@ fun DiffStatLabel(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("+$added", color = colors.diffAdded, style = style)
-        Text("-$removed", color = colors.diffRemoved, style = style)
+        Text("+$added", color = colors.success, style = style)
+        Text("-$removed", color = colors.danger, style = style)
     }
 }
 

@@ -194,12 +194,12 @@ fun ChatScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Delete Chat", color = colors.diffRemoved) },
+                                text = { Text("Delete Chat", color = colors.danger) },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Outlined.DeleteOutline,
                                         contentDescription = null,
-                                        tint = colors.diffRemoved,
+                                        tint = colors.danger,
                                     )
                                 },
                                 onClick = {
@@ -291,7 +291,7 @@ fun ChatScreen(
                         onDelete()
                     },
                 ) {
-                    Text("Delete", color = colors.diffRemoved)
+                    Text("Delete", color = colors.danger)
                 }
             },
             dismissButton = {

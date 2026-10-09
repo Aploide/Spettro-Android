@@ -178,7 +178,7 @@ fun ProvidersScreen(
                     },
                     textStyle = MaterialTheme.typography.bodyMedium,
                     singleLine = true,
-                    shape = RoundedCornerShape(Dimens.radiusInputPill),
+                    shape = RoundedCornerShape(Dimens.radiusLg),
                 )
             }
 
@@ -744,7 +744,7 @@ internal fun AddLocalServerSheetContent(
         probeResult?.let {
             Text(
                 text = it,
-                color = if (probeSucceeded) colors.diffAdded else colors.diffRemoved,
+                color = if (probeSucceeded) colors.success else colors.danger,
                 style = MaterialTheme.typography.bodySmall,
             )
         }

@@ -298,7 +298,7 @@ internal fun QuestionSheetContent(
         ) {
             TextButton(
                 onClick = onDecline,
-                colors = ButtonDefaults.textButtonColors(contentColor = colors.diffRemoved),
+                colors = ButtonDefaults.textButtonColors(contentColor = colors.danger),
             ) { Text("Decline") }
 
             androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
@@ -367,7 +367,7 @@ private fun QuestionTabChip(
                     else -> Icons.Outlined.RadioButtonUnchecked
                 },
                 contentDescription = null,
-                tint = if (isDone) colors.diffAdded else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (isDone) colors.success else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(13.dp),
             )
             Text(

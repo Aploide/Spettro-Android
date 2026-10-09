@@ -164,7 +164,7 @@ private fun ArchivedRow(
                 Icons.Outlined.Delete,
                 contentDescription = "Delete",
                 modifier = Modifier.size(18.dp),
-                tint = colors.diffRemoved,
+                tint = colors.danger,
             )
         }
     }

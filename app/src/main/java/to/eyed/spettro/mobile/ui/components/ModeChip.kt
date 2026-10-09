@@ -34,7 +34,7 @@ fun ModeChip(
     val tint = LocalSpettroColors.current.modeColor(colorName)
     Row(
         modifier = modifier
-            .background(tint.copy(alpha = 0.14f), RoundedCornerShape(Dimens.radiusInputPill))
+            .background(tint.copy(alpha = 0.14f), RoundedCornerShape(Dimens.radiusLg))
             .padding(horizontal = Dimens.spacingSm, vertical = Dimens.spacingXs),
         horizontalArrangement = Arrangement.Center,
     ) {

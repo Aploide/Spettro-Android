@@ -132,13 +132,13 @@ internal fun OrchProgressMeter(
         if (doneFraction + failedFraction > 1f) doneFraction = 1f - failedFraction
 
         if (doneFraction > 0f) {
-            Box(Modifier.fillMaxWidth(doneFraction).height(height).background(colors.successMark))
+            Box(Modifier.fillMaxWidth(doneFraction).height(height).background(colors.success))
         }
         if (failedFraction > 0f) {
             // The remaining width is what is left of the row, so this fraction
             // is taken of that remainder rather than of the whole bar.
             val ofRemaining = (failedFraction / (1f - doneFraction)).coerceIn(0f, 1f)
-            Box(Modifier.fillMaxWidth(ofRemaining).height(height).background(colors.dangerMark))
+            Box(Modifier.fillMaxWidth(ofRemaining).height(height).background(colors.danger))
         }
     }
 }
@@ -177,8 +177,8 @@ internal fun AgentCellStrip(
     ) {
         members.forEach { member ->
             val fill = when (member.status) {
-                OrchStatus.DONE -> colors.successMark
-                OrchStatus.FAILED -> colors.dangerMark
+                OrchStatus.DONE -> colors.success
+                OrchStatus.FAILED -> colors.danger
                 // The accent, deliberately, and NOT the member's spec tint.
                 // The tint says what kind of agent this is, which is real
                 // information — but half the palette is a green, so a fan-out
@@ -186,7 +186,7 @@ internal fun AgentCellStrip(
                 // ones and the one question the strip exists to answer stopped
                 // having an answer. The spec tint lives on the member's name,
                 // where it competes with nothing.
-                OrchStatus.RUNNING -> colors.accentMark
+                OrchStatus.RUNNING -> colors.accent
                 OrchStatus.STOPPED -> cut
                 OrchStatus.PENDING -> ghost
             }
@@ -307,12 +307,12 @@ private fun StatusGlyph(
     val colors = LocalSpettroColors.current
     val quiet = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
     if (glyph == Glyph.RUNNING) {
-        SpettroSpinner(size = size, color = runningTint ?: colors.accentMark, modifier = modifier)
+        SpettroSpinner(size = size, color = runningTint ?: colors.accent, modifier = modifier)
         return
     }
     val (icon, tint, label) = when (glyph) {
-        Glyph.DONE -> Triple(Icons.Outlined.CheckCircle, colors.successMark, "done")
-        Glyph.FAILED -> Triple(Icons.Outlined.Cancel, colors.dangerMark, "failed")
+        Glyph.DONE -> Triple(Icons.Outlined.CheckCircle, colors.success, "done")
+        Glyph.FAILED -> Triple(Icons.Outlined.Cancel, colors.danger, "failed")
         Glyph.PENDING -> Triple(Icons.Outlined.RadioButtonUnchecked, quiet, "not started")
         Glyph.PAUSED -> Triple(Icons.Filled.PauseCircle, colors.warning, "waiting")
         else -> Triple(Icons.Filled.StopCircle, quiet, "stopped")
@@ -373,7 +373,7 @@ internal fun OrchCountsLabel(
                 fontSize = fontSize,
                 fontWeight = if (term.failed) FontWeight.SemiBold else FontWeight.Medium,
                 fontFamily = null,
-                color = if (term.failed) colors.dangerInk else muted,
+                color = if (term.failed) colors.danger else muted,
                 maxLines = 1,
             )
         }
@@ -561,7 +561,7 @@ internal fun MemberRow(
             Text(
                 text = reason.replace("\n", " "),
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
-                color = colors.dangerInk,
+                color = colors.danger,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 22.dp, end = 4.dp, bottom = 3.dp),
@@ -654,8 +654,8 @@ internal fun ScriptCallRow(
     }
     val hasSource = script.source.isNotEmpty() || script.returned.isNotEmpty()
     val shape = RoundedCornerShape(Dimens.radiusMd)
-    val tint = if (script.status == OrchStatus.FAILED) colors.dangerInk else colors.accentInk
-    val wash = if (script.status == OrchStatus.FAILED) colors.diffRemoved else colors.accent
+    val tint = if (script.status == OrchStatus.FAILED) colors.danger else colors.accentText
+    val wash = if (script.status == OrchStatus.FAILED) colors.danger else colors.accent
 
     Column(
         modifier = modifier
@@ -701,7 +701,7 @@ internal fun ScriptCallRow(
                     text = reason,
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = if (script.status == OrchStatus.FAILED) {
-                        colors.dangerInk
+                        colors.danger
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },

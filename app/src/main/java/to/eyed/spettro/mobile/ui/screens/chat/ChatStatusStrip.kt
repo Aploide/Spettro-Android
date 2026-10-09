@@ -167,7 +167,7 @@ private fun PlanList(plan: List<AcpPlanEntry>) {
                     "completed" -> Icon(
                         imageVector = Icons.Outlined.Check,
                         contentDescription = "Completed",
-                        tint = colors.diffAdded,
+                        tint = colors.success,
                         modifier = Modifier.size(12.dp),
                     )
                     "in_progress" -> SpettroSpinner(size = 10.dp, color = colors.accent)
@@ -220,7 +220,7 @@ private fun UsageReadout(usage: AcpUsage) {
         Text(
             text = "$percent%",
             style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
-            color = if (fraction > 0.9f) colors.diffRemoved else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (fraction > 0.9f) colors.danger else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

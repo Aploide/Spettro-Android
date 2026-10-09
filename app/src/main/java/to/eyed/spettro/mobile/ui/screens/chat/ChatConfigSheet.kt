@@ -754,7 +754,7 @@ private fun DrillSearchField(
     val colors = LocalSpettroColors.current
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(Dimens.radiusInputPill)
+    val shape = RoundedCornerShape(Dimens.radiusLg)
     val borderColor by animateColorAsState(
         targetValue = if (focused) colors.accent.copy(alpha = 0.5f) else colors.hairline,
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),

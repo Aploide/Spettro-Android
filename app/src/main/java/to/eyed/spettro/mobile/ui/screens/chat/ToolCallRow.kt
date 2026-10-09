@@ -195,13 +195,13 @@ private fun ToolStatusGlyph(status: AcpToolStatus) {
         AcpToolStatus.COMPLETED -> Icon(
             imageVector = Icons.Outlined.Check,
             contentDescription = "Completed",
-            tint = colors.diffAdded,
+            tint = colors.success,
             modifier = Modifier.size(14.dp),
         )
         AcpToolStatus.FAILED -> Icon(
             imageVector = Icons.Outlined.ErrorOutline,
             contentDescription = "Failed",
-            tint = colors.diffRemoved,
+            tint = colors.danger,
             modifier = Modifier.size(14.dp),
         )
         AcpToolStatus.UNKNOWN -> Unit
@@ -288,11 +288,11 @@ private fun SingleDiff(diff: ToolCallItem.ToolDiff) {
         ) {
             Column(modifier = Modifier.width(IntrinsicSize.Max)) {
                 old.take(MAX_DIFF_LINES).forEach { line ->
-                    DiffLine(line = line, prefix = "-", tint = colors.diffRemoved)
+                    DiffLine(line = line, prefix = "-", tint = colors.danger)
                 }
                 if (old.size > MAX_DIFF_LINES) TruncationNote(old.size - MAX_DIFF_LINES)
                 new.take(MAX_DIFF_LINES).forEach { line ->
-                    DiffLine(line = line, prefix = "+", tint = colors.diffAdded)
+                    DiffLine(line = line, prefix = "+", tint = colors.success)
                 }
                 if (new.size > MAX_DIFF_LINES) TruncationNote(new.size - MAX_DIFF_LINES)
             }
@@ -417,13 +417,13 @@ private fun SubAgentCard(
                 failed -> Icon(
                     imageVector = Icons.Outlined.ErrorOutline,
                     contentDescription = "Failed",
-                    tint = colors.diffRemoved,
+                    tint = colors.danger,
                     modifier = Modifier.size(14.dp),
                 )
                 else -> Icon(
                     imageVector = Icons.Outlined.Check,
                     contentDescription = "Completed",
-                    tint = colors.diffAdded,
+                    tint = colors.success,
                     modifier = Modifier.size(14.dp),
                 )
             }

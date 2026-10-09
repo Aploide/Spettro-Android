@@ -65,9 +65,9 @@ private fun StatusDotPreview() {
             modifier = Modifier.padding(24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            StatusDot(color = colors.diffAdded)
+            StatusDot(color = colors.success)
             StatusDot(color = colors.accent, pulsing = true)
-            StatusDot(color = colors.diffRemoved)
+            StatusDot(color = colors.danger)
             StatusDot(color = colors.agentAccent, pulsing = true)
         }
     }

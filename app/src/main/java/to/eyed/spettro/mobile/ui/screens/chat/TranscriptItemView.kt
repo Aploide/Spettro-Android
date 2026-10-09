@@ -173,7 +173,7 @@ private fun SteeringCaption(state: ChatMessage.Steering?) {
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(200)),
         ) {
-            SteeringLine(icon = Icons.Outlined.Check, text = "Delivered", color = colors.successInk)
+            SteeringLine(icon = Icons.Outlined.Check, text = "Delivered", color = colors.success)
         }
     }
 }
@@ -335,7 +335,7 @@ private fun ReasoningPanel(message: ChatMessage, modifier: Modifier) {
 @Composable
 private fun NoticeCard(message: ChatMessage, isError: Boolean, modifier: Modifier) {
     val colors = LocalSpettroColors.current
-    val tint = if (isError) colors.diffRemoved else MaterialTheme.colorScheme.onSurfaceVariant
+    val tint = if (isError) colors.danger else MaterialTheme.colorScheme.onSurfaceVariant
     SpettroCard(radius = Dimens.radiusSm, modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier

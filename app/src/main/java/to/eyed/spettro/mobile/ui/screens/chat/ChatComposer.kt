@@ -274,7 +274,7 @@ private fun ComposerTextField(
     val colors = LocalSpettroColors.current
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(Dimens.radiusInputPill)
+    val shape = RoundedCornerShape(Dimens.radiusLg)
     val borderColor = if (focused) colors.accent.copy(alpha = 0.5f) else colors.hairline
 
     BasicTextField(
@@ -340,7 +340,7 @@ private fun SendButton(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(colors.diffRemoved)
+                    .background(colors.danger)
                     .clickable(onClick = onStop),
                 contentAlignment = Alignment.Center,
             ) {
@@ -431,7 +431,7 @@ internal fun CommandPaletteContent(
 
     Column(modifier = Modifier.fillMaxWidth()) {
         // Search field.
-        val shape = RoundedCornerShape(Dimens.radiusInputPill)
+        val shape = RoundedCornerShape(Dimens.radiusLg)
         BasicTextField(
             value = search,
             onValueChange = { search = it },

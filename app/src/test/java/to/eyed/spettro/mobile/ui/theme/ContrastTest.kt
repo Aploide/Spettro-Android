@@ -1,8 +1,10 @@
 package to.eyed.spettro.mobile.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
@@ -10,14 +12,11 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * The palettes came from a terminal, which is always dark and always draws them
- * on near-black. Every reuse of them as ink is a contrast question, and the
- * answers are not guessable: "coding" green sits at 1.8:1 on the light canvas
- * while the same green is 15:1 on the dark one, and the *accent* — the one
- * colour that looked obviously fine — fails on both.
- *
- * A screenshot cannot catch any of this either. Unreadable text renders
- * perfectly; it is only unreadable to a person. So the ratios are asserted.
+ * The palette is the desktop's, and the desktop promises that every text
+ * token passes WCAG AA on every surface it is drawn on, in both accents and
+ * both schemes. A screenshot cannot check that — unreadable text renders
+ * perfectly; it is only unreadable to a person — so the ratios are asserted,
+ * over (Lilac | Monochrome) × (light | dark).
  */
 class ContrastTest {
 
@@ -28,13 +27,26 @@ class ContrastTest {
     }
 
     /** The card grounds are the canvas under a 5–7% tint wash. */
-    private fun wash(tint: Color, on: Color, alpha: Float) = Color(
-        red = tint.red * alpha + on.red * (1 - alpha),
-        green = tint.green * alpha + on.green * (1 - alpha),
-        blue = tint.blue * alpha + on.blue * (1 - alpha),
+    private fun wash(tint: Color, on: Color, alpha: Float) = tint.copy(alpha = alpha).compositeOver(on)
+
+    private val themes = Accent.entries.flatMap { accent ->
+        listOf(false, true).map { dark ->
+            "${accent.name.lowercase()} ${if (dark) "dark" else "light"}" to spettroColors(dark, accent)
+        }
+    }
+
+    /** The surfaces text is drawn on, per scheme. */
+    private fun grounds(c: SpettroColors) = listOf(
+        "canvas" to c.canvas,
+        "raised" to c.surfaceRaised,
+        "sidebar" to c.sidebar,
+        "sunken" to c.surfaceSunken,
     )
 
-    private val themes = listOf("light" to LightSpettroColors, "dark" to DarkSpettroColors)
+    private fun assertAA(label: String, ink: Color, ground: Color, need: Float = 4.5f) {
+        val got = ratio(ink, ground)
+        assertTrue("$label = $got:1, need $need", got >= need)
+    }
 
     private val modeNames = listOf(
         "blue", "green", "cyan", "yellow", "magenta", "purple", "red",
@@ -45,15 +57,81 @@ class ContrastTest {
     )
 
     @Test
-    fun everyModeInkIsReadableOnItsCanvas() {
-        for ((name, colors) in themes) {
+    fun fourDistinctTokenSets() {
+        assertEquals(4, themes.map { it.second }.toSet().size)
+        for ((name, c) in themes) {
+            assertEquals(name, name.endsWith("dark"), c.isDark)
+        }
+    }
+
+    @Test
+    fun theTextTokensPassOnEverySurface() {
+        for ((name, c) in themes) {
+            for ((ground, bg) in grounds(c)) {
+                assertAA("$name textPrimary on $ground", c.textPrimary, bg)
+                assertAA("$name textSecondary on $ground", c.textSecondary, bg)
+                assertAA("$name textTertiary on $ground", c.textTertiary, bg)
+            }
+            // The user bubble carries primary text.
+            assertAA("$name textPrimary on the bubble", c.textPrimary, c.userBubble)
+        }
+    }
+
+    @Test
+    fun accentContrastReadsOnTheAccentFill() {
+        for ((name, c) in themes) {
+            assertAA("$name accentContrast on accent", c.accentContrast, c.accent)
+        }
+    }
+
+    /** White on lilac fails in the dark scheme — the reason accentContrast exists. */
+    @Test
+    fun whiteOnTheDarkLilacFillWouldFail() {
+        val c = spettroColors(dark = true, accent = Accent.Lilac)
+        assertTrue(ratio(Color.White, c.accent) < 4.5f)
+        assertNotEquals(Color.White, c.accentContrast)
+    }
+
+    @Test
+    fun theInkPrimaryReadsOnItself() {
+        for ((name, c) in themes) {
+            assertAA("$name onInk on ink", c.onInk, c.ink)
+        }
+    }
+
+    @Test
+    fun theSemanticInksAreReadable() {
+        for ((name, c) in themes) {
+            val inks = listOf(
+                "accentText" to c.accentText,
+                "agentAccent" to c.agentAccent,
+                "danger" to c.danger,
+                "success" to c.success,
+                "warning" to c.warning,
+                "ultraTextEmber" to c.ultraTextEmber,
+                "ultraTextFlame" to c.ultraTextFlame,
+            )
+            for ((label, ink) in inks) {
+                assertAA("$name $label on canvas", ink, c.canvas)
+                assertAA("$name $label on raised", ink, c.surfaceRaised)
+            }
+        }
+    }
+
+    @Test
+    fun filledControlsCarryTheirLabels() {
+        for ((name, c) in themes) {
+            assertAA("$name dangerContrast on dangerFill", c.dangerContrast, c.dangerFill)
+            // The desktop only fills with amber in the dark scheme.
+            if (c.isDark) assertAA("$name warningContrast on warning", c.warningContrast, c.warning)
+        }
+    }
+
+    @Test
+    fun everyModeColorIsReadableOnTheCanvas() {
+        for ((name, c) in themes) {
             for (mode in modeNames) {
-                val ink = colors.modeInk(mode)
-                val got = ratio(ink, colors.canvas)
-                assertTrue(
-                    "$name modeInk(${mode ?: "null"}) = $got:1, need 4.5",
-                    got >= 4.5f,
-                )
+                assertAA("$name modeColor(${mode ?: "null"})", c.modeColor(mode), c.canvas)
             }
         }
     }
@@ -61,77 +139,50 @@ class ContrastTest {
     /** The tints are ink on a *tinted card*, not on the bare canvas. */
     @Test
     fun everyModeInkIsReadableOnTheCardGrounds() {
-        for ((name, colors) in themes) {
+        for ((name, c) in themes) {
             val grounds = listOf(
-                "accent card" to wash(colors.accent, colors.canvas, 0.07f),
-                "agent card" to wash(colors.agentAccent, colors.canvas, 0.07f),
+                "accent card" to wash(c.accent, c.canvas, 0.07f),
+                "agent card" to wash(c.agentAccent, c.canvas, 0.07f),
+                "danger card" to wash(c.danger, c.canvas, 0.07f),
             )
             for ((ground, bg) in grounds) {
                 for (mode in modeNames) {
-                    val got = ratio(colors.modeInk(mode), bg)
-                    assertTrue(
-                        "$name $ground modeInk(${mode ?: "null"}) = $got:1, need 4.5",
-                        got >= 4.5f,
-                    )
+                    assertAA("$name $ground modeInk(${mode ?: "null"})", c.modeInk(mode), bg)
                 }
             }
         }
     }
 
+    /** Plan, coding and ask follow the accent: Monochrome turns them into greys. */
     @Test
-    fun theSemanticInksAreReadable() {
-        for ((name, colors) in themes) {
-            val inks = listOf(
-                "accentInk" to colors.accentInk,
-                "agentInk" to colors.agentInk,
-                "dangerInk" to colors.dangerInk,
-                "successInk" to colors.successInk,
-            )
-            for ((label, ink) in inks) {
-                val got = ratio(ink, colors.canvas)
-                assertTrue("$name $label = $got:1, need 4.5", got >= 4.5f)
+    fun monochromeGreysTheModeChipButKeepsTheAgentColours() {
+        for (dark in listOf(false, true)) {
+            val lilac = spettroColors(dark, Accent.Lilac)
+            val mono = spettroColors(dark, Accent.Mono)
+            for (mode in listOf("plan", "coding", "ask")) {
+                val c = mono.modeColor(mode)
+                assertTrue("mono $mode should be grey", abs(c.red - c.green) < 0.02f && abs(c.green - c.blue) < 0.02f)
+                assertNotEquals(lilac.modeColor(mode), c)
             }
+            for (mode in listOf("green", "cyan", "magenta", "red")) {
+                assertEquals(lilac.modeColor(mode), mono.modeColor(mode))
+            }
+            // The neutrals, the semantic colours and Ultra's fire are shared.
+            assertEquals(lilac.canvas, mono.canvas)
+            assertEquals(lilac.danger, mono.danger)
+            assertEquals(lilac.ultraFlame, mono.ultraFlame)
+            // The picker's lilac swatch is lilac whatever the accent.
+            assertEquals(lilac.lilac, mono.lilac)
         }
     }
 
-    /** Glyphs and progress cells only have to be distinguishable, not read. */
-    @Test
-    fun theSemanticMarksClearTheNonTextBar() {
-        for ((name, colors) in themes) {
-            val marks = listOf(
-                "successMark" to colors.successMark,
-                "dangerMark" to colors.dangerMark,
-                "accentMark" to colors.accentMark,
-            )
-            for ((label, mark) in marks) {
-                val got = ratio(mark, colors.canvas)
-                assertTrue("$name $label = $got:1, need 3.0", got >= 3.0f)
-            }
-        }
-    }
-
-    /**
-     * The point of solving rather than guessing: a colour that already clears
-     * the bar must come back untouched. The dark theme's whole palette does,
-     * and adjusting it anyway would have quietly rewritten the app's look.
-     */
+    /** The tokens are hand-tuned: a colour that already passes must come back untouched. */
     @Test
     fun aColourThatAlreadyPassesIsReturnedUnchanged() {
-        val dark = DarkSpettroColors
-        for (mode in listOf("green", "yellow", "purple", "red", "cyan", "magenta")) {
-            assertEquals(
-                "dark $mode should need no adjustment",
-                dark.modeColor(mode),
-                dark.modeInk(mode),
-            )
-        }
-        // And the light theme leaves nothing alone, because nothing passes.
-        val light = LightSpettroColors
-        for (mode in listOf("green", "yellow", "purple")) {
-            assertTrue(
-                "light $mode should be adjusted",
-                light.modeColor(mode) != light.modeInk(mode),
-            )
+        for ((name, c) in themes) {
+            for (token in listOf(c.textPrimary, c.textSecondary, c.success, c.accentText)) {
+                assertEquals(name, token, c.readable(token, on = c.canvas))
+            }
         }
     }
 
@@ -146,18 +197,15 @@ class ContrastTest {
             val minC = minOf(r, g, b)
             val d = maxC - minC
             if (d < 1e-6f) return 0f
-            val h = when (maxC) {
+            return when (maxC) {
                 r -> ((g - b) / d + if (g < b) 6f else 0f)
                 g -> ((b - r) / d + 2f)
                 else -> ((r - g) / d + 4f)
             } * 60f
-            return h
         }
-        for ((name, colors) in themes) {
+        for ((name, c) in themes) {
             for (mode in modeNames) {
-                val raw = colors.modeColor(mode)
-                val ink = colors.modeInk(mode)
-                val drift = abs(hue(raw) - hue(ink))
+                val drift = abs(hue(c.modeColor(mode)) - hue(c.modeInk(mode)))
                 assertTrue(
                     "$name modeInk(${mode ?: "null"}) drifted ${drift}° in hue",
                     drift < 1f || drift > 359f,
@@ -166,31 +214,26 @@ class ContrastTest {
         }
     }
 
-    /** The solver must find the *smallest* adjustment that clears the bar on
-     *  the ground it targets, not merely a safe one: over-darkening would
-     *  flatten the whole palette toward black on the light theme. */
+    /** The solver finds the *smallest* adjustment, not merely a safe one. */
     @Test
     fun theAdjustmentIsMinimal() {
-        val light = LightSpettroColors
-        for (mode in modeNames) {
-            val got = ratio(light.modeInk(mode), light.cardGround)
-            assertTrue(
-                "light modeInk(${mode ?: "null"}) overshot to $got:1",
-                got < 4.5f * 1.05f,
-            )
+        for ((name, c) in themes) {
+            for (mode in modeNames) {
+                val raw = c.modeColor(mode)
+                val ink = c.modeInk(mode)
+                if (raw == ink) continue
+                val got = ratio(ink, c.cardGround)
+                assertTrue("$name modeInk(${mode ?: "null"}) overshot to $got:1", got < 4.5f * 1.05f)
+            }
         }
     }
 
     @Test
     fun readableIsIdempotent() {
-        for ((name, colors) in themes) {
+        for ((name, c) in themes) {
             for (mode in modeNames) {
-                val once = colors.modeInk(mode)
-                assertEquals(
-                    "$name modeInk(${mode ?: "null"}) is not stable under reapplication",
-                    once,
-                    colors.readable(once),
-                )
+                val once = c.modeInk(mode)
+                assertEquals("$name modeInk(${mode ?: "null"}) is not stable", once, c.readable(once))
             }
         }
     }

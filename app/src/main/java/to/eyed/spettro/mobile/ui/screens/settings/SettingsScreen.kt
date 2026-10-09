@@ -278,7 +278,7 @@ private fun ConnectionCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             StatusDot(
-                color = if (isConnected) colors.diffAdded else colors.modeColor("yellow"),
+                color = if (isConnected) colors.success else colors.modeColor("yellow"),
                 pulsing = !isConnected,
             )
             Text(
@@ -318,7 +318,7 @@ private fun ConnectionCard(
         ) {
             Text("Agent", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             if (agentReady) {
-                StatusDot(color = colors.diffAdded)
+                StatusDot(color = colors.success)
                 Text(
                     "Agent running",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -345,7 +345,7 @@ private fun ConnectionCard(
         SettingsRow(onClick = onForget) {
             Text(
                 "Forget this computer",
-                color = colors.diffRemoved,
+                color = colors.danger,
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -418,7 +418,7 @@ private fun SignedInRows(account: AcpAccountStatus, onSignOut: () -> Unit) {
         // Never round a non-empty balance down to a flat 0%: "0% left" when
         // there is still credit is worse than being one point optimistic.
         val percent = if (fraction > 0) maxOf(1, (fraction * 100).roundToInt()) else 0
-        val barColor = if (fraction < 0.10) colors.diffRemoved else colors.accent
+        val barColor = if (fraction < 0.10) colors.danger else colors.accent
         HairlineDivider()
         Column(
             modifier = Modifier
@@ -449,7 +449,7 @@ private fun SignedInRows(account: AcpAccountStatus, onSignOut: () -> Unit) {
 
     HairlineDivider()
     SettingsRow(onClick = onSignOut) {
-        Text("Sign Out", color = colors.diffRemoved, style = MaterialTheme.typography.bodyMedium)
+        Text("Sign Out", color = colors.danger, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -481,7 +481,7 @@ private fun LoginFlowRows(
                     } else {
                         "Sign-in failed."
                     },
-                    color = colors.diffRemoved,
+                    color = colors.danger,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 login.error?.let {
@@ -502,7 +502,7 @@ private fun LoginFlowRows(
                     horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    StatusDot(color = colors.diffAdded)
+                    StatusDot(color = colors.success)
                     Text(
                         "Signed in — loading your plan…",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

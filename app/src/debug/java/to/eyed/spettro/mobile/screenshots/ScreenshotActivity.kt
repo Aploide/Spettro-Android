@@ -72,7 +72,7 @@ class ScreenshotActivity : ComponentActivity() {
         val dark = intent.getStringExtra(EXTRA_THEME) != "light"
         val tablet = intent.getStringExtra(EXTRA_FORM) == "tablet"
         setContent {
-            SpettroTheme(darkTheme = dark, dynamicColor = false) {
+            SpettroTheme(darkTheme = dark) {
                 Scene(scene, tablet)
             }
         }

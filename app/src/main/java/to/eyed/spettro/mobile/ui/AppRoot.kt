@@ -836,7 +836,7 @@ private fun BannerOverlay(model: MobileModel) {
                 Text(
                     current.text,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (current.isError) colors.diffRemoved else MaterialTheme.colorScheme.onSurface,
+                    color = if (current.isError) colors.danger else MaterialTheme.colorScheme.onSurface,
                 )
             }
         }

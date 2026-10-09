@@ -114,7 +114,7 @@ private fun StandaloneAgentCard(
             Icon(
                 imageVector = Icons.Outlined.SmartToy,
                 contentDescription = null,
-                tint = colors.agentInk,
+                tint = colors.agentAccent,
                 modifier = Modifier.size(13.dp),
             )
             OrchSectionLabel("agent")
