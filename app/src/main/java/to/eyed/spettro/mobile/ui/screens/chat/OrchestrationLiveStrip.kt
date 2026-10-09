@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,6 +100,10 @@ import to.eyed.spettro.mobile.ui.theme.TabularNums
  *  to be read on a glance back at the screen, short enough that the strip never
  *  becomes a log. */
 private const val HOLD_MILLIS = 4_000L
+
+/** The widest the run's name gets on the strip before it ellipsizes: room for
+ *  a typical name, while the meter, ratio and live detail keep their line. */
+private val STRIP_TITLE_MAX = 160.dp
 
 @Composable
 fun OrchestrationLiveStrip(
@@ -207,6 +212,13 @@ private fun StripLine(
                 ),
                 color = accent,
                 isActive = !settled,
+                // One capped line: a long name ellipsizes rather than pushing
+                // the meter off the row or wrapping the strip taller. A cap,
+                // not a weight — a second weight beside the detail's would
+                // halve the detail and leave the chevron floating.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = STRIP_TITLE_MAX),
             )
             if (extraRuns > 0) {
                 OrchPill(text = "+$extraRuns", tint = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -218,19 +218,29 @@ fun WorkflowCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 WorkflowMark(tint = accent.copy(alpha = if (continued) 0.7f else 1f), size = 14.dp)
-                // The name shimmers only while the run is live — the same
-                // "this is moving" signal the reasoning header uses.
-                GlareText(
-                    text = run.displayTitle,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    color = accent,
-                    isActive = running,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                RunBadge(run = run)
-                Box(Modifier.weight(1f))
+                // Name and badge share one weighted slot, so a long name
+                // ellipsizes beside its badge and the chevron stays pinned to
+                // the right edge however long the name is.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    // The name shimmers only while the run is live — the same
+                    // "this is moving" signal the reasoning header uses.
+                    GlareText(
+                        text = run.displayTitle,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = accent,
+                        isActive = running,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    RunBadge(run = run)
+                }
                 DisclosureChevron(expanded = expanded, size = 13.dp)
             }
 

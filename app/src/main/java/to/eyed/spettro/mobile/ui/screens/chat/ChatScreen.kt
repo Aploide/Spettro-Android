@@ -325,9 +325,10 @@ private fun ReadableColumn(content: @Composable () -> Unit) {
  * The conversation, folded.
  *
  * The wire delivers a workflow as a flat run of tool calls — a lifecycle card,
- * one call per sub-agent, and every tool each of them runs, interleaved. Rendered literally, a twenty-agent fan-out is a wall of rows
- * that drowns the conversation, so [groupTranscript] rebuilds the shape the run
- * actually had and the list renders *rows* rather than items.
+ * one call per sub-agent, and every tool each of them runs, interleaved.
+ * Rendered literally, a twenty-agent fan-out is a wall of rows that drowns the
+ * conversation, so [groupTranscript] rebuilds the shape the run actually had
+ * and the list renders *rows* rather than items.
  *
  * The fold is memoised on [items] because it walks the whole transcript twice
  * and this recomposes on every streamed chunk; recomputing it per frame is what

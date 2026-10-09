@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
@@ -41,6 +42,8 @@ private const val PERIOD_MILLIS = 1800
  *
  * @param isActive false renders the plain label without the sweep, so callers
  *   can toggle liveness without swapping composables (and losing the layout).
+ * @param maxLines / [overflow] apply to both renderings, so a title row can
+ *   cap a long label at one ellipsized line whether or not it is live.
  */
 @Composable
 fun GlareText(
@@ -49,9 +52,18 @@ fun GlareText(
     style: TextStyle = MaterialTheme.typography.labelMedium,
     color: Color = LocalSpettroColors.current.accent,
     isActive: Boolean = true,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
 ) {
     if (!isActive) {
-        Text(text, modifier = modifier, style = style, color = color)
+        Text(
+            text,
+            modifier = modifier,
+            style = style,
+            color = color,
+            maxLines = maxLines,
+            overflow = overflow,
+        )
         return
     }
 
@@ -82,7 +94,13 @@ fun GlareText(
             )
         }
     }
-    Text(text, modifier = modifier, style = style.merge(TextStyle(brush = brush)))
+    Text(
+        text,
+        modifier = modifier,
+        style = style.merge(TextStyle(brush = brush)),
+        maxLines = maxLines,
+        overflow = overflow,
+    )
 }
 
 @Preview(name = "Glare", showBackground = true, backgroundColor = 0xFF0E0E0E)
