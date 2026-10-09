@@ -33,6 +33,8 @@ class ChatSession(
     projectPath: String = "",
     title: String? = null,
     val createdAt: String = nowIso(),
+    /** Epoch millis now; a test's own clock times reasoning. */
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     var projectPath: String = projectPath
         private set
@@ -148,17 +150,43 @@ class ChatSession(
     /**
      * Rebuilds this session from a decoded snapshot. The result is "cold": it
      * carries the display transcript but is not wired to a live ACP session.
+     *
+     * [isBusy] says whether the chat's turn is still running. If it is, the
+     * answer it is writing goes on streaming into the bubble it was in: the
+     * snapshot says which bubble that is, and from a host that doesn't, the
+     * trailing answer or reasoning is taken to be it. If it isn't, nothing is
+     * still arriving and no steer is left waiting.
      */
-    fun restoreFrom(stored: StoredSessionData) {
+    fun restoreFrom(stored: StoredSessionData, isBusy: Boolean = false) {
         projectPath = stored.projectPath
         _acpSessionId.value = stored.acpSessionId
         _title.value = stored.title
         _isPinned.value = stored.isPinned
         _isArchived.value = stored.isArchived
-        _items.value = stored.items.map(::transcriptItem)
+        var items = stored.items.map(::transcriptItem)
+        items = if (isBusy) streamingTail(items) else items.map(::settled)
+        _items.value = items
         isEmptyFlag = _items.value.isEmpty()
         _configOptions.value = stored.configOptions ?: emptyList()
         replayTail = ""
+    }
+
+    /** [items] with the trailing answer or reasoning streaming, unless one already is. */
+    private fun streamingTail(items: List<TranscriptItem>): List<TranscriptItem> {
+        if (items.any { it is TranscriptItem.Message && it.message.isStreaming }) return items
+        val last = items.lastOrNull() as? TranscriptItem.Message ?: return items
+        val role = last.message.role
+        if (role != ChatMessage.Role.Assistant && role != ChatMessage.Role.Reasoning) return items
+        return items.dropLast(1) + TranscriptItem.Message(last.message.copy(isStreaming = true))
+    }
+
+    /** [item] as it stands once its turn is over. */
+    private fun settled(item: TranscriptItem): TranscriptItem {
+        if (item !is TranscriptItem.Message) return item
+        val m = item.message
+        val steering = m.steering.takeIf { it == ChatMessage.Steering.DELIVERED }
+        if (!m.isStreaming && steering == m.steering) return item
+        return TranscriptItem.Message(m.copy(isStreaming = false, steering = steering))
     }
 
     private fun transcriptItem(stored: StoredItemData): TranscriptItem = when (stored) {
@@ -177,7 +205,15 @@ class ChatSession(
                     attachments = stored.attachments.map {
                         ImageAttachment(id = it.id, base64Data = it.dataBase64, mimeType = it.mimeType)
                     },
+                    isStreaming = stored.isStreaming,
                     timestamp = stored.timestamp,
+                    steering = ChatMessage.Steering.from(stored.steering),
+                    startedAt = stored.startedAt,
+                    endedAt = stored.endedAt,
+                    mentions = stored.mentions,
+                    plain = stored.plain,
+                    contextCleared = stored.contextCleared,
+                    endsTurn = stored.endsTurn,
                 )
             )
         }
@@ -194,6 +230,10 @@ class ChatSession(
                 locations = stored.locations,
                 argsJSON = stored.argsJSON,
                 timestamp = stored.timestamp,
+                images = stored.images,
+                rawOutput = stored.rawOutput,
+                denied = stored.denied,
+                workflow = stored.workflow,
             )
         )
     }
@@ -260,6 +300,12 @@ class ChatSession(
             is AcpSessionUpdate.ToolCallUpdate -> applyToolEvent(update.event, isStart = false)
             is AcpSessionUpdate.CommandsUpdate -> _commands.value = update.commands
             is AcpSessionUpdate.ConfigUpdate -> applyConfigUpdate(update.options)
+            // Spettro reports its mode as the "mode" option; an agent that
+            // also speaks ACP's session modes moves the same option.
+            is AcpSessionUpdate.ModeUpdate -> {
+                pendingConfigChanges.remove("mode")
+                applyLocalConfigValue("mode", update.modeId)
+            }
             is AcpSessionUpdate.Plan -> _plan.value = update.entries
             is AcpSessionUpdate.Usage -> _usage.value = update.usage
         }
@@ -294,8 +340,14 @@ class ChatSession(
             TranscriptItem.Message(ChatMessage(role = ChatMessage.Role.Notice(isError), text = text))
     }
 
-    /** Appends to (or starts) the current streaming reasoning bubble. */
+    /**
+     * Appends to (or starts) the current streaming reasoning bubble, stamping
+     * the span it covers — first chunk to latest — for "Thought for Ns".
+     * Time spent before the first chunk isn't thinking anyone can see, so it
+     * doesn't count.
+     */
     fun appendReasoning(delta: String) {
+        val now = clock()
         val list = _items.value.toMutableList()
         val last = list.lastOrNull()
         if (last is TranscriptItem.Message &&
@@ -303,13 +355,23 @@ class ChatSession(
             last.message.isStreaming
         ) {
             list[list.size - 1] = TranscriptItem.Message(
-                last.message.copy(text = last.message.text + delta)
+                last.message.copy(
+                    text = last.message.text + delta,
+                    startedAt = last.message.startedAt ?: now,
+                    endedAt = now,
+                )
             )
             _items.value = list
         } else {
             list.add(
                 TranscriptItem.Message(
-                    ChatMessage(role = ChatMessage.Role.Reasoning, text = delta, isStreaming = true)
+                    ChatMessage(
+                        role = ChatMessage.Role.Reasoning,
+                        text = delta,
+                        isStreaming = true,
+                        startedAt = now,
+                        endedAt = now,
+                    )
                 )
             )
             _items.value = list
@@ -362,7 +424,11 @@ class ChatSession(
         _items.value = list
     }
 
-    /** Merges a `tool_call` / `tool_call_update` event into the transcript. */
+    /**
+     * Merges a `tool_call` / `tool_call_update` event into the transcript:
+     * in place on the card it names (each field applied only if present),
+     * appended when new.
+     */
     fun applyToolEvent(event: AcpToolCallEvent, isStart: Boolean) {
         val combinedOutput = event.content.joinToString("\n") { it.plainText }
         val diffs = event.content.mapNotNull {
@@ -371,49 +437,69 @@ class ChatSession(
             }
         }
 
-        val list = _items.value.toMutableList()
-        val index = list.indexOfFirst { it is TranscriptItem.Tool && it.tool.id == event.toolCallId }
+        val index = _items.value.indexOfFirst { it is TranscriptItem.Tool && it.tool.id == event.toolCallId }
         if (index >= 0) {
+            val list = _items.value.toMutableList()
             var existing = (list[index] as TranscriptItem.Tool).tool
             event.title?.let { existing = existing.copy(title = it) }
             event.kind?.let { existing = existing.copy(kind = it) }
             event.status?.let { existing = existing.copy(status = it) }
+            // Only when non-empty, so a contentless update doesn't wipe earlier output.
             if (combinedOutput.isNotEmpty()) existing = existing.copy(output = combinedOutput)
             if (diffs.isNotEmpty()) existing = existing.copy(diffs = diffs)
             if (event.locations.isNotEmpty()) existing = existing.copy(locations = event.locations)
+            if (event.images.isNotEmpty()) existing = existing.copy(images = event.images)
+            event.rawOutput?.let { existing = existing.copy(rawOutput = it) }
             event.rawInput.encodedJsonString()?.let { existing = existing.copy(argsJSON = it) }
+            event.workflowMeta?.let { existing = existing.copy(workflow = it) }
             list[index] = TranscriptItem.Tool(existing)
-        } else {
-            list.add(
-                TranscriptItem.Tool(
-                    ToolCallItem(
-                        id = event.toolCallId,
-                        title = event.title ?: "Tool call",
-                        kind = event.kind,
-                        status = event.status
-                            ?: (if (isStart) AcpToolStatus.IN_PROGRESS else AcpToolStatus.COMPLETED),
-                        output = combinedOutput,
-                        diffs = diffs,
-                        locations = event.locations,
-                        argsJSON = event.rawInput.encodedJsonString(),
-                    )
-                )
-            )
+            _items.value = list
+            return
         }
-        _items.value = list
+
+        val tool = ToolCallItem(
+            id = event.toolCallId,
+            title = event.title ?: "Tool call",
+            kind = event.kind,
+            status = event.status
+                ?: (if (isStart) AcpToolStatus.IN_PROGRESS else AcpToolStatus.COMPLETED),
+            output = combinedOutput,
+            diffs = diffs,
+            locations = event.locations,
+            argsJSON = event.rawInput.encodedJsonString(),
+            images = event.images,
+            rawOutput = event.rawOutput,
+            workflow = event.workflowMeta,
+        )
+        // A call after some prose means that prose is done: the agent said
+        // its piece and moved on. Left streaming, an interim "Let me look
+        // at…" would keep its typing dots for the rest of the turn.
+        endOpenBubbles()
+        _items.value = _items.value + TranscriptItem.Tool(tool)
     }
 
     /** Marks the current streamed bubbles as finished at turn's end. */
     fun endStreaming() {
-        endReasoningStream()
-        val list = _items.value.toMutableList()
-        val last = list.lastOrNull()
-        if (last is TranscriptItem.Message && last.message.isStreaming) {
-            list[list.size - 1] = TranscriptItem.Message(last.message.copy(isStreaming = false))
-            _items.value = list
+        endOpenBubbles()
+    }
+
+    /** Flips every streaming bubble — answer or reasoning — to finished. */
+    private fun endOpenBubbles() {
+        val list = _items.value
+        if (list.none { it is TranscriptItem.Message && it.message.isStreaming }) return
+        _items.value = list.map { item ->
+            if (item is TranscriptItem.Message && item.message.isStreaming) {
+                TranscriptItem.Message(item.message.copy(isStreaming = false))
+            } else {
+                item
+            }
         }
     }
 
+    /**
+     * Flips every streaming reasoning bubble to finished, so a turn's
+     * reasoning phase closes the moment the first answer chunk arrives.
+     */
     private fun endReasoningStream() {
         var changed = false
         val list = _items.value.toMutableList()

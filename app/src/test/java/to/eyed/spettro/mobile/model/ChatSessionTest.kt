@@ -12,6 +12,8 @@ import to.eyed.spettro.mobile.core.acp.AcpParser
 import to.eyed.spettro.mobile.core.acp.AcpSessionUpdate
 import to.eyed.spettro.mobile.core.acp.AcpToolCallEvent
 import to.eyed.spettro.mobile.core.acp.AcpToolContent
+import to.eyed.spettro.mobile.core.acp.AcpToolImage
+import to.eyed.spettro.mobile.core.acp.AcpToolLocation
 import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 
 class ChatSessionTest {
@@ -310,5 +312,168 @@ class ChatSessionTest {
         assertNull(s.runStartedAt.value)
         assertFalse(s.isBusy.value)
         assertEquals(0, s.liveRunTokens)
+    }
+
+    // MARK: Tool calls (desktop chatSession.test.ts)
+
+    private fun tool(id: String, title: String? = null, status: AcpToolStatus? = null) =
+        AcpToolCallEvent(toolCallId = id, title = title, status = status)
+
+    private fun ChatSession.tools(): List<ToolCallItem> =
+        items.value.filterIsInstance<TranscriptItem.Tool>().map { it.tool }
+
+    @Test
+    fun aWorkflowCardsMetadataIsReplacedWholeByEachUpdateThatCarriesIt() {
+        val s = session()
+        val running = SpettroJson.parseToJsonElement("""{"version":1,"status":"running"}""").jsonObject
+        val paused = SpettroJson.parseToJsonElement("""{"version":1,"status":"paused"}""").jsonObject
+        s.applyToolEvent(AcpToolCallEvent("workflow-wf_1", title = "workflow audit", workflowMeta = running), isStart = true)
+        assertEquals(running, s.tools()[0].workflow)
+        s.applyToolEvent(AcpToolCallEvent("workflow-wf_1", workflowMeta = paused), isStart = false)
+        assertEquals(paused, s.tools()[0].workflow)
+        s.applyToolEvent(AcpToolCallEvent("workflow-wf_1", status = AcpToolStatus.COMPLETED), isStart = false)
+        assertEquals(paused, s.tools()[0].workflow)
+    }
+
+    @Test
+    fun toolImagesRawOutputAndLocationsAreKept() {
+        val s = session()
+        val image = AcpToolImage("iVBOR", "image/png")
+        s.applyToolEvent(
+            AcpToolCallEvent("call-1", title = "shot", locations = listOf(AcpToolLocation("/p/a.go", 4))),
+            isStart = true,
+        )
+        s.applyToolEvent(
+            AcpToolCallEvent("call-1", images = listOf(image), rawOutput = "everything"),
+            isStart = false,
+        )
+        val t = s.tools().single()
+        assertEquals(listOf(image), t.images)
+        assertEquals("everything", t.rawOutput)
+        assertEquals(listOf(AcpToolLocation("/p/a.go", 4)), t.locations)
+    }
+
+
+    // MARK: Restoring mid-turn
+
+    private fun snapshot(items: String) = AcpParser.parseStoredSession(
+        SpettroJson.parseToJsonElement(
+            """{"id":"c1","projectPath":"/p","title":"t","createdAt":"2026-01-01T00:00:00Z",
+                "isPinned":false,"isArchived":false,"items":[$items]}"""
+        ).jsonObject
+    )
+
+    private fun userItem(id: String, steering: String? = null) =
+        """{"message":{"_0":{"id":"$id","role":"user","noticeIsError":false,"text":"$id",
+            "timestamp":"ts"${if (steering != null) ",\"steering\":\"$steering\"" else ""}}}}"""
+
+    private fun toolItem(id: String, status: String = "completed") =
+        """{"tool":{"_0":{"id":"$id","title":"$id","status":"$status","output":"","diffs":[],
+            "locations":[],"timestamp":"ts"}}}"""
+
+    private fun assistantItem(text: String, streaming: Boolean? = null) =
+        """{"message":{"_0":{"id":"a-$text","role":"assistant","noticeIsError":false,"text":"$text",
+            "timestamp":"ts"${if (streaming != null) ",\"isStreaming\":$streaming" else ""}}}}"""
+
+    @Test
+    fun aChatOpenedMidAnswerKeepsWritingTheSameBubble() {
+        // A host without snapshotV2 doesn't say what is streaming; the
+        // answer at the tail is.
+        val s = session()
+        s.restoreFrom(snapshot(listOf(userItem("u1"), assistantItem("Half an ")).joinToString(",")), isBusy = true)
+        s.appendAssistant("answer.")
+        assertEquals(listOf("Half an answer."), s.assistantBubbles().map { it.text })
+    }
+
+    @Test
+    fun aSnapshotThatSaysWhatIsStreamingIsBelieved() {
+        val s = session()
+        s.restoreFrom(
+            snapshot(listOf(userItem("u1"), assistantItem("Interim", streaming = false), toolItem("call-1", "in_progress")).joinToString(",")),
+            isBusy = true,
+        )
+        assertTrue(s.messages().none { it.isStreaming })
+        s.restoreFrom(snapshot(listOf(userItem("u1"), assistantItem("Going", streaming = true)).joinToString(",")), isBusy = true)
+        s.appendAssistant(" on")
+        assertEquals(listOf("Going on"), s.assistantBubbles().map { it.text })
+    }
+
+    @Test
+    fun anIdleSnapshotHasNothingStreamingAndNoSteerWaiting() {
+        val s = session()
+        s.restoreFrom(
+            snapshot(listOf(userItem("u1"), userItem("u2", "sending"), userItem("u3", "delivered"), assistantItem("Done", streaming = true)).joinToString(",")),
+            isBusy = false,
+        )
+        assertTrue(s.messages().none { it.isStreaming })
+        assertEquals(listOf(null, null, ChatMessage.Steering.DELIVERED), s.messages().take(3).map { it.steering })
+    }
+
+    private fun ChatSession.messages(): List<ChatMessage> =
+        items.value.filterIsInstance<TranscriptItem.Message>().map { it.message }
+
+    // MARK: Interim prose and reasoning timing
+
+    @Test
+    fun interimProseIsFinishedOnceTheAgentMovesOnToAToolCall() {
+        val s = session()
+        s.appendAssistant("Let me look at the form.")
+        s.applyToolEvent(tool("c1", "file-read {}", AcpToolStatus.IN_PROGRESS), isStart = true)
+        assertFalse(s.messages()[0].isStreaming)
+        // …and the next prose starts a bubble of its own.
+        s.appendAssistant("Fixed.")
+        assertEquals(3, s.items.value.size)
+        s.endStreaming()
+        assertTrue(s.messages().none { it.isStreaming })
+    }
+
+    @Test
+    fun reasoningIsStampedWithItsFirstAndLatestChunk() {
+        var now = 1_000L
+        val s = ChatSession(chatId = "c1", projectPath = "/p", clock = { now })
+        s.appendReasoning("Looking at ")
+        now = 9_500L
+        s.appendReasoning("the form.")
+        now = 12_000L
+        s.appendAssistant("Fixed.")
+        val reasoning = s.messages()[0]
+        assertEquals(1_000L, reasoning.startedAt)
+        assertEquals(9_500L, reasoning.endedAt)
+        assertFalse(reasoning.isStreaming)
+        assertEquals("9s", reasoning.thoughtDuration)
+        // An answer is not reasoning, and is not stamped.
+        assertNull(s.messages()[1].startedAt)
+    }
+
+    @Test
+    fun thoughtDurationReadsLikeTheDesktop() {
+        fun span(ms: Long) = ChatMessage(role = ChatMessage.Role.Reasoning, text = "", startedAt = 0, endedAt = ms)
+        assertNull(span(400).thoughtDuration)
+        assertEquals("12s", span(12_000).thoughtDuration)
+        assertEquals("2m 5s", span(125_000).thoughtDuration)
+        assertNull(ChatMessage(role = ChatMessage.Role.Reasoning, text = "").thoughtDuration)
+    }
+
+
+    // MARK: Mode
+
+    @Test
+    fun currentModeUpdateMovesTheModeOption() {
+        val s = session()
+        s.applyConfigUpdate(
+            listOf(
+                AcpConfigOption(
+                    id = "mode", name = "Mode",
+                    kind = AcpConfigOption.Kind.Select(
+                        "code",
+                        listOf(AcpConfigOption.OptionGroup(null, listOf(AcpConfigOption.Opt("Code", "code"), AcpConfigOption.Opt("Ask", "ask")))),
+                    ),
+                ),
+            )
+        )
+        s.pendingConfigChanges["mode"] = ConfigValue.Str("code")
+        s.apply(AcpSessionUpdate.ModeUpdate("ask"))
+        assertEquals(ConfigValue.Str("ask"), s.displayedConfigValues["mode"])
+        assertTrue("mode" !in s.pendingConfigChanges)
     }
 }

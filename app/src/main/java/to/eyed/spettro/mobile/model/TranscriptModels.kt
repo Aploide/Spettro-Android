@@ -9,6 +9,8 @@ import java.util.TimeZone
 import java.util.UUID
 import kotlinx.serialization.json.JsonObject
 import to.eyed.spettro.mobile.core.SpettroJson
+import to.eyed.spettro.mobile.core.acp.AcpToolImage
+import to.eyed.spettro.mobile.core.acp.AcpToolLocation
 import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 import to.eyed.spettro.mobile.core.acp.asBool
 import to.eyed.spettro.mobile.core.acp.asInt
@@ -53,7 +55,53 @@ data class ChatMessage(
     val isStreaming: Boolean = false,
     /** ISO-8601 string. */
     val timestamp: String = nowIso(),
+    /** Where a message sent while a turn was running stands; null otherwise. */
+    val steering: Steering? = null,
+    /**
+     * A reasoning bubble's first and latest chunk, epoch millis: "Thought for
+     * Ns" once it closes. Null for every other message, and for reasoning
+     * from a host that doesn't say.
+     */
+    val startedAt: Long? = null,
+    val endedAt: Long? = null,
+    /** Project-relative files the message @-mentioned. */
+    val mentions: List<String> = emptyList(),
+    /** A slash command's reply: the CLI's own column-aligned text, not markdown. */
+    val plain: Boolean = false,
+    /** The divider a `/clear` turn leaves in place of the CLI's reply. */
+    val contextCleared: Boolean = false,
+    /** The error notice a turn ended on. */
+    val endsTurn: Boolean = false,
 ) {
+    /**
+     * A message sent mid-turn steers the running agent: the CLI acknowledges
+     * it as queued, then reports when the agent has read it.
+     */
+    enum class Steering(val rawValue: String) {
+        SENDING("sending"),
+        QUEUED("queued"),
+        DELIVERED("delivered");
+
+        companion object {
+            fun from(raw: String?): Steering? = entries.firstOrNull { it.rawValue == raw }
+        }
+    }
+
+    /**
+     * How long the model visibly thought — "12s", "2m 5s" — or null for a
+     * span under a second (a replayed session delivers its reasoning in one
+     * burst, and "1s" would be made up) or one the host didn't time.
+     */
+    val thoughtDuration: String?
+        get() {
+            val start = startedAt ?: return null
+            val end = endedAt ?: return null
+            val seconds = Math.round((end - start) / 1000.0)
+            if (seconds < 1) return null
+            if (seconds < 60) return "${seconds}s"
+            return "${seconds / 60}m ${seconds % 60}s"
+        }
+
     sealed class Role {
         data object User : Role()
         data object Assistant : Role()
@@ -101,7 +149,7 @@ data class ToolCallItem(
     val status: AcpToolStatus,
     val output: String = "",
     val diffs: List<ToolDiff> = emptyList(),
-    val locations: List<String> = emptyList(),
+    val locations: List<AcpToolLocation> = emptyList(),
     /**
      * The full tool arguments (ACP rawInput) as JSON; the title's inline args
      * are truncated by the CLI, so this is the reliable source.
@@ -109,6 +157,17 @@ data class ToolCallItem(
     val argsJSON: String? = null,
     /** ISO-8601 string. */
     val timestamp: String = nowIso(),
+    /** Images the tool returned, at most four. */
+    val images: List<AcpToolImage> = emptyList(),
+    /** The tool's whole output, when the agent sends it beside [output]. */
+    val rawOutput: String? = null,
+    /** The user turned this call down in its approval: its failure is their answer. */
+    val denied: Boolean = false,
+    /**
+     * A workflow card's run state (`_meta["spettro.app/workflow"]`), replaced
+     * whole by every update that carries it.
+     */
+    val workflow: JsonObject? = null,
 ) {
     data class ToolDiff(
         val path: String,
@@ -229,7 +288,7 @@ data class ToolCallItem(
                 }
                 else -> {
                     val path = argString(args, "path", "file", "file_path", "filename")
-                        ?: locations.firstOrNull()
+                        ?: locations.firstOrNull()?.path
                     if (path != null) {
                         detail = shortPath(path)
                         argString(args, "pattern", "query", "regex")?.let {

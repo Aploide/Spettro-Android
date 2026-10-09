@@ -231,8 +231,13 @@ private fun ReasoningPanel(message: ChatMessage, modifier: Modifier) {
                 tint = secondary,
                 modifier = Modifier.size(14.dp),
             )
+            val duration = message.thoughtDuration
             GlareText(
-                text = if (message.isStreaming) "Thinking…" else "Reasoning",
+                text = when {
+                    message.isStreaming -> "Thinking…"
+                    duration != null -> "Thought for $duration"
+                    else -> "Thought"
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = secondary,
                 isActive = message.isStreaming,

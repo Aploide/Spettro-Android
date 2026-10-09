@@ -3,6 +3,7 @@ package to.eyed.spettro.mobile.model
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import to.eyed.spettro.mobile.core.acp.AcpToolLocation
 import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 
 class ToolCallItemTest {
@@ -16,7 +17,7 @@ class ToolCallItemTest {
         diffs: List<ToolCallItem.ToolDiff> = emptyList(),
     ) = ToolCallItem(
         id = "t1", title = title, kind = kind, status = AcpToolStatus.COMPLETED,
-        output = output, diffs = diffs, locations = locations, argsJSON = argsJSON,
+        output = output, diffs = diffs, locations = locations.map { AcpToolLocation(it) }, argsJSON = argsJSON,
     )
 
     // MARK: Title parsing

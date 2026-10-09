@@ -327,7 +327,7 @@ class MobileModel(
                 return false
             }
             val session = ChatSession(chatId = chatID)
-            session.restoreFrom(stored)
+            session.restoreFrom(stored, isBusy = result.isBusy)
             (result.configOptions as? JsonArray)?.let {
                 session.applyConfigUpdate(AcpParser.parseConfigOptionsStored(it))
             }
