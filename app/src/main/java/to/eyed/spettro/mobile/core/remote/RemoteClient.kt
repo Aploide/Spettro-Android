@@ -324,6 +324,10 @@ class RemoteClient(
      * then the tunnel), proves the pairing secret, stores the returned device
      * key, and discards the secret.
      *
+     * Safe to call while already paired (a pairing link): the current
+     * pairing is only replaced once the new one is made, and if this
+     * fails, the client carries on with the old one.
+     *
      * @throws RemotePairingException with a user-actionable message.
      */
     suspend fun pair(payload: PairPayload) {
@@ -336,11 +340,34 @@ class RemoteClient(
         connectJob = null
         holdReason = null
         teardown()
-        // Stay in Unpaired while pairing runs: the pairing screen owns the
-        // progress and error presentation. Flipping to Connecting/Offline here
+        // Unpaired, stay Unpaired while pairing runs: the pairing screen owns
+        // the progress and error presentation. Flipping to Connecting/Offline
         // would route the UI to the disconnected screen mid-scan with copy
-        // written for a *lost* pairing, not a failed one.
+        // written for a *lost* pairing, not a failed one. Paired, the old
+        // connection is gone now, and Connected would be a lie.
+        if (store.credential.value != null) _state.value = RemoteState.Connecting
         log("pairing with ${payload.hostName} (${payload.hostID.take(8)}…)")
+        try {
+            pairOnce(payload)
+        } catch (e: Throwable) {
+            afterFailedPairing()
+            throw e
+        }
+    }
+
+    /** Back to the pairing that was there before [pair] — or to none, if there was none. */
+    private fun afterFailedPairing() {
+        if (store.credential.value == null) {
+            _state.value = RemoteState.Unpaired
+            return
+        }
+        log("pairing failed; carrying on with ${store.credential.value?.hostName}")
+        backoffMs = INITIAL_BACKOFF_MS
+        _state.value = RemoteState.Searching
+        launchConnectLoop()
+    }
+
+    private suspend fun pairOnce(payload: PairPayload) {
 
         // The QR's address hint is the fast path — the user is standing in
         // front of the screen. But it can be missing or stale, so the
@@ -391,7 +418,6 @@ class RemoteClient(
         }
 
         val attempt = opened ?: run {
-            _state.value = RemoteState.Unpaired
             log("pairing failed: no reachable endpoint (${lastError?.message})")
             throw RemotePairingException(
                 when {
@@ -419,7 +445,6 @@ class RemoteClient(
             val deviceKey = result.deviceKey?.let(Base64Url::decode)
             if (deviceKey == null || deviceKey.size != RemoteCrypto.KEY_LENGTH) {
                 teardown()
-                _state.value = RemoteState.Unpaired
                 throw RemotePairingException("The computer didn't send a key back. Try showing a new code.")
             }
             val credential = RemoteCredential(
@@ -438,7 +463,6 @@ class RemoteClient(
             log("paired with ${result.hostName} via ${attempt.endpoint.label}")
         } catch (e: RpcException) {
             teardown()
-            _state.value = RemoteState.Unpaired
             log("pairing auth failed (${e.code}): ${e.message}")
             throw RemotePairingException(e.message ?: "The computer refused the pairing.")
         } catch (e: RemotePairingException) {
@@ -448,7 +472,6 @@ class RemoteClient(
             throw e
         } catch (e: Exception) {
             teardown()
-            _state.value = RemoteState.Unpaired
             log("pairing failed: ${e.message}")
             throw RemotePairingException("Pairing didn't finish. Show a new code and try again.")
         }

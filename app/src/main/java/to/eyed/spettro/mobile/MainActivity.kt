@@ -34,6 +34,9 @@ class MainActivity : ComponentActivity() {
     /** A `spettro-pair://pair?…` link opened from elsewhere: AppRoot takes it from here. */
     private fun takePairingLink(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
+        // Reopened from Recents, the task replays the intent that started
+        // it: that link was already dealt with.
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
         val link = intent.dataString ?: return
         if (link.startsWith("${RemotePairing.SCHEME}://", ignoreCase = true)) {
             container.pendingPairingLink.value = link

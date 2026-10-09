@@ -41,6 +41,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -162,10 +163,10 @@ fun AppRoot(container: AppContainer) {
                 state = state,
                 pairedHostID = client.credential.value?.hostID,
                 pairedHostName = client.credential.value?.hostName,
-                onConfirm = {
-                    // Unpaired takes the link from here (below).
-                    client.forget()
-                },
+                // Straight to pairing, not forget-then-pair: pair() only
+                // replaces the stored pairing once the new one is made, and
+                // carries on with the old one if it isn't.
+                onPair = client::pair,
                 onDismiss = { container.pendingPairingLink.value = null },
             )
         }
@@ -513,6 +514,8 @@ private fun ReconnectingPill(visible: Boolean) {
  * A pairing link arrived while this phone is already paired. Pairing again
  * replaces the current computer, so that is asked first — except for a
  * link from the computer it's already connected to, which changes nothing.
+ * For that computer, the question waits until it's known whether the
+ * pairing still works (a cold start is "looking" for a moment first).
  */
 @Composable
 private fun PairingLinkPrompt(
@@ -520,7 +523,7 @@ private fun PairingLinkPrompt(
     state: RemoteState,
     pairedHostID: String?,
     pairedHostName: String?,
-    onConfirm: () -> Unit,
+    onPair: suspend (PairPayload) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val payload = remember(link) { RemotePairing.parse(link) }
@@ -533,26 +536,61 @@ private fun PairingLinkPrompt(
         )
         return
     }
-    if (payload.hostID == pairedHostID && state is RemoteState.Connected) {
-        LaunchedEffect(link) { onDismiss() }
-        return
-    }
+    val scope = rememberCoroutineScope()
+    var shown by remember(link) { mutableStateOf(false) }
+    var pairing by remember(link) { mutableStateOf(false) }
+    var error by remember(link) { mutableStateOf<String?>(null) }
     val replacing = payload.hostID != pairedHostID
+    if (!replacing && !shown) {
+        when (state) {
+            is RemoteState.Connected -> {
+                LaunchedEffect(link) { onDismiss() }
+                return
+            }
+            RemoteState.Searching, RemoteState.Connecting -> return
+            else -> Unit
+        }
+    }
+    SideEffect { shown = true }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        // Not while it runs: the old pairing is already let go of.
+        onDismissRequest = { if (!pairing) onDismiss() },
         title = { Text("Pair with “${payload.hostName}”?") },
         text = {
             Text(
-                if (replacing) {
-                    "This phone is paired with “${pairedHostName ?: "another computer"}”. Pairing with " +
-                        "“${payload.hostName}” replaces it."
-                } else {
-                    "This phone will pair with it again, replacing its old pairing."
+                when {
+                    pairing -> "Pairing with “${payload.hostName}”…"
+                    error != null -> error!!
+                    replacing ->
+                        "This phone is paired with “${pairedHostName ?: "another computer"}”. Pairing with " +
+                            "“${payload.hostName}” replaces it."
+                    else -> "This phone will pair with it again, replacing its old pairing."
                 },
             )
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Pair") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            TextButton(
+                enabled = !pairing,
+                onClick = {
+                    scope.launch {
+                        pairing = true
+                        error = null
+                        try {
+                            onPair(payload)
+                            onDismiss()
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            error = e.message ?: "Pairing didn’t finish. Copy a new link and try again."
+                        } finally {
+                            pairing = false
+                        }
+                    }
+                },
+            ) { Text(if (error != null) "Try again" else "Pair") }
+        },
+        dismissButton = {
+            TextButton(enabled = !pairing, onClick = onDismiss) { Text("Cancel") }
+        },
     )
 }
 
