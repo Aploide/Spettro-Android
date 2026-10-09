@@ -26,10 +26,10 @@ import to.eyed.spettro.mobile.core.acp.AcpQuestionOption
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
 import to.eyed.spettro.mobile.core.remote.ChatSummary
 import to.eyed.spettro.mobile.ui.DesktopModal
-import to.eyed.spettro.mobile.ui.DetailPlaceholder
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
+import to.eyed.spettro.mobile.ui.screens.chat.NewSessionScreen
 import to.eyed.spettro.mobile.ui.screens.chat.OrchestrationPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.WorkflowGate
 import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
@@ -196,7 +196,12 @@ private fun Scene(scene: String, tablet: Boolean) {
         }
         "projects" -> {
             if (tablet) SplitShell(items = null) else ChatList()
-            ProjectPickerSheet(projects = previewProjects(), onPick = {}, onDismiss = {})
+            ProjectPickerSheet(
+                projects = previewProjects(),
+                selectedPath = previewProjects().first().path,
+                onPick = {},
+                onDismiss = {},
+            )
         }
         "pairing" -> PairingScreen(
             isPairing = false,
@@ -237,8 +242,11 @@ private fun Scene(scene: String, tablet: Boolean) {
                 onDismiss = {},
             )
         }
-        // A chat with nothing in it yet: the new-session greeting.
+        // A chat with nothing in it yet: the greeting over starter prompts.
         "new_chat" -> Shell(tablet, items = emptyList(), busy = false)
+        // What "+" opens: greeting, composer, "Working in" chip, starters —
+        // the split shell's empty pane on a tablet.
+        "new_session" -> if (tablet) SplitShell(items = null) else NewSession(onBack = {})
         else -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
     }
 }
@@ -287,7 +295,7 @@ private fun SplitShell(
                     workflowGate = workflowGate,
                 )
             } else {
-                DetailPlaceholder(onNewChat = {})
+                NewSession(onBack = null)
             }
         }
     }
@@ -339,6 +347,23 @@ private fun Chat(
         showBack = showBack,
         workflowGate = workflowGate,
         onSwitchPermission = {},
+    )
+}
+
+@Composable
+private fun NewSession(onBack: (() -> Unit)?) {
+    var text by remember { mutableStateOf("") }
+    NewSessionScreen(
+        folderName = "spettro",
+        onChooseFolder = {},
+        composerText = text,
+        onComposerTextChange = { text = it },
+        attachments = emptyList(),
+        onRemoveAttachment = {},
+        onAddImages = {},
+        onSend = {},
+        enabled = true,
+        onBack = onBack,
     )
 }
 

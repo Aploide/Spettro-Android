@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -41,8 +42,11 @@ import to.eyed.spettro.mobile.ui.theme.TabularNums
 /**
  * Where should the new chat run? The phone can't browse the computer's
  * folders, so it picks from the ones the host already knows about — the
- * desktop's "Working in ▸ folder" choice, as a sheet.
+ * desktop's "Working in ▸ folder" menu, as a sheet. Picking a folder only
+ * changes where the new-session view will start the chat; nothing is
+ * created until the first message is sent.
  *
+ * @param selectedPath the folder chosen now, ticked.
  * @param recentFirst true keeps the host's order (most recently active
  *   first); false re-sorts alphabetically by folder name.
  */
@@ -51,6 +55,7 @@ import to.eyed.spettro.mobile.ui.theme.TabularNums
 fun ProjectPickerSheet(
     projects: List<RemoteProject>,
     recentFirst: Boolean = true,
+    selectedPath: String? = null,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -58,6 +63,7 @@ fun ProjectPickerSheet(
         ProjectPickerContent(
             projects = projects,
             recentFirst = recentFirst,
+            selectedPath = selectedPath,
             onPick = onPick,
         )
     }
@@ -68,6 +74,7 @@ private fun ProjectPickerContent(
     projects: List<RemoteProject>,
     recentFirst: Boolean,
     onPick: (String) -> Unit,
+    selectedPath: String? = null,
 ) {
     val ordered = if (recentFirst) {
         projects
@@ -76,7 +83,7 @@ private fun ProjectPickerContent(
     }
     Column(Modifier.fillMaxWidth().padding(bottom = Dimens.spacingXl)) {
         Text(
-            "New chat",
+            "Working in",
             style = MaterialTheme.typography.titleMedium,
             color = LocalSpettroColors.current.textPrimary,
             modifier = Modifier.padding(horizontal = Dimens.spacingLg),
@@ -103,7 +110,11 @@ private fun ProjectPickerContent(
         } else {
             LazyColumn(Modifier.weight(1f, fill = false)) {
                 items(ordered, key = { it.path }) { project ->
-                    ProjectRow(project = project, onClick = { onPick(project.path) })
+                    ProjectRow(
+                        project = project,
+                        selected = project.path == selectedPath,
+                        onClick = { onPick(project.path) },
+                    )
                 }
             }
         }
@@ -114,7 +125,7 @@ private val RemoteProject.displayName: String
     get() = name.ifBlank { path.trimEnd('/').substringAfterLast('/').ifEmpty { path } }
 
 @Composable
-private fun ProjectRow(project: RemoteProject, onClick: () -> Unit) {
+private fun ProjectRow(project: RemoteProject, selected: Boolean, onClick: () -> Unit) {
     val colors = LocalSpettroColors.current
     Row(
         modifier = Modifier
@@ -150,6 +161,14 @@ private fun ProjectRow(project: RemoteProject, onClick: () -> Unit) {
         if (project.chatCount > 0) {
             Pill("${project.chatCount}")
         }
+        if (selected) {
+            Icon(
+                Icons.Default.Check,
+                contentDescription = "Chosen",
+                modifier = Modifier.size(18.dp),
+                tint = colors.accentText,
+            )
+        }
     }
 }
 
@@ -166,7 +185,12 @@ internal fun previewProjects(): List<RemoteProject> = listOf(
 @Composable
 private fun ProjectPickerPreview() {
     SpettroTheme(darkTheme = true) {
-        ProjectPickerContent(projects = previewProjects(), recentFirst = true, onPick = {})
+        ProjectPickerContent(
+            projects = previewProjects(),
+            recentFirst = true,
+            onPick = {},
+            selectedPath = previewProjects().first().path,
+        )
     }
 }
 

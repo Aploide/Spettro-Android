@@ -92,6 +92,7 @@ import to.eyed.spettro.mobile.ui.components.StatusDot
 import to.eyed.spettro.mobile.ui.components.rememberLocalNetworkPermission
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
+import to.eyed.spettro.mobile.ui.screens.chat.NewSessionScreen
 import to.eyed.spettro.mobile.ui.screens.chat.workflowGate
 import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
@@ -288,7 +289,7 @@ fun AppRoot(container: AppContainer) {
     }
 }
 
-private enum class RemoteScreen { ChatList, Chat, Settings, Providers }
+private enum class RemoteScreen { ChatList, Chat, NewSession, Settings, Providers }
 
 /** Sidebar width of the desktop app's split shell, adapted to dp. */
 private val SidebarWidth = 320.dp
@@ -313,6 +314,9 @@ private fun RemoteNavigator(
     var screen by rememberSaveable { mutableStateOf(RemoteScreen.ChatList) }
     var showProjectPicker by remember { mutableStateOf(false) }
     var showArchived by remember { mutableStateOf(false) }
+    // The folder the new-session view will start its chat in: the one last
+    // chosen, else the host's most recently active.
+    var chosenPath by rememberSaveable { mutableStateOf<String?>(null) }
 
     val chats by model.chats.collectAsState()
     val projects by model.projects.collectAsState()
@@ -330,6 +334,29 @@ private fun RemoteNavigator(
         .sortedWith(compareByDescending<to.eyed.spettro.mobile.core.remote.ChatSummary> { it.isPinned }.thenByDescending { it.updatedAt })
     val openChatById: (String) -> Unit = { id ->
         scope.launch { if (model.openChat(id)) screen = RemoteScreen.Chat }
+    }
+    val newSessionPath = chosenPath?.takeIf { path -> projects.any { it.path == path } }
+        ?: projects.firstOrNull()?.path
+    val newSessionFolder = newSessionPath?.let { path ->
+        projects.firstOrNull { it.path == path }?.name?.ifBlank { null }
+            ?: path.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
+    }
+    /**
+     * Sends the new-session view's first message: only now is the chat
+     * created, in the chosen folder, and handed the message. False — the
+     * draft stays — when there is no folder yet (the picker opens) or the
+     * chat couldn't be made.
+     */
+    val startChat: suspend (String, List<ImageAttachment>) -> Boolean = start@{ text, images ->
+        val path = newSessionPath
+        if (path == null) {
+            showProjectPicker = true
+            return@start false
+        }
+        val id = model.newChat(path) ?: return@start false
+        if (!model.openChat(id)) return@start false
+        screen = RemoteScreen.Chat
+        model.sendPrompt(text, images)
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -355,7 +382,8 @@ private fun RemoteNavigator(
                         isRefreshing = isRefreshing,
                         onRefresh = { model.refreshEverything() },
                         onOpenChat = openChatById,
-                        onNewChat = { showProjectPicker = true },
+                        // The empty pane is the new-session view.
+                        onNewChat = { model.closeChat() },
                         onPin = model::setPinned,
                         onArchive = model::setArchived,
                         onDelete = model::deleteChat,
@@ -381,7 +409,11 @@ private fun RemoteNavigator(
                             )
                         }
                     } else {
-                        DetailPlaceholder(onNewChat = { showProjectPicker = true })
+                        NewSessionHost(
+                            folderName = newSessionFolder,
+                            onChooseFolder = { showProjectPicker = true },
+                            onStart = startChat,
+                        )
                     }
                 }
             }
@@ -418,7 +450,7 @@ private fun RemoteNavigator(
                         isRefreshing = isRefreshing,
                         onRefresh = { model.refreshEverything() },
                         onOpenChat = openChatById,
-                        onNewChat = { showProjectPicker = true },
+                        onNewChat = { screen = RemoteScreen.NewSession },
                         onPin = model::setPinned,
                         onArchive = model::setArchived,
                         onDelete = model::deleteChat,
@@ -440,6 +472,16 @@ private fun RemoteNavigator(
                             })
                         }
                     }
+                }
+
+                RemoteScreen.NewSession -> {
+                    BackHandler { screen = RemoteScreen.ChatList }
+                    NewSessionHost(
+                        folderName = newSessionFolder,
+                        onChooseFolder = { showProjectPicker = true },
+                        onStart = startChat,
+                        onBack = { screen = RemoteScreen.ChatList },
+                    )
                 }
 
                 RemoteScreen.Settings -> {
@@ -466,12 +508,10 @@ private fun RemoteNavigator(
         if (showProjectPicker) {
             ProjectPickerSheet(
                 projects = projects,
+                selectedPath = newSessionPath,
                 onPick = { path ->
                     showProjectPicker = false
-                    scope.launch {
-                        val id = model.newChat(path)
-                        if (id != null && model.openChat(id)) screen = RemoteScreen.Chat
-                    }
+                    chosenPath = path
                 },
                 onDismiss = { showProjectPicker = false },
             )
@@ -690,38 +730,60 @@ private fun ProvidersHost(model: MobileModel, onBack: () -> Unit) {
 }
 
 /**
- * The detail pane before any chat is selected — the split-shell analog of
- * the desktop app's welcome pane. Internal so the debug screenshot harness
- * can render the same pane.
+ * The new-session view with its own draft and photo picker: what "+" opens
+ * on a phone, and the split shell's pane while no chat is open. [onStart]
+ * creates the chat and sends; the draft is cleared only once it went.
  */
 @Composable
-internal fun DetailPlaceholder(onNewChat: () -> Unit) {
-    val colors = LocalSpettroColors.current
-    Box(
-        modifier = Modifier.fillMaxSize().background(colors.canvas),
-        contentAlignment = Alignment.Center,
-    ) {
-        // The desktop's new-session greeting: one line of welcome in 28sp,
-        // a sentence of what to do, and the pane's one accent action.
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-            modifier = Modifier.padding(Dimens.spacingXl),
-        ) {
-            Text(
-                "What should we build?",
-                style = MaterialTheme.typography.headlineSmall,
-                color = colors.textPrimary,
-            )
-            Text(
-                "Pick a chat on the left, or start a new one.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = colors.textSecondary,
-            )
-            Spacer(Modifier.height(Dimens.spacingMd))
-            SpettroButton("New chat", onClick = onNewChat, style = ButtonStyle.Prominent)
+private fun NewSessionHost(
+    folderName: String?,
+    onChooseFolder: () -> Unit,
+    onStart: suspend (String, List<ImageAttachment>) -> Boolean,
+    onBack: (() -> Unit)? = null,
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var text by rememberSaveable { mutableStateOf("") }
+    var attachments by remember { mutableStateOf(listOf<ImageAttachment>()) }
+    var sending by remember { mutableStateOf(false) }
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(4),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch {
+                val loaded = withContext(Dispatchers.IO) { uris.mapNotNull { loadAttachment(context, it) } }
+                attachments = (attachments + loaded).take(4)
+            }
         }
     }
+    NewSessionScreen(
+        folderName = folderName,
+        onChooseFolder = onChooseFolder,
+        composerText = text,
+        onComposerTextChange = { text = it },
+        attachments = attachments,
+        onRemoveAttachment = { a -> attachments = attachments.filterNot { it.id == a.id } },
+        onAddImages = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+        onSend = {
+            val message = text.trim()
+            if ((message.isNotEmpty() || attachments.isNotEmpty()) && !sending) {
+                scope.launch {
+                    sending = true
+                    try {
+                        if (onStart(message, attachments)) {
+                            text = ""
+                            attachments = emptyList()
+                        }
+                    } finally {
+                        sending = false
+                    }
+                }
+            }
+        },
+        enabled = true,
+        sending = sending,
+        onBack = onBack,
+    )
 }
 
 /**

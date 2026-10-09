@@ -27,7 +27,7 @@
 #   activation               (the "ultracode" and "+500k" highlight, and the budget line)
 #   activation_askfirst      (the same under Ask first: muted, with the way out)
 #   permission_edit          (an approval with a diff, beside the listed command one)
-#   providers  archived  new_chat  tunnel  disconnected_<reason>
+#   providers  archived  new_chat  new_session  tunnel  disconnected_<reason>
 #
 # Every scene takes the phone's accent too: add `--es accent mono` for
 # Monochrome (Lilac is the default).

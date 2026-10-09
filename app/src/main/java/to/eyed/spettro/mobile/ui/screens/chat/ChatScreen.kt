@@ -212,7 +212,7 @@ fun ChatScreen(
             }
 
             if (items.isEmpty()) {
-                EmptyTranscript(modifier = Modifier.weight(1f))
+                EmptyTranscript(onPrompt = onComposerTextChange, modifier = Modifier.weight(1f))
             } else {
                 Box(Modifier.weight(1f)) {
                     Transcript(rows = rows, modifier = Modifier.fillMaxSize())
@@ -343,14 +343,17 @@ private fun Transcript(rows: List<TranscriptRow>, modifier: Modifier) {
     }
 }
 
-/** A chat with nothing in it yet: the desktop's new-session greeting. */
+/**
+ * A chat with nothing in it yet: the desktop's greeting over its starter
+ * prompts, each of which only fills the composer.
+ */
 @Composable
-private fun EmptyTranscript(modifier: Modifier) {
+private fun EmptyTranscript(onPrompt: (String) -> Unit, modifier: Modifier) {
     val colors = LocalSpettroColors.current
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
             modifier = Modifier.padding(Dimens.spacingXl),
         ) {
             Text(
@@ -358,11 +361,7 @@ private fun EmptyTranscript(modifier: Modifier) {
                 style = MaterialTheme.typography.headlineSmall,
                 color = colors.textPrimary,
             )
-            Text(
-                text = "Describe a task, or ask about your code.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = colors.textSecondary,
-            )
+            StarterPrompts(onPrompt = onPrompt)
         }
     }
 }
