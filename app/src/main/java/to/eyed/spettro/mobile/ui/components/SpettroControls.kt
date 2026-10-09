@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -168,20 +169,27 @@ fun AccentSwatch(color: Color, modifier: Modifier = Modifier) {
 /** The desktop's small pills and tags (`.tag`, `.prompt-pill`, the "Needs you" pill). */
 enum class PillTone { Neutral, Success, Warning, Accent }
 
-/** A small rounded tag: 11sp on a 14–16% tint of its tone. */
+/**
+ * A small rounded tag: 11sp on a 14–16% tint of its tone. The tone's ink is
+ * nudged until it reads on the tint over [ground] (the "Needs you" amber on
+ * its own wash falls just short of AA in the light scheme, more so on a
+ * selected sidebar row).
+ */
 @Composable
 fun Pill(
     text: String,
     modifier: Modifier = Modifier,
     tone: PillTone = PillTone.Neutral,
+    ground: Color = LocalSpettroColors.current.canvas,
 ) {
     val colors = LocalSpettroColors.current
-    val (fill, ink, weight) = when (tone) {
+    val (fill, toneInk, weight) = when (tone) {
         PillTone.Neutral -> Triple(colors.hoverFill, colors.textSecondary, FontWeight.Medium)
         PillTone.Success -> Triple(colors.success.copy(alpha = 0.14f), colors.success, FontWeight.Medium)
         PillTone.Warning -> Triple(colors.warning.copy(alpha = 0.16f), colors.warning, FontWeight.SemiBold)
         PillTone.Accent -> Triple(colors.accentSoft, colors.accentText, FontWeight.SemiBold)
     }
+    val ink = colors.readable(toneInk, on = fill.compositeOver(ground))
     Text(
         text = text,
         modifier = modifier

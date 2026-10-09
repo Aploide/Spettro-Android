@@ -12,11 +12,17 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * The palette is the desktop's, and the desktop promises that every text
- * token passes WCAG AA on every surface it is drawn on, in both accents and
- * both schemes. A screenshot cannot check that — unreadable text renders
- * perfectly; it is only unreadable to a person — so the ratios are asserted,
- * over (Lilac | Monochrome) × (light | dark).
+ * The palette is the desktop's, and text has to pass WCAG AA on every ground
+ * it is drawn on, in both accents and both schemes — the bare surfaces, and
+ * the composite grounds the screens build on them (a selected sidebar row,
+ * a pill's wash, the error card). A screenshot cannot check that —
+ * unreadable text renders perfectly; it is only unreadable to a person — so
+ * the ratios are asserted, over (Lilac | Monochrome) × (light | dark).
+ *
+ * Where a token falls short on a composite (the desktop has the same values),
+ * the screen draws it through [SpettroColors.readable] over that ground, and
+ * the test checks the ink the screen actually draws. A pressed row's ripple
+ * (hoverFill) is momentary and is not held to the bar.
  */
 class ContrastTest {
 
@@ -74,6 +80,58 @@ class ContrastTest {
             }
             // The user bubble carries primary text.
             assertAA("$name textPrimary on the bubble", c.textPrimary, c.userBubble)
+        }
+    }
+
+    /**
+     * The grounds the screens composite: a selected chat row (the canvas on a
+     * phone, the sidebar on a tablet) and the "Needs you" pill's 16% amber
+     * over each, as ChatRow and Pill build them.
+     */
+    @Test
+    fun theListInksPassOnTheirCompositeGrounds() {
+        for ((name, c) in themes) {
+            for ((label, list) in listOf("canvas" to c.canvas, "sidebar" to c.sidebar)) {
+                for (selected in listOf(false, true)) {
+                    val row = if (selected) c.selectedFill.compositeOver(list) else list
+                    val where = "${if (selected) "selected" else "plain"} row on $label"
+                    assertAA("$name textPrimary on $where", c.textPrimary, row)
+                    assertAA("$name textSecondary on $where", c.textSecondary, row)
+                    // What ChatRow draws its preview, time and count in.
+                    assertAA("$name quiet ink on $where", c.readable(c.textTertiary, on = row), row)
+                    // What Pill draws "Needs you" in.
+                    val pill = c.warning.copy(alpha = 0.16f).compositeOver(row)
+                    assertAA("$name Needs you on $where", c.readable(c.warning, on = pill), pill)
+                }
+            }
+        }
+    }
+
+    /** The nudge is needed exactly where the raw tokens fall short, and only there. */
+    @Test
+    fun theLightSidebarIsWhereTheRawTokensFallShort() {
+        val c = spettroColors(dark = false, accent = Accent.Lilac)
+        val selectedRow = c.selectedFill.compositeOver(c.sidebar)
+        assertTrue(ratio(c.textTertiary, selectedRow) < 4.5f)
+        assertNotEquals(c.textTertiary, c.readable(c.textTertiary, on = selectedRow))
+        val pill = c.warning.copy(alpha = 0.16f).compositeOver(c.canvas)
+        assertTrue(ratio(c.warning, pill) < 4.5f)
+        // On a bare canvas the tertiary ink is left alone.
+        assertEquals(c.textTertiary, c.readable(c.textTertiary, on = c.canvas))
+    }
+
+    /**
+     * The error card (SpettroCard's Error variant, 8% danger over the
+     * canvas) carries its sentence in the primary ink and only its icon in
+     * danger, which as a glyph needs 3:1.
+     */
+    @Test
+    fun theErrorCardReads() {
+        for ((name, c) in themes) {
+            val card = wash(c.danger, c.canvas, 0.08f)
+            assertAA("$name textPrimary on the error card", c.textPrimary, card)
+            assertAA("$name textSecondary on the error card", c.textSecondary, card)
+            assertAA("$name danger icon on the error card", c.danger, card, need = 3f)
         }
     }
 

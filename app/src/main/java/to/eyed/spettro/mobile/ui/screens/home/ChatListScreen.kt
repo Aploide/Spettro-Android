@@ -253,6 +253,7 @@ fun ChatListScreen(
                                     selected = chat.id == selectedChatId,
                                     needsYou = chat.id in needsYou,
                                     onClick = { onOpenChat(chat.id) },
+                                    ground = ground,
                                 )
                             }
                         }
@@ -340,6 +341,7 @@ private fun ListHeader(
  * comes forward (primary, 500) when selected or waiting on you.
  *
  * @param needsYou a permission or question is waiting in this chat.
+ * @param ground the list's background (the sidebar's, in the split shell).
  */
 @Composable
 fun ChatRow(
@@ -349,9 +351,14 @@ fun ChatRow(
     selected: Boolean = false,
     needsYou: Boolean = false,
     onClick: (() -> Unit)? = null,
+    ground: Color = LocalSpettroColors.current.canvas,
 ) {
     val colors = LocalSpettroColors.current
     val forward = selected || needsYou
+    // The selected fill darkens a light sidebar just enough to take the
+    // tertiary ink under AA; nudge it back over the row's real ground.
+    val rowGround = if (selected) colors.selectedFill.compositeOver(ground) else ground
+    val quiet = colors.readable(colors.textTertiary, on = rowGround)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -371,7 +378,7 @@ fun ChatRow(
                     Icons.Filled.PushPin,
                     contentDescription = "Pinned",
                     modifier = Modifier.size(11.dp),
-                    tint = colors.textTertiary,
+                    tint = quiet,
                 )
             }
             Text(
@@ -388,13 +395,13 @@ fun ChatRow(
             // turn is in flight, when the chat last changed is both wrong
             // and the less useful fact.
             if (needsYou) {
-                Pill("Needs you", tone = PillTone.Warning)
+                Pill("Needs you", tone = PillTone.Warning, ground = rowGround)
             } else if (chat.isBusy) {
                 SpettroSpinner(size = 12.dp)
             } else {
                 Text(
                     relativeTimeLabel(chat.updatedAt, now),
-                    color = colors.textTertiary,
+                    color = quiet,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Normal,
                         fontFeatureSettings = TabularNums,
@@ -409,7 +416,7 @@ fun ChatRow(
             Text(
                 chat.preview.ifBlank { "No messages yet" },
                 style = MaterialTheme.typography.bodySmall,
-                color = colors.textTertiary,
+                color = quiet,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -417,7 +424,7 @@ fun ChatRow(
             if (chat.messageCount > 0) {
                 Text(
                     "${chat.messageCount}",
-                    color = colors.textTertiary,
+                    color = quiet,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Normal,
                         fontFeatureSettings = TabularNums,
