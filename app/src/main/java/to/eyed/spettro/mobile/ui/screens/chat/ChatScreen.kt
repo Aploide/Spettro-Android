@@ -1,8 +1,11 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +16,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Archive
@@ -40,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -62,6 +68,10 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * Android counterpart of MobileChatView.swift. Fully stateless: every piece
  * of state arrives as a parameter and every interaction leaves through a
  * callback, so the integrator wires it to the session and the transport.
+ *
+ * @param waitingFor what a prompt the user swiped away is waiting for
+ *   ("Spettro is waiting for your approval"), shown above the composer with
+ *   a way back to it; null when nothing is set aside.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +105,8 @@ fun ChatScreen(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     showBack: Boolean = true,
+    waitingFor: String? = null,
+    onReviewPrompt: () -> Unit = {},
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -232,6 +244,12 @@ fun ChatScreen(
             // orchestrating, which is almost always.
             ReadableColumn {
                 OrchestrationLiveStrip(rows = rows)
+            }
+
+            if (waitingFor != null) {
+                ReadableColumn {
+                    PromptWaitingBar(text = waitingFor, onReview = onReviewPrompt)
+                }
             }
 
             ReadableColumn {
@@ -433,4 +451,41 @@ private fun ChatScreenPreviewEmpty() {
         isBusy = false,
         darkTheme = false,
     )
+}
+
+/**
+ * A prompt of this chat's the user swiped away: it is still waiting —
+ * a swipe answers nothing — so it stays in sight, amber like "Needs you",
+ * with a way back to it.
+ */
+@Composable
+private fun PromptWaitingBar(text: String, onReview: () -> Unit) {
+    val colors = LocalSpettroColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingXs)
+            .clip(RoundedCornerShape(Dimens.radiusMd))
+            .background(colors.warning.copy(alpha = 0.12f))
+            .clickable(onClick = onReview)
+            .padding(start = Dimens.spacingMd, end = Dimens.spacingXs),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .background(colors.warning, CircleShape),
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onReview) {
+            Text("Review", color = colors.warning, fontWeight = FontWeight.SemiBold)
+        }
+    }
 }

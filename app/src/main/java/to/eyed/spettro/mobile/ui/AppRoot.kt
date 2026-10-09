@@ -64,6 +64,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.spettro.mobile.coordinator.AppContainer
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
+import to.eyed.spettro.mobile.coordinator.remote.promptsShownWith
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.PairPayload
 import to.eyed.spettro.mobile.core.remote.RemotePairing
@@ -303,6 +304,7 @@ private fun RemoteNavigator(
     val agentReady by model.agentReady.collectAsState()
     val isRefreshing by model.isRefreshing.collectAsState()
     val openChat by model.openChat.collectAsState()
+    val needsYou by model.chatsNeedingYou.collectAsState()
 
     // If the open chat disappears (deleted on the host), fall back to the list.
     LaunchedEffect(openChat) {
@@ -345,6 +347,7 @@ private fun RemoteNavigator(
                         onOpenSettings = { screen = RemoteScreen.Settings },
                         onOpenArchived = { showArchived = true },
                         selectedChatId = openChat?.chatId,
+                        needsYou = needsYou,
                     )
                 }
                 VerticalDivider(color = colors.hairline)
@@ -404,6 +407,7 @@ private fun RemoteNavigator(
                         onDelete = model::deleteChat,
                         onOpenSettings = { screen = RemoteScreen.Settings },
                         onOpenArchived = { showArchived = true },
+                        needsYou = needsYou,
                     )
                 }
 
@@ -746,41 +750,63 @@ internal fun DesktopModal(onDismiss: () -> Unit, content: @Composable () -> Unit
     }
 }
 
-/** Permission and question sheets, broadcast-style: first answer wins. */
+/**
+ * Permission and question sheets, first answer wins (any paired device, or
+ * the computer, may answer). Only the prompts of the chat on screen pop up,
+ * and those that name no chat; another chat's prompt waits in the list as
+ * "Needs you" until that chat is opened. Swiping a sheet away answers
+ * nothing: the prompt stays pending, set aside, and the chat offers it
+ * again ([PromptWaitingBar]).
+ */
 @Composable
 private fun RemotePromptOverlays(model: MobileModel) {
     val permissions by model.pendingPermissions.collectAsState()
     val questions by model.pendingQuestions.collectAsState()
+    val chats by model.chats.collectAsState()
+    val openChat by model.openChat.collectAsState()
+    val setAside by model.promptsSetAside.collectAsState()
+    val (shownPermissions, shownQuestions) =
+        promptsShownWith(openChat?.chatId, chats.map { it.id }, permissions, questions)
+    val chatTitle = { chatID: String? ->
+        chats.firstOrNull { it.id.equals(chatID, ignoreCase = true) }?.title
+            ?.takeIf { chatID?.equals(openChat?.chatId, ignoreCase = true) != true }
+    }
 
-    val permission = permissions.firstOrNull()
+    val permission = shownPermissions.firstOrNull { it.promptID !in setAside }
     if (permission != null) {
-        val form = permission.questionForm
-        if (form != null) {
-            QuestionSheet(
-                request = form,
-                onSubmit = { model.replyToPermissionQuestion(permission, it) },
-                onDecline = { model.replyToPermission(permission.promptID, null) },
-                onDismiss = { model.replyToPermission(permission.promptID, null) },
-            )
-        } else {
-            PermissionSheet(
-                request = permission.request,
-                chatTitle = null,
-                onSelect = { model.replyToPermission(permission.promptID, it) },
-                onDismiss = {},
-            )
+        // A sheet per prompt: the next one is a fresh sheet, not this one
+        // with its contents swapped under the user's thumb.
+        key(permission.promptID) {
+            val form = permission.questionForm
+            if (form != null) {
+                QuestionSheet(
+                    request = form,
+                    onSubmit = { model.replyToPermissionQuestion(permission, it) },
+                    onDecline = { model.replyToPermission(permission.promptID, null) },
+                    onDismiss = { model.setPromptAside(permission.promptID) },
+                )
+            } else {
+                PermissionSheet(
+                    request = permission.request,
+                    chatTitle = chatTitle(permission.chatID),
+                    onSelect = { model.replyToPermission(permission.promptID, it) },
+                    onDismiss = { model.setPromptAside(permission.promptID) },
+                )
+            }
         }
         return
     }
 
-    val question = questions.firstOrNull()
+    val question = shownQuestions.firstOrNull { it.promptID !in setAside }
     if (question != null) {
-        QuestionSheet(
-            request = question.request,
-            onSubmit = { model.replyToQuestion(question.promptID, it) },
-            onDecline = { model.replyToQuestion(question.promptID, null) },
-            onDismiss = { model.replyToQuestion(question.promptID, null) },
-        )
+        key(question.promptID) {
+            QuestionSheet(
+                request = question.request,
+                onSubmit = { model.replyToQuestion(question.promptID, it) },
+                onDecline = { model.replyToQuestion(question.promptID, null) },
+                onDismiss = { model.setPromptAside(question.promptID) },
+            )
+        }
     }
 }
 
@@ -838,6 +864,19 @@ private fun RemoteChatHost(
     val commands by session.commands.collectAsState()
     val isPinned by session.isPinned.collectAsState()
     val isArchived by session.isArchived.collectAsState()
+    val permissions by model.pendingPermissions.collectAsState()
+    val questions by model.pendingQuestions.collectAsState()
+    val chats by model.chats.collectAsState()
+    val setAside by model.promptsSetAside.collectAsState()
+    val (shownPermissions, shownQuestions) =
+        promptsShownWith(session.chatId, chats.map { it.id }, permissions, questions)
+    // Opening the chat a prompt waits in is asking to see it.
+    LaunchedEffect(session.chatId) { model.bringBackPrompts(session.chatId) }
+    val waitingFor = when {
+        shownPermissions.any { it.promptID in setAside } -> "Spettro is waiting for your approval"
+        shownQuestions.any { it.promptID in setAside } -> "Spettro is waiting for your answer"
+        else -> null
+    }
 
     var composerText by rememberSaveable(session.chatId) { mutableStateOf("") }
     var attachments by remember(session.chatId) { mutableStateOf(listOf<ImageAttachment>()) }
@@ -894,6 +933,8 @@ private fun RemoteChatHost(
         showBack = showBack,
         onTogglePinned = { model.setPinned(session.chatId, !isPinned) },
         onToggleArchived = { model.setArchived(session.chatId, !isArchived) },
+        waitingFor = waitingFor,
+        onReviewPrompt = { model.bringBackPrompts(session.chatId) },
         onDelete = {
             model.deleteChat(session.chatId)
             onBack()

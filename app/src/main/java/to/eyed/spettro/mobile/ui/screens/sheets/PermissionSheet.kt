@@ -63,32 +63,29 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * reason, the diff, the order of the buttons — is the desktop's (see
  * [Prompts]).
  *
- * Swiping the sheet away answers the request with a cancelled outcome —
- * [onSelect] receives null — so the agent is never left waiting on a prompt
- * nobody can see.
+ * Swiping the sheet away answers nothing: [onDismiss] is called and the
+ * request stays pending — a swipe is not a choice, and the CLI would read
+ * a cancelled outcome as a denial. Denying is a button of its own.
  *
  * Questions (`_meta["spettro.app/question"]`) do NOT belong here; route them
  * to [QuestionSheet].
  *
  * @param chatTitle which chat is asking, when the host told us; shown as a
  *   secondary line so a prompt arriving over another chat's screen is legible.
- * @param onSelect the chosen option id, or null for dismissed-without-choosing
- *   (a cancelled outcome, distinct from picking a reject option).
+ * @param onSelect the chosen option id.
+ * @param onDismiss the sheet was swiped (or backed) away, unanswered.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PermissionSheet(
     request: AcpPermissionRequest,
     chatTitle: String?,
-    onSelect: (optionId: String?) -> Unit,
+    onSelect: (optionId: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
-        onDismissRequest = {
-            onSelect(null)
-            onDismiss()
-        },
+        onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,

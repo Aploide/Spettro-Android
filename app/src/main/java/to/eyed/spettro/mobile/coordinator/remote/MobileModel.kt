@@ -4,8 +4,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -62,6 +65,25 @@ data class PendingQuestion(
     val request: AcpQuestionRequest,
 )
 
+/**
+ * The prompts to show with the chat on screen ([openChatID], null for none),
+ * oldest first: its own, and any that names no chat — or a chat the list
+ * doesn't know ([knownChatIDs]), which would otherwise be shown nowhere. A
+ * prompt for another chat waits there, as "Needs you".
+ */
+fun promptsShownWith(
+    openChatID: String?,
+    knownChatIDs: Collection<String>,
+    permissions: List<PendingPermission>,
+    questions: List<PendingQuestion>,
+): Pair<List<PendingPermission>, List<PendingQuestion>> {
+    val known = knownChatIDs.map { it.lowercase() }.toSet()
+    fun here(chatID: String?) = chatID == null ||
+        chatID.equals(openChatID, ignoreCase = true) ||
+        chatID.lowercase() !in known
+    return permissions.filter { here(it.chatID) } to questions.filter { here(it.chatID) }
+}
+
 /** A transient, dismissible message shown above the chat UI. */
 data class Banner(val text: String, val isError: Boolean = false)
 
@@ -95,6 +117,21 @@ class MobileModel(
 
     private val _pendingQuestions = MutableStateFlow<List<PendingQuestion>>(emptyList())
     val pendingQuestions: StateFlow<List<PendingQuestion>> = _pendingQuestions.asStateFlow()
+
+    /**
+     * Prompts the user swiped away without answering. A swipe never answers
+     * — that would deny an approval, or decline a question, nobody chose to —
+     * so the prompt stays pending, out of the way, until the user asks for
+     * it back (see [bringBackPrompts]).
+     */
+    private val _promptsSetAside = MutableStateFlow<Set<String>>(emptySet())
+    val promptsSetAside: StateFlow<Set<String>> = _promptsSetAside.asStateFlow()
+
+    /** The chats a prompt is waiting in: the list's "Needs you". */
+    val chatsNeedingYou: StateFlow<Set<String>> =
+        combine(_pendingPermissions, _pendingQuestions) { permissions, questions ->
+            (permissions.mapNotNull { it.chatID } + questions.mapNotNull { it.chatID }).toSet()
+        }.stateIn(scope, SharingStarted.Eagerly, emptySet())
 
     private val _banner = MutableStateFlow<Banner?>(null)
     val banner: StateFlow<Banner?> = _banner.asStateFlow()
@@ -164,6 +201,7 @@ class MobileModel(
                         // with pendingReplay re-send the live ones on auth.)
                         _pendingPermissions.value = emptyList()
                         _pendingQuestions.value = emptyList()
+                        _promptsSetAside.value = emptySet()
                         openBuffer.cancel()
                         loginPollJob?.cancel()
                     }
@@ -295,6 +333,7 @@ class MobileModel(
                 // Answered elsewhere, or withdrawn: whatever comes next for
                 // the card says what happened to it.
                 pending?.let { releaseCard(it, made = AcpToolStatus.IN_PROGRESS) }
+                _promptsSetAside.value -= notification.promptID
             }
             is RemoteNotification.QuestionAsk -> {
                 val request = questionFrom(notification.request) ?: return
@@ -308,6 +347,7 @@ class MobileModel(
             is RemoteNotification.QuestionResolved -> {
                 _pendingQuestions.value =
                     _pendingQuestions.value.filterNot { it.promptID == notification.promptID }
+                _promptsSetAside.value -= notification.promptID
             }
             is RemoteNotification.AgentNotification -> {
                 if (notification.method == AcpExtensionMethod.ACCOUNT_UPDATE) {
@@ -565,7 +605,23 @@ class MobileModel(
             }
             releaseCard(pending, made = if (allowed) AcpToolStatus.IN_PROGRESS else AcpToolStatus.FAILED)
         }
+        _promptsSetAside.value -= promptID
         scope.launch { runCatching { api.permissionReply(promptID, selectedOptionID) } }
+    }
+
+    /** Puts a prompt out of the way without answering it (a swipe). */
+    fun setPromptAside(promptID: String) {
+        val pending = _pendingPermissions.value.any { it.promptID == promptID } ||
+            _pendingQuestions.value.any { it.promptID == promptID }
+        if (pending) _promptsSetAside.value += promptID
+    }
+
+    /** Shows again the prompts set aside that [promptsShownWith] gives [openChatID]. */
+    fun bringBackPrompts(openChatID: String?) {
+        val (permissions, questions) = promptsShownWith(
+            openChatID, _chats.value.map { it.id }, _pendingPermissions.value, _pendingQuestions.value,
+        )
+        _promptsSetAside.value -= (permissions.map { it.promptID } + questions.map { it.promptID }).toSet()
     }
 
     /**
@@ -617,6 +673,7 @@ class MobileModel(
 
     fun replyToQuestion(promptID: String, answers: List<AcpQuestionAnswer>?) {
         _pendingQuestions.value = _pendingQuestions.value.filterNot { it.promptID == promptID }
+        _promptsSetAside.value -= promptID
         val payload: JsonElement? = answers?.let { list -> buildJsonArray { list.forEach { add(it.toJson()) } } }
         scope.launch { runCatching { api.questionReply(promptID, payload) } }
     }

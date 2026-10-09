@@ -70,9 +70,9 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * the user. Questions left alone are simply absent from the submitted
  * answers — the CLI reports them to the model as unanswered, never defaulted.
  *
- * Swiping the sheet away calls [onDismiss] only; the form stays pending and
- * the caller decides whether to re-present or decline. [onDecline] refuses
- * the whole form — declining is all-or-nothing.
+ * Swiping the sheet away calls [onDismiss] only; the form stays pending —
+ * the caller sets it aside, and never declines it for the user. [onDecline]
+ * refuses the whole form — declining is all-or-nothing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

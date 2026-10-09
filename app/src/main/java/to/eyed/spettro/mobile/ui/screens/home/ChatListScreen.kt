@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -64,6 +65,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
@@ -103,6 +106,7 @@ import kotlin.math.roundToInt
  * @param chats visible (non-archived) chat summaries from `chats.list`;
  *   archived rows are filtered out defensively if present.
  * @param onPin `(chatID, pinned)`; @param onArchive `(chatID, archived)`.
+ * @param needsYou the chats a permission or question is waiting in.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -122,6 +126,7 @@ fun ChatListScreen(
     onOpenArchived: () -> Unit,
     modifier: Modifier = Modifier,
     selectedChatId: String? = null,
+    needsYou: Set<String> = emptySet(),
 ) {
     val colors = LocalSpettroColors.current
     var search by rememberSaveable { mutableStateOf("") }
@@ -251,6 +256,8 @@ fun ChatListScreen(
                                 name = group.name,
                                 count = group.chats.size,
                                 collapsed = isCollapsed,
+                                // Folded away, a waiting chat still shows.
+                                waiting = isCollapsed && group.chats.any { it.id in needsYou },
                                 onToggle = {
                                     if (search.isBlank()) {
                                         collapsed = if (isCollapsed) {
@@ -276,6 +283,7 @@ fun ChatListScreen(
                                         chat = chat,
                                         now = now,
                                         selected = chat.id == selectedChatId,
+                                        needsYou = chat.id in needsYou,
                                         onClick = { onOpenChat(chat.id) },
                                     )
                                 }
@@ -290,9 +298,26 @@ fun ChatListScreen(
 
 // MARK: - Row
 
+/** Amber, like the prompt it opens to: something is waiting on you. */
+@Composable
+private fun NeedsYouBadge() {
+    val warning = LocalSpettroColors.current.warning
+    Text(
+        "Needs you",
+        modifier = Modifier
+            .background(warning.copy(alpha = 0.16f), CircleShape)
+            .padding(horizontal = 7.dp, vertical = 1.dp),
+        color = warning,
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+        maxLines = 1,
+    )
+}
+
 /**
- * One chat summary line: pinned marker, title, busy spinner or relative
- * time, then the preview with a subtle message count.
+ * One chat summary line: pinned marker, title, "Needs you", busy spinner or
+ * relative time, then the preview with a subtle message count.
+ *
+ * @param needsYou a permission or question is waiting in this chat.
  */
 @Composable
 fun ChatRow(
@@ -300,6 +325,7 @@ fun ChatRow(
     modifier: Modifier = Modifier,
     now: Long = System.currentTimeMillis(),
     selected: Boolean = false,
+    needsYou: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
@@ -327,14 +353,18 @@ fun ChatRow(
             Text(
                 chat.title.ifBlank { "Untitled chat" },
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = if (needsYou) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            // Running beats a timestamp: while a turn is in flight, when the
-            // chat last changed is both wrong and the less useful fact.
-            if (chat.isBusy) {
+            // Waiting on the user outranks everything: the chat is stuck
+            // until someone answers. Then running beats a timestamp: while a
+            // turn is in flight, when the chat last changed is both wrong
+            // and the less useful fact.
+            if (needsYou) {
+                NeedsYouBadge()
+            } else if (chat.isBusy) {
                 SpettroSpinner(size = 12.dp)
             } else {
                 Text(
@@ -407,6 +437,7 @@ private fun ProjectHeader(
     collapsed: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    waiting: Boolean = false,
 ) {
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant
     val rotation by animateFloatAsState(
@@ -441,6 +472,14 @@ private fun ProjectHeader(
             style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
             color = secondary.copy(alpha = 0.7f),
         )
+        if (waiting) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(LocalSpettroColors.current.warning, CircleShape)
+                    .semantics { contentDescription = "A chat here needs you" },
+            )
+        }
         Spacer(Modifier.weight(1f))
         Icon(
             Icons.Outlined.ExpandMore,
