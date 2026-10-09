@@ -180,6 +180,6 @@ green and a `code` swarm would otherwise draw running-green beside done-green.
 Unit tests (JVM) for: pairing proof vector, QR parse, JSON-RPC framing, ACP parsing of both
 config shapes, StoredSession decode, headless event decode, tool title parsing, replay suppression,
 `groupTranscript` (a case-for-case port of the desktop suite — screenshots cannot catch a member
-attached to the wrong run), and the `ultracode` activation matcher against the Go implementation's
-own golden span vectors.
+attached to the wrong run), and the `ultracode` activation matcher and the `+500k` budget directive
+against the Go implementation's own golden vectors.
 E2E: real `spettro --headless` on the Mac + app on device (Protocol A); macOS Spettro app host (Protocol B).
