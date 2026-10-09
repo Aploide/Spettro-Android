@@ -204,9 +204,12 @@ object RemotePairing {
         return host.takeIf { HOSTNAME.matches(it) }
     }
 
-    /** Dot-separated labels of letters, digits and inner hyphens, with a letters-only TLD. */
+    /**
+     * Dot-separated labels of letters, digits and inner hyphens, ending in
+     * a letters-only TLD or a punycode one (`xn--p1ai`, Cyrillic .рф).
+     */
     private val HOSTNAME =
-        Regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$")
+        Regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$")
 
     private fun parseQuery(query: String): Map<String, String> {
         val out = LinkedHashMap<String, String>()

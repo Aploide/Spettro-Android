@@ -218,6 +218,14 @@ class RemoteHostNormalizeTest {
     }
 
     @Test
+    fun `accepts punycode, in the TLD too`() {
+        assertEquals("spettro.xn--p1ai", RemotePairing.normalizeRemoteHost("spettro.xn--p1ai"))
+        assertEquals("xn--80ak6aa92e.xn--80asehdb", RemotePairing.normalizeRemoteHost("xn--80ak6aa92e.xn--80asehdb"))
+        // A digit-only TLD is still an IP address, not a hostname.
+        assertNull(RemotePairing.normalizeRemoteHost("spettro.example.123"))
+    }
+
+    @Test
     fun `rejects what is not a DNS name`() {
         assertNull(RemotePairing.normalizeRemoteHost(""))
         assertNull(RemotePairing.normalizeRemoteHost("   "))
