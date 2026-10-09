@@ -32,13 +32,17 @@ import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.chat.OrchestrationPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.WorkflowGate
+import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
 import to.eyed.spettro.mobile.ui.screens.home.DisconnectReason
 import to.eyed.spettro.mobile.ui.screens.home.DisconnectedScreen
 import to.eyed.spettro.mobile.ui.screens.home.PairingScreen
 import to.eyed.spettro.mobile.ui.screens.home.ProjectPickerSheet
 import to.eyed.spettro.mobile.ui.screens.home.previewProjects
+import to.eyed.spettro.mobile.ui.screens.settings.ProvidersScreen
 import to.eyed.spettro.mobile.ui.screens.settings.SettingsScreen
+import to.eyed.spettro.mobile.ui.screens.settings.previewModels
+import to.eyed.spettro.mobile.ui.screens.settings.previewProviders
 import to.eyed.spettro.mobile.ui.screens.sheets.PermissionSheet
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
 import to.eyed.spettro.mobile.ui.theme.Accent
@@ -208,6 +212,33 @@ private fun Scene(scene: String, tablet: Boolean) {
         }
         // Settings while connected through the computer's internet tunnel.
         "tunnel" -> Settings(overInternet = true)
+        "providers" -> ProvidersScreen(
+            providers = previewProviders,
+            models = previewModels,
+            isLoading = false,
+            lastRefreshFailed = false,
+            probeResult = null,
+            probeSucceeded = false,
+            onConnectProvider = { _, _, _ -> },
+            onDisconnectProvider = {},
+            onProbeLocal = { _, _ -> },
+            onAddLocal = { _, _ -> },
+            onRemoveLocal = {},
+            onToggleFavorite = { _, _, _ -> },
+            onBack = {},
+        )
+        "archived" -> {
+            if (tablet) SplitShell(items = null) else ChatList()
+            ArchivedChatsSheet(
+                chats = listChats().take(3).map { it.copy(isArchived = true) },
+                onOpen = {},
+                onUnarchive = {},
+                onDelete = {},
+                onDismiss = {},
+            )
+        }
+        // A chat with nothing in it yet: the new-session greeting.
+        "new_chat" -> Shell(tablet, items = emptyList(), busy = false)
         else -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
     }
 }
