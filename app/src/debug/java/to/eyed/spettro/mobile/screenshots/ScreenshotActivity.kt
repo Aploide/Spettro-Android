@@ -90,10 +90,13 @@ class ScreenshotActivity : ComponentActivity() {
 
 @Composable
 private fun Scene(scene: String, tablet: Boolean) {
-    // disconnected_<reason>, e.g. disconnected_turnedaway — one per DisconnectReason.
+    // disconnected_<reason>[_nolan][_repeated], e.g. disconnected_turnedaway
+    // — one per DisconnectReason; "nolan" without the local-network
+    // permission, "repeated" after a run of refusals.
     if (scene.startsWith("disconnected")) {
+        val parts = scene.split('_')
         val reason = DisconnectReason.entries.firstOrNull {
-            it.name.equals(scene.substringAfter('_', ""), ignoreCase = true)
+            it.name.equals(parts.getOrNull(1), ignoreCase = true)
         } ?: DisconnectReason.HostAsleep
         DisconnectedScreen(
             reason = reason,
@@ -102,6 +105,9 @@ private fun Scene(scene: String, tablet: Boolean) {
             onPairAgain = {},
             onForget = {},
             hasRemoteHost = true,
+            onAllowLocalNetwork = {},
+            localNetworkMissing = "nolan" in parts,
+            refusedRepeatedly = "repeated" in parts,
         )
         return
     }
