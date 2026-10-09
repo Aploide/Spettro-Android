@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +48,7 @@ import to.eyed.spettro.mobile.ui.screens.settings.previewProviders
 import to.eyed.spettro.mobile.ui.screens.sheets.PermissionSheet
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
 import to.eyed.spettro.mobile.ui.theme.Accent
+import to.eyed.spettro.mobile.ui.theme.Appearance
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.SystemBarsFor
@@ -81,7 +84,9 @@ class ScreenshotActivity : ComponentActivity() {
         setContent {
             SystemBarsFor(dark = dark)
             SpettroTheme(darkTheme = dark, accent = accent) {
-                Scene(scene, tablet)
+                CompositionLocalProvider(LocalSceneTheme provides SceneTheme(dark, accent)) {
+                    Scene(scene, tablet)
+                }
             }
         }
     }
@@ -94,6 +99,14 @@ class ScreenshotActivity : ComponentActivity() {
         const val SCENE_CHAT = "chat"
     }
 }
+
+/**
+ * The theme the extras asked for, so Settings shows that appearance and
+ * accent selected rather than its defaults.
+ */
+private data class SceneTheme(val dark: Boolean, val accent: Accent)
+
+private val LocalSceneTheme = staticCompositionLocalOf { SceneTheme(dark = true, accent = Accent.Lilac) }
 
 // MARK: - Scenes
 
@@ -319,7 +332,8 @@ private fun Chat(
         plan = ChatPreviewData.plan,
         usage = ChatPreviewData.usage,
         modeName = "coding",
-        modeColorName = "green",
+        // The mode's id, as the app passes it: grey under Monochrome.
+        modeColorName = "coding",
         isPinned = false,
         isArchived = false,
         composerText = text,
@@ -391,7 +405,10 @@ private fun ChatList(selectedChatId: String? = null, inSidebar: Boolean = false)
 
 @Composable
 private fun Settings(overInternet: Boolean = false) {
+    val theme = LocalSceneTheme.current
     SettingsScreen(
+        appearance = if (theme.dark) Appearance.Dark else Appearance.Light,
+        accent = theme.accent,
         hostName = "Carlo's MacBook Pro",
         hostKind = "mac",
         connectionLabel = if (overInternet) "Connected over the internet" else "Connected via Wi-Fi",

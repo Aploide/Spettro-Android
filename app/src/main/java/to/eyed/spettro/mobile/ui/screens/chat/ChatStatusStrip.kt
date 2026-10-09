@@ -244,7 +244,7 @@ private fun ChatStatusStripPreviewBusy() {
             plan = ChatPreviewData.plan,
             usage = ChatPreviewData.usage,
             modeName = "coding",
-            modeColorName = "green",
+            modeColorName = "coding",
         )
     }
 }
@@ -260,7 +260,7 @@ private fun ChatStatusStripPreviewIdle() {
             plan = ChatPreviewData.plan,
             usage = ChatPreviewData.usageHot,
             modeName = "plan",
-            modeColorName = "purple",
+            modeColorName = "plan",
         )
     }
 }

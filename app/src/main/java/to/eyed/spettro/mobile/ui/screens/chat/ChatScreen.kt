@@ -385,7 +385,7 @@ private fun ChatScreenPreviewHost(
             plan = if (items.isEmpty()) emptyList() else ChatPreviewData.plan,
             usage = if (items.isEmpty()) null else ChatPreviewData.usage,
             modeName = "coding",
-            modeColorName = "green",
+            modeColorName = "coding",
             isPinned = false,
             isArchived = false,
             composerText = text,
