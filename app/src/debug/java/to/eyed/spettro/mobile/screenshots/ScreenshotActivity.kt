@@ -38,6 +38,7 @@ import to.eyed.spettro.mobile.ui.screens.chat.workflowGate
 import to.eyed.spettro.mobile.ui.DesktopModal
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
+import to.eyed.spettro.mobile.ui.screens.chat.ConfigSummary
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.chat.NewSessionScreen
 import to.eyed.spettro.mobile.ui.screens.chat.OrchestrationPreviewData
@@ -473,7 +474,7 @@ private fun Chat(
         liveTokens = if (busy) 9_400L else null,
         plan = ChatPreviewData.plan,
         usage = ChatPreviewData.usage,
-        modeName = "coding",
+        modeName = "Coding",
         // The mode's id, as the app passes it: grey under Monochrome.
         modeColorName = "coding",
         isPinned = false,
@@ -488,11 +489,9 @@ private fun Chat(
         enabled = true,
         // The bar names the permission level the gate was read from, so the
         // Ask first scene doesn't say YOLO above a line about Ask first.
-        configSummary = if (workflowGate.askFirst) {
-            "Coding · GPT-5 · Ask first"
-        } else {
-            ChatPreviewData.CONFIG_SUMMARY
-        },
+        configSummary = ConfigSummary.of(
+            ChatPreviewData.configOptionsWith("high", ultra = false, permission = if (workflowGate.askFirst) "ask-first" else "yolo"),
+        ),
         onConfigTap = {},
         commands = ChatPreviewData.commands,
         onCommandPick = {},

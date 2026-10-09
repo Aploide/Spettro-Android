@@ -298,5 +298,5 @@ internal object ChatPreviewData {
             }
         }
 
-    const val CONFIG_SUMMARY = "Coding · GPT-5 · Don’t ask"
+    val CONFIG_SUMMARY = ConfigSummary("Coding · GPT-5 · Don’t ask", warning = "Don’t ask")
 }

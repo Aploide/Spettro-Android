@@ -243,7 +243,7 @@ private fun ChatStatusStripPreviewBusy() {
             liveTokens = 12_800,
             plan = ChatPreviewData.plan,
             usage = ChatPreviewData.usage,
-            modeName = "coding",
+            modeName = "Coding",
             modeColorName = "coding",
         )
     }

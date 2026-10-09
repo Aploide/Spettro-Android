@@ -217,6 +217,7 @@ fun NewSessionScreen(
                         onConfigTap = {},
                         commands = emptyList(),
                         onCommandPick = {},
+                        placeholder = NEW_SESSION_PLACEHOLDER,
                     )
                     ProjectChip(
                         folderName = folderName,

@@ -54,6 +54,8 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -103,7 +105,7 @@ fun ChatComposer(
     onStop: () -> Unit,
     isBusy: Boolean,
     enabled: Boolean,
-    configSummary: String?,
+    configSummary: ConfigSummary?,
     onConfigTap: () -> Unit,
     commands: List<AcpCommand>,
     onCommandPick: (AcpCommand) -> Unit,
@@ -112,6 +114,7 @@ fun ChatComposer(
     onSwitchPermission: (() -> Unit)? = null,
     thinking: ThinkingControl? = null,
     thinkingFrame: ThinkingFrame? = null,
+    placeholder: String = CHAT_PLACEHOLDER,
 ) {
     val colors = LocalSpettroColors.current
     val workflow = remember(text, workflowGate) { workflowDraft(text, workflowGate) }
@@ -167,6 +170,7 @@ fun ChatComposer(
                 budgets = workflow.budgets,
                 muted = workflow.muted,
                 interactionSource = interactionSource,
+                placeholder = placeholder,
             )
             Row(
                 modifier = Modifier
@@ -299,11 +303,12 @@ private fun AttachmentStrip(
 /**
  * "Coding · GPT-5 · Don’t ask" in one toolbar chip (the desktop's
  * `config-chip`): 32dp, 8dp corners, text-secondary, opening the settings
- * sheet.
+ * sheet. Don’t ask is drawn in the warning ink, as the desktop's settings
+ * chip is (`settings-chip--warn`).
  */
 @Composable
 private fun ConfigChip(
-    summary: String,
+    summary: ConfigSummary,
     enabled: Boolean,
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
@@ -324,8 +329,16 @@ private fun ConfigChip(
             tint = colors.textSecondary,
             modifier = Modifier.size(15.dp),
         )
+        val label = remember(summary, colors) {
+            buildAnnotatedString {
+                append(summary.text)
+                summary.warningRange?.let { range ->
+                    addStyle(SpanStyle(color = colors.warning), range.first, range.last + 1)
+                }
+            }
+        }
         Text(
-            text = summary,
+            text = label,
             style = MaterialTheme.typography.labelLarge,
             color = colors.textSecondary,
             maxLines = 1,
@@ -349,6 +362,7 @@ private fun ComposerTextField(
     budgets: Boolean,
     muted: Boolean,
     interactionSource: MutableInteractionSource,
+    placeholder: String,
 ) {
     val colors = LocalSpettroColors.current
     BasicTextField(
@@ -376,7 +390,7 @@ private fun ComposerTextField(
             ) {
                 if (text.isEmpty()) {
                     Text(
-                        text = if (enabled) "Describe a task, or ask about your code…" else "Waiting for your computer…",
+                        text = if (enabled) placeholder else "Waiting for your computer…",
                         style = ComposerText,
                         color = colors.textTertiary,
                         maxLines = 1,
@@ -388,6 +402,15 @@ private fun ComposerTextField(
         },
     )
 }
+
+/** The composer's hint in an open chat (the desktop's, word for word). */
+const val CHAT_PLACEHOLDER = "Ask Spettro to build, fix, or explain…"
+
+/**
+ * The hint on the new-session view, which names the folder right under the
+ * field — so the hint says what to type rather than where.
+ */
+const val NEW_SESSION_PLACEHOLDER = "Describe a task, or ask about your code…"
 
 /** The size of the composer's round buttons: the desktop's 32px, grown for a thumb. */
 private val SendSize = 36.dp

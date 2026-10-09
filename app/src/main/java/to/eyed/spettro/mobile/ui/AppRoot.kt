@@ -94,8 +94,8 @@ import to.eyed.spettro.mobile.ui.components.rememberLocalNetworkPermission
 import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
+import to.eyed.spettro.mobile.ui.screens.chat.ConfigSummary
 import to.eyed.spettro.mobile.ui.screens.chat.NewSessionScreen
-import to.eyed.spettro.mobile.ui.screens.chat.PermissionCopy
 import to.eyed.spettro.mobile.ui.screens.chat.workflowGate
 import to.eyed.spettro.mobile.ui.screens.home.ArchivedChatsSheet
 import to.eyed.spettro.mobile.ui.screens.home.ChatListScreen
@@ -1016,7 +1016,7 @@ private fun RemoteChatHost(
     }
 
     val modeOption = configOptions.firstOrNull { it.id == "mode" }
-    val summary = configSummary(configOptions)
+    val summary = ConfigSummary.of(configOptions)
     // Thinking and Ultra are one dial, the thinking chip's slider; whether
     // the model can think at all comes from the models catalog.
     val catalog by model.models.collectAsState()
@@ -1091,17 +1091,6 @@ private fun RemoteChatHost(
 }
 
 // MARK: - Helpers
-
-private fun configSummary(options: List<to.eyed.spettro.mobile.core.acp.AcpConfigOption>): String? {
-    val parts = listOf("mode", "model", "permission").mapNotNull { id ->
-        val option = options.firstOrNull { it.id == id } ?: return@mapNotNull null
-        // The desktop's one name per permission level — never "YOLO".
-        val value = (option.kind as? to.eyed.spettro.mobile.core.acp.AcpConfigOption.Kind.Select)?.current
-        PermissionCopy.name(value)?.takeIf { id == "permission" }
-            ?: option.currentLabel?.takeIf { it.isNotBlank() }
-    }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
-}
 
 private fun loadAttachment(context: Context, uri: android.net.Uri): ImageAttachment? = try {
     context.contentResolver.openInputStream(uri)?.use { stream ->
