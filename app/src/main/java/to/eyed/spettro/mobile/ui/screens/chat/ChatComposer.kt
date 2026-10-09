@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -66,7 +67,7 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * The input bar (port of MobileComposerView.swift): an attachment thumbnail
  * strip, a one-line config summary that opens the settings sheet, and the
  * input row — a plus menu (photos, slash commands), a pill text field, and a
- * send button that becomes Stop mid-turn.
+ * send button that becomes Stop mid-turn, with Guide beside it to steer.
  *
  * Stateless: text, attachments, and busy state are owned by the caller; only
  * ephemeral chrome (menus, the command sheet) lives here.
@@ -315,22 +316,52 @@ private fun SendButton(
 ) {
     val colors = LocalSpettroColors.current
     if (isBusy) {
-        // Mid-turn the useful action is stopping, not queueing another
-        // message — so the same button becomes Stop.
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(colors.diffRemoved)
-                .clickable(onClick = onStop),
-            contentAlignment = Alignment.Center,
+        // Mid-turn there are two things to do: stop the turn, or guide it —
+        // a message sent now steers the running agent at its next step. The
+        // Guide pill only shows once there is something to send.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Stop,
-                contentDescription = "Stop",
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(20.dp),
-            )
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(colors.diffRemoved)
+                    .clickable(onClick = onStop),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Stop,
+                    contentDescription = "Stop",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            if (canSend) {
+                Row(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .clip(CircleShape)
+                        .background(colors.accent)
+                        .clickable(onClick = onSend)
+                        .padding(start = 10.dp, end = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ArrowUpward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Guide",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+            }
         }
     } else {
         Box(

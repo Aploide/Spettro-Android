@@ -454,6 +454,48 @@ class ChatSessionTest {
         assertNull(ChatMessage(role = ChatMessage.Role.Reasoning, text = "").thoughtDuration)
     }
 
+    // MARK: Steering
+
+    @Test
+    fun steeringAcknowledgementsAreStateNotProse() {
+        val s = session()
+        s.appendUserMessage("refactor the parser")
+        s.beginRun()
+        val steer = s.appendUserMessage("also keep the old API", steering = ChatMessage.Steering.SENDING)
+        s.appendAssistant("→ steering queued: the running agent will see this message at its next step")
+        assertEquals(steer.id, s.steeringMessage(ChatMessage.Steering.QUEUED))
+        s.appendAssistant("✔ steering delivered: also keep the old API")
+        assertEquals(steer.id, s.steeringMessage(ChatMessage.Steering.DELIVERED))
+        assertTrue(s.assistantBubbles().isEmpty())
+    }
+
+    @Test
+    fun acknowledgementsGoToTheOldestSteerInTheEarlierState() {
+        val s = session()
+        s.appendUserMessage("go")
+        val first = s.appendUserMessage("one", steering = ChatMessage.Steering.SENDING)
+        val second = s.appendUserMessage("two", steering = ChatMessage.Steering.SENDING)
+        s.appendAssistant("  → steering queued: …")
+        assertEquals(listOf(ChatMessage.Steering.QUEUED, ChatMessage.Steering.SENDING), listOf(first, second).map { m -> s.messages().first { it.id == m.id }.steering })
+        // Delivered takes a queued one first, then a sending one.
+        s.appendAssistant("✔ steering delivered: one")
+        s.appendAssistant("✔ steering delivered: two")
+        assertEquals(listOf(ChatMessage.Steering.DELIVERED, ChatMessage.Steering.DELIVERED), s.messages().drop(1).map { it.steering })
+        // One with nothing to apply to is dropped all the same.
+        s.appendAssistant("→ steering queued: nobody")
+        assertTrue(s.assistantBubbles().isEmpty())
+    }
+
+    @Test
+    fun theEndOfTheTurnDropsSteersStillWaiting() {
+        val s = session()
+        s.appendUserMessage("go")
+        s.beginRun()
+        s.appendUserMessage("late", steering = ChatMessage.Steering.QUEUED)
+        s.appendUserMessage("read", steering = ChatMessage.Steering.DELIVERED)
+        s.endRun("end_turn")
+        assertEquals(listOf(null, null, ChatMessage.Steering.DELIVERED), s.messages().map { it.steering })
+    }
 
     // MARK: Mode
 

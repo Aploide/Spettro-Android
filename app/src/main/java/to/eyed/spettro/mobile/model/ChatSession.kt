@@ -140,9 +140,14 @@ class ChatSession(
         _isBusy.value = true
     }
 
-    /** Marks the end of a prompt turn and closes any streaming bubbles. */
+    /**
+     * Marks the end of a prompt turn: closes any streaming bubbles, and drops
+     * the state of every steer still waiting — once no turn is running,
+     * nothing is going to read them, and they are plain messages.
+     */
     fun endRun(stopReason: String? = null) {
         endStreaming()
+        clearPendingSteering()
         _runStartedAt.value = null
         _isBusy.value = false
     }
@@ -325,19 +330,100 @@ class ChatSession(
 
     // MARK: Transcript mutation
 
-    fun appendUserMessage(text: String, attachments: List<ImageAttachment> = emptyList()) {
-        _items.value = _items.value +
-            TranscriptItem.Message(ChatMessage(role = ChatMessage.Role.User, text = text, attachments = attachments))
+    /**
+     * Appends the user's message and returns it. [steering] marks a message
+     * sent while a turn was running.
+     */
+    fun appendUserMessage(
+        text: String,
+        attachments: List<ImageAttachment> = emptyList(),
+        steering: ChatMessage.Steering? = null,
+    ): ChatMessage {
+        val message = ChatMessage(
+            role = ChatMessage.Role.User,
+            text = text,
+            attachments = attachments,
+            steering = steering,
+        )
+        _items.value = _items.value + TranscriptItem.Message(message)
         isEmptyFlag = false
         if (_title.value == projectName || _title.value.isEmpty()) {
             val titleSource = if (text.isEmpty()) "Image" else text
             _title.value = derivedTitle(titleSource)
         }
+        return message
     }
 
     fun appendNotice(text: String, isError: Boolean) {
         _items.value = _items.value +
             TranscriptItem.Message(ChatMessage(role = ChatMessage.Role.Notice(isError), text = text))
+    }
+
+    /**
+     * Moves a mid-turn message along — or, with null, drops the state, for a
+     * steer that failed to send.
+     */
+    fun setSteering(messageId: String, state: ChatMessage.Steering?) {
+        val list = _items.value
+        val index = list.indexOfFirst { it is TranscriptItem.Message && it.message.id == messageId }
+        if (index < 0) return
+        val message = (list[index] as TranscriptItem.Message).message
+        if (message.steering == state) return
+        _items.value = list.toMutableList().also {
+            it[index] = TranscriptItem.Message(message.copy(steering = state))
+        }
+    }
+
+    /** Drops the state of every steer still waiting (see [endRun]). */
+    fun clearPendingSteering() {
+        val list = _items.value
+        if (list.none { it is TranscriptItem.Message && it.message.steering.isPending }) return
+        _items.value = list.map { item ->
+            if (item is TranscriptItem.Message && item.message.steering.isPending) {
+                TranscriptItem.Message(item.message.copy(steering = null))
+            } else {
+                item
+            }
+        }
+    }
+
+    /**
+     * The id of a user message in [state] — the newest, or with [oldest]
+     * the first — or null.
+     */
+    fun steeringMessage(state: ChatMessage.Steering, oldest: Boolean = false): String? {
+        val found = { item: TranscriptItem ->
+            item is TranscriptItem.Message &&
+                item.message.role == ChatMessage.Role.User &&
+                item.message.steering == state
+        }
+        val list = _items.value
+        val item = if (oldest) list.firstOrNull(found) else list.lastOrNull(found)
+        return (item as? TranscriptItem.Message)?.message?.id
+    }
+
+    /**
+     * Turns a steering acknowledgement into the state of the message it is
+     * about; true when [delta] was one. Both go to the oldest message in the
+     * earlier state: the CLI answers steers in the order they were sent, and
+     * the agent reads them in that order too. An acknowledgement with no
+     * message to apply to is dropped all the same.
+     */
+    private fun absorbSteeringNotice(delta: String): Boolean {
+        val text = delta.trim()
+        if (text.startsWith(STEERING_QUEUED)) {
+            steeringMessage(ChatMessage.Steering.SENDING, oldest = true)
+                ?.let { setSteering(it, ChatMessage.Steering.QUEUED) }
+            return true
+        }
+        if (text.startsWith(STEERING_DELIVERED)) {
+            (
+                steeringMessage(ChatMessage.Steering.QUEUED, oldest = true)
+                    ?: steeringMessage(ChatMessage.Steering.SENDING, oldest = true)
+                )?.let { setSteering(it, ChatMessage.Steering.DELIVERED) }
+            return true
+        }
+        return false
     }
 
     /**
@@ -385,6 +471,8 @@ class ChatSession(
      * every chunk duplicates the last message across relaunches.
      */
     fun appendAssistant(delta: String) {
+        // The CLI's steering acknowledgements are state, not prose.
+        if (absorbSteeringNotice(delta)) return
         endReasoningStream()
         val list = _items.value.toMutableList()
         val last = list.lastOrNull()
@@ -517,6 +605,17 @@ class ChatSession(
     }
 
     companion object {
+        /**
+         * The CLI's acknowledgement that a message sent mid-turn was queued
+         * for the running agent, and its report that the agent has read it.
+         * Both arrive as ordinary agent_message_chunks.
+         */
+        private const val STEERING_QUEUED = "→ steering queued"
+        private const val STEERING_DELIVERED = "✔ steering delivered"
+
+        private val ChatMessage.Steering?.isPending: Boolean
+            get() = this == ChatMessage.Steering.SENDING || this == ChatMessage.Steering.QUEUED
+
         /** The chat title derived from the first prompt: first line, 48 chars. */
         fun derivedTitle(from: String): String {
             val trimmed = from.trim()

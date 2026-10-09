@@ -1,7 +1,10 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -19,14 +22,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,12 +46,14 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import to.eyed.spettro.mobile.core.B64
 import to.eyed.spettro.mobile.model.ChatMessage
 import to.eyed.spettro.mobile.model.ImageAttachment
@@ -124,6 +132,61 @@ private fun UserBubble(message: ChatMessage, modifier: Modifier) {
                 )
             }
         }
+        SteeringCaption(message.steering)
+    }
+}
+
+/** How long "Delivered" stays under a steer the agent has just read. */
+private const val DELIVERED_MS = 2400L
+
+/**
+ * Where a message sent mid-turn stands. Waiting, it says so plainly — the
+ * agent reads it at its next step, not now. Once read it says "Delivered"
+ * for a moment and then gets out of the way; a steer that was already
+ * delivered when the chat was opened is history and says nothing.
+ * Port of the desktop's SteeringCaption.
+ */
+@Composable
+private fun SteeringCaption(state: ChatMessage.Steering?) {
+    val colors = LocalSpettroColors.current
+    // Seeded with the state first seen, so a steer delivered before this
+    // row was composed (a reopened chat, a scrolled-back row) stays quiet.
+    var previous by remember { mutableStateOf(state) }
+    var showDelivered by remember { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        val was = previous
+        previous = state
+        if (state != ChatMessage.Steering.DELIVERED || was == ChatMessage.Steering.DELIVERED) return@LaunchedEffect
+        showDelivered = true
+        delay(DELIVERED_MS)
+        showDelivered = false
+    }
+    when {
+        state == ChatMessage.Steering.SENDING || state == ChatMessage.Steering.QUEUED ->
+            SteeringLine(
+                icon = Icons.Outlined.Schedule,
+                text = "Queued · will be seen at the next step",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        else -> AnimatedVisibility(
+            visible = state == ChatMessage.Steering.DELIVERED && showDelivered,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(200)),
+        ) {
+            SteeringLine(icon = Icons.Outlined.Check, text = "Delivered", color = colors.successInk)
+        }
+    }
+}
+
+@Composable
+private fun SteeringLine(icon: ImageVector, text: String, color: Color) {
+    Row(
+        modifier = Modifier.padding(end = Dimens.spacingXs),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(11.dp))
+        Text(text = text, style = MaterialTheme.typography.labelMedium, color = color)
     }
 }
 

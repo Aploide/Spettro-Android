@@ -32,6 +32,7 @@ import to.eyed.spettro.mobile.core.remote.RemoteNotification
 import to.eyed.spettro.mobile.core.remote.RemoteProject
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.rpc.RpcException
+import to.eyed.spettro.mobile.model.ChatMessage
 import to.eyed.spettro.mobile.model.ChatSession
 import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.model.ImageAttachment
@@ -212,11 +213,17 @@ class MobileModel(
                 // Another client submitted a prompt; the host already excludes
                 // us, so anything arriving here is genuinely someone else's.
                 if (session.chatId != notification.chatID) return
+                // chat/user carries no steering flag, but the host sends it
+                // before the chat/state that marks a fresh turn busy: a
+                // message that finds the chat already busy steers the
+                // running turn, which keeps its clock.
+                val steering = if (session.isBusy.value) ChatMessage.Steering.SENDING else null
                 session.appendUserMessage(
                     notification.text,
                     notification.attachments.map { ImageAttachment(base64Data = it.base64, mimeType = it.mimeType) },
+                    steering,
                 )
-                session.beginRun()
+                if (steering == null) session.beginRun()
             }
             is RemoteNotification.ChatState -> {
                 if (session.chatId != notification.chat.id) return
@@ -403,13 +410,19 @@ class MobileModel(
     /**
      * Sends a prompt to the open chat. Returns false — leaving the draft
      * where it is — when there is no chat or no connection to send it on.
+     *
+     * While a turn runs, the message steers it: the host hands it to the
+     * running agent, which reads it at its next step. It is drawn as
+     * "sending" until the CLI's acknowledgement moves it along, and the
+     * turn keeps its clock.
      */
     fun sendPrompt(text: String, attachments: List<ImageAttachment> = emptyList()): Boolean {
         val session = _openChat.value ?: return false
         if (client.state.value !is RemoteState.Connected) return false
         // Optimistic: we draw our own message; the host will not echo it back.
-        session.appendUserMessage(text, attachments)
-        session.beginRun()
+        val steering = if (session.isBusy.value) ChatMessage.Steering.SENDING else null
+        val message = session.appendUserMessage(text, attachments, steering)
+        if (steering == null) session.beginRun()
         val blocks = buildList {
             if (text.isNotBlank()) add(textBlock(text))
             attachments.forEach { add(imageBlock(it)) }
@@ -417,7 +430,9 @@ class MobileModel(
         scope.launch {
             runCatching { api.prompt(session.chatId, blocks) }
                 .onFailure {
-                    session.endRun()
+                    // A steer that didn't go is a plain message; the turn
+                    // it meant to steer carries on.
+                    if (steering != null) session.setSteering(message.id, null) else session.endRun()
                     session.appendNotice("Send failed: ${it.message}", isError = true)
                 }
         }
