@@ -149,6 +149,72 @@ internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
 }
 
 /**
+ * When Bonjour is browsed afresh while the host is away
+ * ([RemoteDiscovery.refresh]): [RemoteClient.NSD_REFRESH_FIRST_MS] after
+ * the stretch began, then every [RemoteClient.NSD_REFRESH_EVERY_MS], and
+ * every [RemoteClient.NSD_REFRESH_SLOW_MS] once it has lasted
+ * [RemoteClient.NSD_REFRESH_FAST_FOR_MS]: a host back after a restart is
+ * found within seconds, and one that stays away costs little.
+ *
+ * Not thread-safe; one refresh loop is its only user.
+ */
+internal class DiscoveryRefresh(private val startedAt: Long) {
+    private var first = true
+
+    /** How long to wait from [now] before the next refresh. */
+    fun nextWait(now: Long): Long {
+        if (first) {
+            first = false
+            return RemoteClient.NSD_REFRESH_FIRST_MS
+        }
+        return if (now - startedAt >= RemoteClient.NSD_REFRESH_FAST_FOR_MS) {
+            RemoteClient.NSD_REFRESH_SLOW_MS
+        } else {
+            RemoteClient.NSD_REFRESH_EVERY_MS
+        }
+    }
+}
+
+/**
+ * Runs [refresh] on the [DiscoveryRefresh] schedule for as long as
+ * [shouldRefresh] holds, checked before each one; [ensure] starts it (once,
+ * and only while [shouldRefresh] holds) and [cancel] ends it. A stretch that
+ * ended and begins again starts the schedule over.
+ */
+internal class DiscoveryRefreshLoop(
+    private val scope: CoroutineScope,
+    private val clock: () -> Long,
+    private val shouldRefresh: () -> Boolean,
+    private val refresh: () -> Unit,
+    private val onStart: () -> Unit = {},
+) {
+    private var job: Job? = null
+
+    val isRunning: Boolean
+        @Synchronized get() = job?.isActive == true
+
+    @Synchronized
+    fun ensure() {
+        if (job?.isActive == true || !shouldRefresh()) return
+        onStart()
+        job = scope.launch {
+            val schedule = DiscoveryRefresh(clock())
+            while (isActive) {
+                delay(schedule.nextWait(clock()))
+                if (!shouldRefresh()) break
+                refresh()
+            }
+        }
+    }
+
+    @Synchronized
+    fun cancel() {
+        job?.cancel()
+        job = null
+    }
+}
+
+/**
  * The phone's end of the link: find the paired host, prove who we are, and
  * keep the connection alive.
  *
@@ -259,6 +325,29 @@ class RemoteClient(
     @Volatile
     private var goodbyeChecks = GoodbyeChecks(now = 0L)
 
+    /**
+     * Browses Bonjour afresh now and then while the host is away and the app
+     * is in sight ([refreshesDiscovery]): Android's NSD may never report a
+     * relaunched desktop on its own, and the retries alone wait longer.
+     */
+    private val discoveryRefresh = DiscoveryRefreshLoop(
+        scope = scope,
+        clock = ::monotonicMs,
+        shouldRefresh = {
+            refreshesDiscovery(
+                state = _state.value,
+                paired = store.credential.value != null,
+                inBackgroundGrace = pendingStop?.isActive == true,
+                localNetworkAllowed = environment.localNetworkAllowed,
+            )
+        },
+        refresh = { discovery.refresh() },
+        onStart = {
+            val host = store.credential.value?.hostName ?: "the computer"
+            log("refreshing Bonjour while $host is away")
+        },
+    )
+
     /** Poked to cut a backoff wait short (foreground, host reappeared). */
     private val retrySignal = Channel<Unit>(Channel.CONFLATED)
 
@@ -322,6 +411,7 @@ class RemoteClient(
                     launchConnectLoop()
                 }
             }
+            if (_state.value !is RemoteState.Connected) discoveryRefresh.ensure()
         }
     }
 
@@ -334,6 +424,7 @@ class RemoteClient(
         pendingStop = null
         connectJob?.cancel()
         connectJob = null
+        discoveryRefresh.cancel()
         holdReason = null
         teardown()
         discovery.stop()
@@ -410,6 +501,7 @@ class RemoteClient(
         pendingStop = null
         connectJob?.cancel()
         connectJob = null
+        discoveryRefresh.cancel()
         holdReason = null
         teardown()
         _refusals.value = 0
@@ -439,6 +531,7 @@ class RemoteClient(
         pendingStop = null
         connectJob?.cancel()
         connectJob = null
+        discoveryRefresh.cancel()
         holdReason = null
         teardown()
         // Unpaired, stay Unpaired while pairing runs: the pairing screen owns
@@ -610,6 +703,7 @@ class RemoteClient(
                     !environment.localNetworkAllowed -> RemoteState.Offline(OfflineReason.NoLocalNetwork)
                     else -> RemoteState.Searching
                 }
+                discoveryRefresh.ensure()
                 awaitRetry(slow = hold != null, lanToCheck = hasQuickLanCheck(candidates))
                 continue
             }
@@ -650,6 +744,7 @@ class RemoteClient(
                 _state.value = RemoteState.Offline(
                     holdReason ?: if (refused) OfflineReason.Rejected else offlineTransportReason(cred),
                 )
+                discoveryRefresh.ensure()
                 if (!lanOnly || RemoteAuthError.isAuthCode(e.code)) log("connect failed (${e.code}): ${e.message}")
                 val spacing = if (refused) refusalSpacingMs(_refusals.value) else null
                 if (spacing != null) {
@@ -661,6 +756,7 @@ class RemoteClient(
             } catch (e: Exception) {
                 teardown()
                 _state.value = RemoteState.Offline(hold ?: offlineTransportReason(cred))
+                discoveryRefresh.ensure()
                 if (!lanOnly) log("connect failed: ${e.message}")
             }
 
@@ -873,6 +969,7 @@ class RemoteClient(
         backoffMs = INITIAL_BACKOFF_MS
         holdReason = null
         _refusals.value = 0
+        discoveryRefresh.cancel()
         _inbound.tryEmit(
             InboundNotification(RemoteNotification.Hello(attempt.hello), FrameMark(attempt.connection, 0)),
         )
@@ -903,6 +1000,7 @@ class RemoteClient(
             connectJob = null
             _state.value = RemoteState.Offline(OfflineReason.HostStopped)
             log("host stopped sharing${note.message?.let { ": $it" } ?: ""}")
+            discoveryRefresh.ensure()
             if (keepsCheckingAfterGoodbye(store.credential.value)) {
                 holdReason = OfflineReason.HostStopped
                 goodbyeChecks = GoodbyeChecks(now = monotonicMs())
@@ -933,6 +1031,7 @@ class RemoteClient(
         // the host is, or on a permission the working route didn't need.
         _state.value = RemoteState.Offline(OfflineReason.Transport)
         log("connection lost: ${reason.ifEmpty { "closed" }}")
+        discoveryRefresh.ensure()
         if (cred != null) {
             // A loop that just connected may not have returned yet; a fresh
             // one, rather than "already running", so the drop is retried.
@@ -1041,6 +1140,49 @@ class RemoteClient(
          */
         internal fun unpairsOnHost(state: RemoteState): Boolean =
             (state as? RemoteState.Connected)?.has(RemoteFeature.UNPAIR) == true
+
+        /**
+         * Whether Bonjour is browsed afresh now ([DiscoveryRefreshLoop]):
+         * paired, in sight (not in the background grace), allowed on the
+         * local network, and looking for a host that may come back by
+         * itself. Not once connected, after Disconnect, or for a verdict
+         * only the user can act on.
+         */
+        internal fun refreshesDiscovery(
+            state: RemoteState,
+            paired: Boolean,
+            inBackgroundGrace: Boolean,
+            localNetworkAllowed: Boolean,
+        ): Boolean {
+            if (!paired || inBackgroundGrace || !localNetworkAllowed) return false
+            return when (state) {
+                RemoteState.Searching, RemoteState.Connecting -> true
+                is RemoteState.Offline -> when (state.reason) {
+                    OfflineReason.HostStopped,
+                    OfflineReason.HostNotFound,
+                    OfflineReason.Transport,
+                    OfflineReason.Rejected,
+                    -> true
+                    OfflineReason.NotRecognised,
+                    OfflineReason.VersionMismatch,
+                    OfflineReason.NoLocalNetwork,
+                    -> false
+                }
+                is RemoteState.Connected, RemoteState.Disconnected, RemoteState.Unpaired -> false
+            }
+        }
+
+        /** The first fresh browse after the host went away… */
+        internal const val NSD_REFRESH_FIRST_MS = 2_000L
+
+        /** …then one this often… */
+        internal const val NSD_REFRESH_EVERY_MS = 10_000L
+
+        /** …for this long… */
+        internal const val NSD_REFRESH_FAST_FOR_MS = 300_000L
+
+        /** …and then this often. */
+        internal const val NSD_REFRESH_SLOW_MS = 30_000L
 
         /** How long Forget waits for the host to take this phone off its list. */
         internal const val UNPAIR_TIMEOUT_MS = 3_000L

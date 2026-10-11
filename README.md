@@ -111,7 +111,11 @@ The connection follows the process lifecycle (`AppContainer`, via
 is let go a little after it leaves, so the system photo picker doesn't drop
 it. Failed connections retry on their own: exponential backoff from 1s to
 30s, reset the moment anything succeeds, the app comes to the foreground, or
-Bonjour sees the host reappear. A drop while a chat is open is ridden out in
+Bonjour sees the host reappear. Android's NSD often misses a desktop quitting
+and coming back, so while the host is away and the app is in sight the phone
+browses Bonjour afresh (`RemoteDiscovery.refresh`): 2 s after it went, then
+every 10 s, every 30 s after five minutes; never in the background or after
+Disconnect. A drop while a chat is open is ridden out in
 place for up to 20 s — the transcript and the draft stay, a "Reconnecting…"
 pill shows, and Send waits — before the disconnected screen takes over. That
 screen says why in plain words (looking, can't reach, sharing off, turned

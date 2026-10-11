@@ -93,6 +93,43 @@ class RemoteDiscovery(context: Context) {
         }
     }
 
+    /**
+     * Browses afresh: stops the current browse and starts a new one, which
+     * asks the network again instead of Android's cache. Android's NSD often
+     * misses a host going away and coming back (a desktop quit and
+     * relaunched), and a new browse reports it as found if it is there.
+     * What was seen is cleared first, so a host that answers at the same
+     * address emits again. Does nothing while not browsing.
+     */
+    fun refresh() {
+        synchronized(lock) {
+            val old = discoveryListener ?: return
+            try {
+                nsdManager.stopServiceDiscovery(old)
+            } catch (_: Exception) {
+            }
+            discoveryListener = null
+            // A resolve in flight finishes and carries the queue on; what
+            // was waiting behind it is the old browse's.
+            resolveQueue.clear()
+            serviceToHost.clear()
+            _hosts.value = emptyMap()
+            val listener = makeDiscoveryListener()
+            discoveryListener = listener
+            try {
+                nsdManager.discoverServices(
+                    RemoteProtocolInfo.BONJOUR_SERVICE_TYPE,
+                    NsdManager.PROTOCOL_DNS_SD,
+                    listener,
+                )
+            } catch (e: Exception) {
+                discoveryListener = null
+                _isBrowsing.value = false
+                _failure.value = e.message ?: "discovery failed"
+            }
+        }
+    }
+
     fun stop() {
         synchronized(lock) {
             discoveryListener?.let {
@@ -121,31 +158,42 @@ class RemoteDiscovery(context: Context) {
 
     // MARK: Listeners
 
+    /**
+     * A browse's callbacks. Only the current browse's count: a browse that
+     * [refresh] replaced may still report, late, as it winds down.
+     */
     private fun makeDiscoveryListener() = object : NsdManager.DiscoveryListener {
+        private fun isCurrent(): Boolean = synchronized(lock) { discoveryListener === this }
+
         override fun onDiscoveryStarted(serviceType: String) {
-            _isBrowsing.value = true
+            if (isCurrent()) _isBrowsing.value = true
         }
 
         override fun onDiscoveryStopped(serviceType: String) {
-            _isBrowsing.value = false
+            if (isCurrent()) _isBrowsing.value = false
         }
 
         override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-            synchronized(lock) { discoveryListener = null }
+            val current = synchronized(lock) {
+                (discoveryListener === this).also { if (it) discoveryListener = null }
+            }
+            if (!current) return
             _isBrowsing.value = false
             _failure.value = "discovery failed to start (code $errorCode)"
         }
 
         override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
-            _isBrowsing.value = false
+            if (isCurrent()) _isBrowsing.value = false
         }
 
         override fun onServiceFound(serviceInfo: NsdServiceInfo) {
             if (!serviceInfo.serviceType.contains("_spettro-remote._tcp")) return
+            if (!isCurrent()) return
             enqueueResolve(serviceInfo, attempts = 0)
         }
 
         override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+            if (!isCurrent()) return
             val hostID = synchronized(lock) { serviceToHost.remove(serviceInfo.serviceName) } ?: return
             _hosts.update { it - hostID }
         }
