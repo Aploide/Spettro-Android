@@ -13,6 +13,8 @@ import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
 import to.eyed.spettro.mobile.ui.components.SpettroMenu
 import to.eyed.spettro.mobile.ui.components.SpettroButton
 import to.eyed.spettro.mobile.ui.screens.home.DeleteChatDialog
+import to.eyed.spettro.mobile.ui.screens.home.RenameChatDialog
+import androidx.compose.material.icons.outlined.Edit
 import to.eyed.spettro.mobile.ui.components.ButtonSize
 import to.eyed.spettro.mobile.ui.components.BarIconButton
 import androidx.compose.foundation.background
@@ -154,10 +156,12 @@ fun ChatScreen(
     composerPlaceholder: String = CHAT_PLACEHOLDER,
     mentionFiles: (suspend () -> List<String>)? = null,
     onMention: (String) -> Unit = {},
+    onRename: ((String) -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
 
     // The wire delivers a workflow as a flat run of tool calls — a lifecycle
     // card, one call per sub-agent, and every tool each of them runs,
@@ -206,6 +210,16 @@ fun ChatScreen(
                             onClick = { menuOpen = true },
                         )
                         SpettroMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (onRename != null) {
+                                SpettroMenuItem(
+                                    text = "Rename…",
+                                    icon = Icons.Outlined.Edit,
+                                    onClick = {
+                                        menuOpen = false
+                                        renaming = true
+                                    },
+                                )
+                            }
                             SpettroMenuItem(
                                 text = if (isPinned) "Unpin" else "Pin",
                                 icon = Icons.Outlined.PushPin,
@@ -260,7 +274,7 @@ fun ChatScreen(
             }
 
             if (items.isEmpty()) {
-                EmptyTranscript(onPrompt = onComposerTextChange, modifier = Modifier.weight(1f))
+                EmptyTranscript(onPrompt = onComposerTextChange, modifier = Modifier.weight(1f), projectPath = projectPath)
             } else {
                 Box(Modifier.weight(1f)) {
                     Transcript(
@@ -349,6 +363,17 @@ fun ChatScreen(
         }
     }
 
+    }
+
+    if (renaming && onRename != null) {
+        RenameChatDialog(
+            title = title,
+            onRename = {
+                renaming = false
+                onRename(it)
+            },
+            onDismiss = { renaming = false },
+        )
     }
 
     if (confirmingDelete) {
@@ -449,7 +474,7 @@ private fun Transcript(
  * prompts, each of which only fills the composer.
  */
 @Composable
-private fun EmptyTranscript(onPrompt: (String) -> Unit, modifier: Modifier) {
+private fun EmptyTranscript(onPrompt: (String) -> Unit, modifier: Modifier, projectPath: String? = null) {
     val colors = LocalSpettroColors.current
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
@@ -457,12 +482,22 @@ private fun EmptyTranscript(onPrompt: (String) -> Unit, modifier: Modifier) {
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
             modifier = Modifier.padding(Dimens.spacingXl),
         ) {
-            Text(
-                text = "What should we build?",
-                style = MaterialTheme.typography.headlineSmall,
-                color = colors.textPrimary,
-            )
-            StarterPrompts(onPrompt = onPrompt)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "What should we build?",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = colors.textPrimary,
+                )
+                projectPath?.let { path ->
+                    to.eyed.spettro.mobile.ui.screens.home.SessionGroups.folderName(path).takeIf { it.isNotEmpty() }?.let {
+                        Text("Working in $it", style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
+                    }
+                }
+            }
+            StarterPrompts(onPrompt = onPrompt, fresh = isBroadFolder(projectPath))
         }
     }
 }

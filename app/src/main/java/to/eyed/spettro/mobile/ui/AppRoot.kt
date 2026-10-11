@@ -91,6 +91,7 @@ import to.eyed.spettro.mobile.core.remote.PairPayload
 import to.eyed.spettro.mobile.core.remote.RemotePairing
 import to.eyed.spettro.mobile.core.remote.RemoteRoute
 import to.eyed.spettro.mobile.core.remote.RemoteState
+import to.eyed.spettro.mobile.core.remote.RemoteFeature
 import to.eyed.spettro.mobile.model.ChatSession
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.ImageProcessing
@@ -209,9 +210,14 @@ fun AppRoot(container: AppContainer) {
             connected = navigatorConnection,
             reconnecting = state !is RemoteState.Connected,
             onDisconnect = {
-                // Deliberate: go straight to the disconnected screen.
-                lastConnected = null
-                client.stop()
+                scope.launch {
+                    // A delete still in its Undo window goes now, while
+                    // there is a socket to send it on.
+                    model.flushDeletesAndWait()
+                    // Deliberate: go straight to the disconnected screen.
+                    lastConnected = null
+                    client.stop()
+                }
             },
         )
         return
@@ -410,6 +416,7 @@ private fun RemoteNavigator(
                         selectedChatId = openChat?.chatId,
                         needsYou = needsYou,
                         inSidebar = true,
+                        onRename = model::renameChat.takeIf { connected.has(RemoteFeature.RENAME) },
                     )
                 }
                 VerticalDivider(color = colors.hairline)
@@ -432,6 +439,7 @@ private fun RemoteNavigator(
                     } else {
                         NewSessionHost(
                             folderName = newSessionFolder,
+                            folderPath = newSessionPath,
                             onChooseFolder = { showProjectPicker = true },
                             onStart = startChat,
                         )
@@ -481,6 +489,7 @@ private fun RemoteNavigator(
                         onOpenSettings = { screen = RemoteScreen.Settings },
                         onOpenArchived = { showArchived = true },
                         needsYou = needsYou,
+                        onRename = model::renameChat.takeIf { connected.has(RemoteFeature.RENAME) },
                     )
                 }
 
@@ -509,6 +518,7 @@ private fun RemoteNavigator(
                     BackHandler { screen = RemoteScreen.ChatList }
                     NewSessionHost(
                         folderName = newSessionFolder,
+                        folderPath = newSessionPath,
                         onChooseFolder = { showProjectPicker = true },
                         onStart = startChat,
                         onBack = { screen = RemoteScreen.ChatList },
@@ -768,6 +778,7 @@ private fun ProvidersHost(model: MobileModel, onBack: () -> Unit) {
 @Composable
 private fun NewSessionHost(
     folderName: String?,
+    folderPath: String? = null,
     onChooseFolder: () -> Unit,
     onStart: suspend (String, List<ImageAttachment>) -> Boolean,
     onBack: (() -> Unit)? = null,
@@ -814,6 +825,7 @@ private fun NewSessionHost(
         enabled = true,
         sending = sending,
         onBack = onBack,
+        folderPath = folderPath,
     )
 }
 
@@ -1110,6 +1122,7 @@ private fun RemoteChatHost(
         showBack = showBack,
         onTogglePinned = { model.setPinned(session.chatId, !isPinned) },
         onToggleArchived = { model.setArchived(session.chatId, !isArchived) },
+        onRename = if (model.canRename) ({ model.renameChat(session.chatId, it) }) else null,
         waitingFor = waitingFor,
         onReviewPrompt = { model.bringBackPrompts(session.chatId) },
         workflowGate = workflowGate(configOptions),

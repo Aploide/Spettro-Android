@@ -569,17 +569,58 @@ class MobileModel(
         deletes.schedule(chatID) {
             // Once it has really happened, its Undo goes with it.
             if (_banner.value?.action === undo) _banner.value = null
-            scope.launch {
+            val call = scope.launch {
                 runCatching { api.chatsDelete(chatID) }
                     .onSuccess { _chats.value = _chats.value.filterNot { it.id == chatID } }
                     .onFailure { noteError("Couldn’t delete the chat", it.message) }
             }
+            deleteCalls += call
+            call.invokeOnCompletion { deleteCalls -= call }
         }
         _banner.value = Banner("Deleted “$title”", action = undo)
     }
 
+    /** The chats/delete calls still on their way. */
+    private val deleteCalls = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
+
     /** Carries out every delete still in its Undo window: the app is going away. */
     fun flushDeletes() = deletes.flush()
+
+    /**
+     * Carries out every delete still in its Undo window and waits (a few
+     * seconds at most) for the computer to take them — before a deliberate
+     * disconnect closes the socket they would go on.
+     */
+    suspend fun flushDeletesAndWait() {
+        deletes.flush()
+        kotlinx.coroutines.withTimeoutOrNull(3_000) { deleteCalls.toList().forEach { it.join() } }
+    }
+
+    /** Whether the computer renames chats (`chats/rename`). */
+    val canRename: Boolean
+        get() = (client.state.value as? RemoteState.Connected)?.has(RemoteFeature.RENAME) == true
+
+    /**
+     * Renames a chat, showing the new name at once. The computer tells every
+     * screen, this one too, as a chat/state; a refusal puts the old name back.
+     */
+    fun renameChat(chatID: String, title: String) {
+        val name = title.trim()
+        if (name.isEmpty() || !canRename) return
+        val before = _chats.value.firstOrNull { it.id == chatID }?.title ?: return
+        if (before == name) return
+        fun show(t: String) {
+            _chats.value = _chats.value.map { if (it.id == chatID) it.copy(title = t) else it }
+            _openChat.value?.takeIf { it.chatId == chatID }?.setTitle(t)
+        }
+        show(name)
+        scope.launch {
+            runCatching { api.chatsRename(chatID, name) }.onFailure {
+                show(before)
+                noteError("Couldn’t rename the chat", it.message)
+            }
+        }
+    }
 
     fun setPinned(chatID: String, pinned: Boolean) = flagChat(chatID, isPinned = pinned)
 

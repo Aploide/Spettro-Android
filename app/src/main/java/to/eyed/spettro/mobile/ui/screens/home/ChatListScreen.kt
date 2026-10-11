@@ -1,5 +1,12 @@
 package to.eyed.spettro.mobile.ui.screens.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
+import to.eyed.spettro.mobile.ui.components.SpettroMenu
+import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
+import to.eyed.spettro.mobile.ui.components.SpettroMenuSeparator
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -113,6 +120,8 @@ import kotlin.math.roundToInt
  *   archived rows are filtered out defensively if present.
  * @param onPin `(chatID, pinned)`; @param onArchive `(chatID, archived)`.
  * @param needsYou the chats a permission or question is waiting in.
+ * @param onRename `(chatID, title)`; null when the computer can't rename
+ *   chats (an older host), and Rename… isn't offered.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -134,6 +143,7 @@ fun ChatListScreen(
     selectedChatId: String? = null,
     needsYou: Set<String> = emptySet(),
     inSidebar: Boolean = false,
+    onRename: ((String, String) -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
     val ground = if (inSidebar) colors.sidebar else colors.canvas
@@ -145,16 +155,12 @@ fun ChatListScreen(
     // The chat whose Delete was tapped, waiting on "Delete this chat?".
     var confirmingDelete by remember { mutableStateOf<ChatSummary?>(null) }
 
-    val visible = chats.filter { !it.isArchived }
-    val filtered = if (search.isBlank()) {
-        visible
-    } else {
-        visible.filter {
-            it.title.contains(search, ignoreCase = true) ||
-                it.preview.contains(search, ignoreCase = true)
-        }
-    }
-    val groups = groupByProject(filtered)
+    // The chat whose long-press menu is open, and the one being renamed.
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    var renaming by remember { mutableStateOf<ChatSummary?>(null) }
+
+    val groups = SessionGroups.group(chats.filter { !it.isArchived }, search).groups
+    val filtered = groups.flatMap { it.chats }
     val now = System.currentTimeMillis()
 
     Column(modifier.fillMaxSize().background(ground)) {
@@ -247,14 +253,40 @@ fun ChatListScreen(
                                 onDelete = { confirmingDelete = chat },
                                 modifier = Modifier.animateItem(),
                             ) {
-                                ChatRow(
-                                    chat = chat,
-                                    now = now,
-                                    selected = chat.id == selectedChatId,
-                                    needsYou = chat.id in needsYou,
-                                    onClick = { onOpenChat(chat.id) },
-                                    ground = ground,
-                                )
+                                Box {
+                                    ChatRow(
+                                        chat = chat,
+                                        now = now,
+                                        selected = chat.id == selectedChatId,
+                                        needsYou = chat.id in needsYou,
+                                        onClick = { onOpenChat(chat.id) },
+                                        onLongClick = { menuFor = chat.id },
+                                        ground = ground,
+                                    )
+                                    // The desktop's row menu: Rename…, Pin,
+                                    // Archive, then Delete… apart.
+                                    SpettroMenu(expanded = menuFor == chat.id, onDismissRequest = { menuFor = null }) {
+                                        if (onRename != null) {
+                                            SpettroMenuItem("Rename…", icon = Icons.Outlined.Edit, onClick = {
+                                                menuFor = null
+                                                renaming = chat
+                                            })
+                                        }
+                                        SpettroMenuItem(if (chat.isPinned) "Unpin" else "Pin", icon = Icons.Outlined.PushPin, onClick = {
+                                            menuFor = null
+                                            onPin(chat.id, !chat.isPinned)
+                                        })
+                                        SpettroMenuItem("Archive", icon = Icons.Outlined.Archive, onClick = {
+                                            menuFor = null
+                                            onArchive(chat.id, true)
+                                        })
+                                        SpettroMenuSeparator()
+                                        SpettroMenuItem("Delete…", icon = Icons.Outlined.DeleteOutline, destructive = true, onClick = {
+                                            menuFor = null
+                                            confirmingDelete = chat
+                                        })
+                                    }
+                                }
                             }
                         }
                     }
@@ -269,6 +301,19 @@ fun ChatListScreen(
                     }
                 }
             }
+        }
+    }
+
+    renaming?.let { chat ->
+        if (onRename != null) {
+            RenameChatDialog(
+                title = chat.title,
+                onRename = { title ->
+                    renaming = null
+                    onRename(chat.id, title)
+                },
+                onDismiss = { renaming = null },
+            )
         }
     }
 
@@ -352,6 +397,7 @@ fun ChatRow(
     needsYou: Boolean = false,
     onClick: (() -> Unit)? = null,
     ground: Color = LocalSpettroColors.current.canvas,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
     val forward = selected || needsYou
@@ -364,7 +410,13 @@ fun ChatRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(Dimens.radiusSm))
             .background(if (selected) colors.selectedFill else Color.Transparent)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                if (onClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Chat actions")
+                } else {
+                    Modifier
+                },
+            )
             .defaultMinSize(minHeight = Dimens.minTouch)
             .padding(horizontal = Dimens.spacingSm, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -436,36 +488,6 @@ fun ChatRow(
 }
 
 // MARK: - Sections
-
-private data class ProjectGroup(
-    val path: String,
-    val name: String,
-    val chats: List<ChatSummary>,
-)
-
-/**
- * Buckets chats by folder, mirroring the computer's sidebar. Folder order
- * follows the chats' own recency — the project you're working in floats to
- * the top — and within a folder pinned chats lead, then most recently
- * updated.
- */
-private fun groupByProject(chats: List<ChatSummary>): List<ProjectGroup> {
-    val byRecency = chats.sortedByDescending { parseIsoMillis(it.updatedAt) ?: 0L }
-    val buckets = LinkedHashMap<String, MutableList<ChatSummary>>()
-    for (chat in byRecency) {
-        buckets.getOrPut(chat.projectPath) { mutableListOf() }.add(chat)
-    }
-    return buckets.map { (path, group) ->
-        ProjectGroup(
-            path = path,
-            name = path.trimEnd('/').substringAfterLast('/').ifEmpty { "No project" },
-            chats = group.sortedWith(
-                compareByDescending<ChatSummary> { it.isPinned }
-                    .thenByDescending { parseIsoMillis(it.updatedAt) ?: 0L },
-            ),
-        )
-    }
-}
 
 /**
  * A project caption (`.section-header`): the folder's name small and muted

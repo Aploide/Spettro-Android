@@ -545,6 +545,7 @@ private fun Chat(
         onTogglePinned = {},
         onToggleArchived = {},
         onDelete = {},
+        onRename = {},
         showBack = showBack,
         workflowGate = workflowGate,
         onSwitchPermission = {},
@@ -600,6 +601,7 @@ private fun ChatList(selectedChatId: String? = null, inSidebar: Boolean = false)
         onOpenArchived = {},
         inSidebar = inSidebar,
         needsYou = setOf("4"),
+        onRename = { _, _ -> },
     )
 }
 

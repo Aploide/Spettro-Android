@@ -68,6 +68,20 @@ val FRESH_START_PROMPTS = listOf(
     StarterPrompt("Explain a file", "Explain this file in simple terms: "),
 )
 
+private val HOME_FOLDER = Regex("^/(home|Users)/[^/]+/?$")
+private val DRIVE_ROOT = Regex("^[A-Za-z]:[\\\\/]?$")
+
+/**
+ * Whether [path] is a broad folder — the disk's root, a drive, or the home
+ * folder — where the desktop offers the fresh-start prompts: the usual ones
+ * assume a project with code in it. (The host doesn't say where home is;
+ * these are its usual shapes.)
+ */
+fun isBroadFolder(path: String?): Boolean {
+    if (path.isNullOrEmpty()) return false
+    return path == "/" || HOME_FOLDER.matches(path) || DRIVE_ROOT.matches(path)
+}
+
 /**
  * A few plain-language ways to start, where a chat has no messages yet. A
  * chip only fills the composer — the user still reads, edits and sends — so
@@ -174,6 +188,7 @@ fun NewSessionScreen(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     sending: Boolean = false,
+    folderPath: String? = null,
 ) {
     val colors = LocalSpettroColors.current
     Column(
@@ -228,6 +243,7 @@ fun NewSessionScreen(
                 StarterPrompts(
                     onPrompt = onComposerTextChange,
                     modifier = Modifier.padding(horizontal = Dimens.spacingSm),
+                    fresh = isBroadFolder(folderPath),
                 )
             }
         }
