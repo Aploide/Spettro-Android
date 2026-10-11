@@ -57,6 +57,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -170,6 +171,8 @@ fun ChatScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    // A starter prompt's own focus request, on top of the caller's.
+    var starterFocus by remember { mutableIntStateOf(0) }
 
     // The wire delivers a workflow as a flat run of tool calls — a lifecycle
     // card, one call per sub-agent, and every tool each of them runs,
@@ -285,7 +288,14 @@ fun ChatScreen(
             }
 
             if (items.isEmpty()) {
-                EmptyTranscript(onPrompt = onComposerTextChange, modifier = Modifier.weight(1f), projectPath = projectPath)
+                EmptyTranscript(
+                    onPrompt = {
+                        onComposerTextChange(it)
+                        starterFocus++
+                    },
+                    modifier = Modifier.weight(1f),
+                    projectPath = projectPath,
+                )
             } else {
                 Box(Modifier.weight(1f)) {
                     Transcript(
@@ -369,7 +379,7 @@ fun ChatScreen(
                     mentionFiles = mentionFiles,
                     onMention = onMention,
                     mentionScope = projectPath,
-                    focusRequest = composerFocus,
+                    focusRequest = composerFocus + starterFocus,
                 )
             }
         }

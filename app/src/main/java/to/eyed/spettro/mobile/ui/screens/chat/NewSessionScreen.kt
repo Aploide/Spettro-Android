@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -200,6 +201,7 @@ fun NewSessionScreen(
             .imePadding(),
     ) {
         SpettroTopBar(title = "", onBack = onBack)
+        var composerFocus by remember { mutableIntStateOf(0) }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val minHeight = maxHeight
             Column(
@@ -238,6 +240,7 @@ fun NewSessionScreen(
                         mentionFiles = mentionFiles,
                         onMention = onMention,
                         mentionScope = folderPath,
+                        focusRequest = composerFocus,
                     )
                     ProjectChip(
                         folderName = folderName,
@@ -246,7 +249,12 @@ fun NewSessionScreen(
                     )
                 }
                 StarterPrompts(
-                    onPrompt = onComposerTextChange,
+                    // Into the composer, caret at the end and the keyboard
+                    // up, ready for the detail — as the desktop's chips do.
+                    onPrompt = {
+                        onComposerTextChange(it)
+                        composerFocus++
+                    },
                     modifier = Modifier.padding(horizontal = Dimens.spacingSm),
                     fresh = isBroadFolder(folderPath),
                 )
