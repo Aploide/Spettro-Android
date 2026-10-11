@@ -346,5 +346,5 @@ internal object ChatPreviewData {
             }
         }
 
-    val CONFIG_SUMMARY = ConfigSummary("Coding · GPT-5 · Don’t ask", warning = "Don’t ask")
+    val CONFIG_SUMMARY = ConfigSummary("Coding · GPT-5 · Don’t ask", warning = "Don’t ask", tailStart = "Coding · GPT-5".length)
 }

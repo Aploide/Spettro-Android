@@ -38,6 +38,21 @@ class ConfigSummaryTest {
     }
 
     @Test
+    fun `without a permission level nothing is held back`() {
+        // Mode and model only: the model is the last part, and holding it
+        // whole would let a long name push the mode out without an ellipsis.
+        val noLevel = ChatPreviewData.configOptionsWith("high", ultra = false, permission = "restricted")
+            .filter { it.id != "permission" }
+        val summary = ConfigSummary.of(noLevel)!!
+        assertEquals("Coding · GPT-5", summary.text)
+        assertNull(summary.tailStart)
+        // The level on its own is not split off from nothing.
+        val levelOnly = ChatPreviewData.configOptionsWith("high", ultra = false, permission = "yolo")
+            .filter { it.id == "permission" }
+        assertNull(ConfigSummary.of(levelOnly)!!.tailStart)
+    }
+
+    @Test
     fun `a level this app doesn't know keeps the CLI's name and doesn't warn`() {
         val custom = ChatPreviewData.configOptions.map { option ->
             if (option.id != "permission") return@map option

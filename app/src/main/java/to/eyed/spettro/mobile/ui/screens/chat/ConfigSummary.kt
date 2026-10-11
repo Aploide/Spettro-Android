@@ -14,18 +14,19 @@ import to.eyed.spettro.mobile.core.acp.AcpConfigOption
  *
  * @property text the parts, joined by " · ".
  * @property warning the part of [text] to draw in the warning ink, if any.
+ * @property tailStart where the permission level's part starts, its " · "
+ *   included, or null when the chat reports no level or the level is the
+ *   only part. The chip shortens what comes before it and never this: cut
+ *   from the end, a narrow chip (a larger font, a long model name) would
+ *   drop the permission first, and with it the warning. Without a level
+ *   nothing is held back, so a long model name still ends in an ellipsis
+ *   rather than pushing the mode out.
  */
-data class ConfigSummary(val text: String, val warning: String? = null) {
-
-    /**
-     * Where the last part starts, its " · " included — the permission level
-     * whenever the chat reports one — or null for a single part. The chip
-     * shortens what comes before it and never this: cut from the end, a
-     * narrow chip (a larger font, a long model name) would drop the
-     * permission first, and with it the warning.
-     */
-    val tailStart: Int?
-        get() = text.lastIndexOf(SEPARATOR).takeIf { it > 0 }
+data class ConfigSummary(
+    val text: String,
+    val warning: String? = null,
+    val tailStart: Int? = null,
+) {
 
     /** Where [warning] sits in [text], or null when nothing warns. */
     val warningRange: IntRange?
@@ -70,6 +71,7 @@ data class ConfigSummary(val text: String, val warning: String? = null) {
          */
         fun of(options: List<AcpConfigOption>): ConfigSummary? {
             var warning: String? = null
+            var permission: String? = null
             val parts = IDS.mapNotNull { id ->
                 val option = options.firstOrNull { it.id == id } ?: return@mapNotNull null
                 val value = (option.kind as? AcpConfigOption.Kind.Select)?.current
@@ -77,6 +79,7 @@ data class ConfigSummary(val text: String, val warning: String? = null) {
                     // The desktop's one name per permission level — never "YOLO".
                     val name = PermissionCopy.name(value) ?: option.currentLabel.takeIf { it.isNotBlank() }
                     if (value == UNASKED) warning = name
+                    permission = name
                     name
                 } else if (id == "model") {
                     (option.kind as? AcpConfigOption.Kind.Select)?.let(::modelName) ?: NO_MODEL
@@ -85,7 +88,12 @@ data class ConfigSummary(val text: String, val warning: String? = null) {
                 }
             }
             if (parts.isEmpty()) return null
-            return ConfigSummary(parts.joinToString(SEPARATOR), warning)
+            val text = parts.joinToString(SEPARATOR)
+            // The level is always the last part (see [IDS]).
+            val tailStart = permission
+                ?.takeIf { parts.size > 1 }
+                ?.let { text.length - it.length - SEPARATOR.length }
+            return ConfigSummary(text, warning, tailStart)
         }
     }
 }

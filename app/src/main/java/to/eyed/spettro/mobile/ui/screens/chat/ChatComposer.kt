@@ -447,6 +447,9 @@ private fun ConfigChip(
                     color = colors.textSecondary,
                     maxLines = 1,
                     softWrap = false,
+                    // Only when the level alone is wider than the chip (a
+                    // very large font): an ellipsis, not a clipped glyph.
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
