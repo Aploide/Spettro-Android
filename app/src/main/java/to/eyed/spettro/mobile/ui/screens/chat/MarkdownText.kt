@@ -209,8 +209,9 @@ private fun CopyButton(text: String) {
                 clipboard.setText(AnnotatedString(text))
                 copied = true
             }
-            .heightIn(min = 32.dp)
-            .padding(horizontal = 8.dp),
+            // 40dp: a thumb's target, not the desktop's 24px.
+            .heightIn(min = 40.dp)
+            .padding(horizontal = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

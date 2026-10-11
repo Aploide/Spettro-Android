@@ -65,6 +65,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -309,12 +311,21 @@ private fun MessageActions(
     val clipboard = LocalClipboardManager.current
     val haptics = LocalHapticFeedback.current
     val listen = if (enabled && text.isNotEmpty()) {
-        Modifier.pointerInput(text) {
-            detectTapGestures(onLongPress = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                open = true
-            })
-        }
+        Modifier
+            .pointerInput(text) {
+                detectTapGestures(onLongPress = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    open = true
+                })
+            }
+            // The gesture carries no semantics of its own: TalkBack offers
+            // the menu as the message's long-press action.
+            .semantics {
+                onLongClick(label = "Message actions") {
+                    open = true
+                    true
+                }
+            }
     } else {
         Modifier
     }
