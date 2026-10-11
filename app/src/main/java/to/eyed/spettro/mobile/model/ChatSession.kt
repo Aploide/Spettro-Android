@@ -170,15 +170,45 @@ class ChatSession(
     /**
      * When the turn at the end of the transcript began: the time on its
      * prompt, the last message the user sent that didn't steer a turn
-     * already running. Null when there is none, or it has no usable time.
+     * already running — or on a steer that runs as a turn of its own (see
+     * [ownTurnSteer]). Null when there is none, or it has no usable time.
      */
     fun turnStartedAt(): Long? {
-        val prompt = _items.value.asReversed().firstNotNullOfOrNull { item ->
-            (item as? TranscriptItem.Message)?.message
-                ?.takeIf { it.role == ChatMessage.Role.User && it.steering == null }
-        } ?: return null
-        return epochMillisOrNull(prompt.timestamp)
+        val list = _items.value
+        val prompt = list.indexOfLast { it.isUserMessage(steering = null) }
+        val opener = ownTurnSteer(list, after = prompt) ?: prompt
+        if (opener < 0) return null
+        return epochMillisOrNull((list[opener] as TranscriptItem.Message).message.timestamp)
     }
+
+    /**
+     * The first steer after the prompt at [after] that is still sending
+     * although everything the prompt's turn produced before it had settled:
+     * it reached the CLI once that turn was over and runs as a turn of its
+     * own, and the desktop leaves it "sending" until that turn ends. A steer
+     * into a turn still running is acknowledged within moments; until then
+     * something above it is still streaming or working, or nothing came yet.
+     */
+    private fun ownTurnSteer(list: List<TranscriptItem>, after: Int): Int? {
+        var produced = false
+        for (i in after + 1 until list.size) {
+            val item = list[i]
+            if (item.isUserMessage(steering = ChatMessage.Steering.SENDING)) {
+                if (produced) return i
+                continue
+            }
+            val live = when (item) {
+                is TranscriptItem.Message -> item.message.isStreaming
+                is TranscriptItem.Tool -> !item.tool.status.isTerminal
+            }
+            if (live) return null
+            if (item !is TranscriptItem.Message || item.message.role != ChatMessage.Role.User) produced = true
+        }
+        return null
+    }
+
+    private fun TranscriptItem.isUserMessage(steering: ChatMessage.Steering?): Boolean =
+        this is TranscriptItem.Message && message.role == ChatMessage.Role.User && message.steering == steering
 
     /**
      * Marks the end of a prompt turn: closes any streaming bubbles, and drops

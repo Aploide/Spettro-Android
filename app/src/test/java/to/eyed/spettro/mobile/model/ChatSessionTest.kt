@@ -465,6 +465,44 @@ class ChatSessionTest {
     }
 
     @Test
+    fun aSteerThatRunsAsATurnOfItsOwnStartsTheClock() {
+        val s = session()
+        s.restoreFrom(
+            snapshot(
+                listOf(
+                    userItem("u1", timestamp = "2026-10-11T16:00:00Z"),
+                    toolItem("call-1"),
+                    assistantItem("a1"),
+                    // Reached the CLI after u1's turn had ended: the desktop
+                    // keeps it "sending" while it runs as its own turn.
+                    userItem("u2", "sending", timestamp = "2026-10-11T16:05:00Z"),
+                    assistantItem("a2", streaming = true),
+                ).joinToString(","),
+            ),
+            isBusy = true,
+        )
+        assertEquals(epochMillisOrNull("2026-10-11T16:05:00Z"), s.turnStartedAt())
+    }
+
+    @Test
+    fun aSteerIntoATurnStillRunningKeepsThePromptsClock() {
+        val prompt = epochMillisOrNull("2026-10-11T16:00:00Z")
+        fun startedAt(vararg items: String): Long? {
+            val s = session()
+            s.restoreFrom(snapshot(items.joinToString(",")), isBusy = true)
+            return s.turnStartedAt()
+        }
+        val u1 = userItem("u1", timestamp = "2026-10-11T16:00:00Z")
+        val u2 = userItem("u2", "sending", timestamp = "2026-10-11T16:05:00Z")
+        // The answer above it is still being written…
+        assertEquals(prompt, startedAt(u1, assistantItem("a1", streaming = true), u2))
+        // …a tool above it is still working…
+        assertEquals(prompt, startedAt(u1, toolItem("call-1", "in_progress"), u2))
+        // …or the turn hasn't produced anything yet.
+        assertEquals(prompt, startedAt(u1, u2))
+    }
+
+    @Test
     fun aClockAheadOfThePhoneNeverStartsTheTickerInTheFuture() {
         val s = session()
         val before = System.currentTimeMillis()
