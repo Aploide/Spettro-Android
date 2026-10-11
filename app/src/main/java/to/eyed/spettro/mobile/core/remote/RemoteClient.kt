@@ -360,6 +360,14 @@ class RemoteClient(
         },
     )
 
+    /**
+     * Whether the host announced [RemoteFeature.GOODBYE_REASON]: only then
+     * is a goodbye's `reason` read; otherwise it is inferred from the
+     * message, as for older hosts.
+     */
+    @Volatile
+    private var hostSaysWhy = false
+
     /** Poked to cut a backoff wait short (foreground, host reappeared). */
     private val retrySignal = Channel<Unit>(Channel.CONFLATED)
 
@@ -991,10 +999,13 @@ class RemoteClient(
 
     private fun applyHostState(note: RemoteNotification.HostState) {
         if (note.shuttingDown) {
+            // Whether this host says why: read while still connected (its
+            // first goodbye), remembered for any goodbye after it.
+            (_state.value as? RemoteState.Connected)?.let { hostSaysWhy = it.has(RemoteFeature.GOODBYE_REASON) }
             _goodbye.value = goodbyeAfter(
                 current = _goodbye.value,
                 alreadyStopped = _state.value == RemoteState.Offline(OfflineReason.HostStopped),
-                reason = note.reason,
+                reason = note.reason.takeIf { hostSaysWhy },
                 message = note.message,
             )
             // Deliberate, so don't dress it up as a network fault — and don't
@@ -1163,7 +1174,8 @@ class RemoteClient(
 
         /**
          * The goodbye to show after one more arrives, the last being
-         * [current]. A host that says why is taken at its word. One that
+         * [current]. A host that says why ([RemoteFeature.GOODBYE_REASON];
+         * the caller passes [reason] only for one) is taken at its word. One that
          * doesn't is read from its first goodbye ([alreadyStopped] is false):
          * an older desktop that quits follows its own goodbye with the
          * sharing-off one as it takes the listener down.
