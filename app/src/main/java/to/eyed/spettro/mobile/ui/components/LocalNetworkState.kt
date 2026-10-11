@@ -23,17 +23,19 @@ fun rememberOnLocalNetwork(): State<Boolean> {
     val state = remember(environment) { mutableStateOf(environment.onLocalNetwork) }
     DisposableEffect(environment) {
         val manager = context.getSystemService(ConnectivityManager::class.java)
+        // Read the answer from what each callback hands over: asking the
+        // manager for the active network from inside one can still return
+        // the network that was just lost.
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                state.value = environment.onLocalNetwork
-            }
-
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                state.value = environment.onLocalNetwork
+                state.value = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
             }
 
+            // A default-network callback only hears onLost for the current
+            // default, and only when nothing replaces it: no network at all.
             override fun onLost(network: Network) {
-                state.value = environment.onLocalNetwork
+                state.value = false
             }
         }
         val registered = manager != null && runCatching { manager.registerDefaultNetworkCallback(callback) }.isSuccess
