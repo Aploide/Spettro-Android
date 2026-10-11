@@ -115,6 +115,44 @@ class RemotePairingException(message: String) : Exception(message)
 // MARK: - Client
 
 /**
+ * When a host that said goodbye ([OfflineReason.HostStopped]) is checked
+ * on again. Every route, the tunnel included, is checked every
+ * [RemoteClient.HOST_STOPPED_POLL_MS]. In between, its LAN address gets
+ * quick checks — 3 s, then twice as long each time up to 15 s — so sharing
+ * coming back on is noticed in seconds: Android's NSD often misses the
+ * host's goodbye and so never reports it coming back.
+ *
+ * Not thread-safe; the connect loop is its only user.
+ */
+internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
+    private var lanWait = RemoteClient.GOODBYE_LAN_FIRST_MS
+    private var nextFullAt = if (fullFirst) now else now + RemoteClient.HOST_STOPPED_POLL_MS
+
+    /**
+     * Starts the check due at [now]: true when it covers every route (and
+     * the next such check is scheduled), false for a LAN-only one.
+     */
+    fun takeCheck(now: Long): Boolean {
+        if (now < nextFullAt) return false
+        nextFullAt = now + RemoteClient.HOST_STOPPED_POLL_MS
+        return true
+    }
+
+    /**
+     * How long to wait from [now] before the next check: the next quick LAN
+     * check when there is a LAN route to check ([lanToCheck]), never past
+     * the next check of every route.
+     */
+    fun nextWait(now: Long, lanToCheck: Boolean): Long {
+        val untilFull = (nextFullAt - now).coerceAtLeast(0L)
+        if (!lanToCheck) return untilFull
+        val wait = minOf(lanWait, untilFull)
+        lanWait = (lanWait * 2).coerceAtMost(RemoteClient.GOODBYE_LAN_MAX_MS)
+        return wait
+    }
+}
+
+/**
  * The phone's end of the link: find the paired host, prove who we are, and
  * keep the connection alive.
  *
@@ -130,8 +168,9 @@ class RemotePairingException(message: String) : Exception(message)
  *  - Auth verdicts -33001/-33004/-33005 are permanent: retrying cannot fix
  *    them, so the loop stops. Only -33001/-33005 mean the pairing is gone.
  *  - `host/state` with `shuttingDown: true` is a deliberate goodbye, shown as
- *    [OfflineReason.HostStopped]. With a tunnel known — so no Bonjour to say
- *    when it's back — the host is polled slowly instead of given up on.
+ *    [OfflineReason.HostStopped]. Bonjour may never say when it's back, so
+ *    with an address to try the host is checked on instead of given up on:
+ *    every route slowly, its LAN address quickly ([GoodbyeChecks]).
  */
 class RemoteClient(
     private val store: RemoteCredentialStore,
@@ -219,6 +258,10 @@ class RemoteClient(
     @Volatile
     private var holdReason: OfflineReason? = null
 
+    /** When the checks on a host that said goodbye are due; see [GoodbyeChecks]. */
+    @Volatile
+    private var goodbyeChecks = GoodbyeChecks(now = 0L)
+
     /** Poked to cut a backoff wait short (foreground, host reappeared). */
     private val retrySignal = Channel<Unit>(Channel.CONFLATED)
 
@@ -273,6 +316,7 @@ class RemoteClient(
                 // until it is — "can't reach" would be the wrong story.
                 RemoteState.Offline(OfflineReason.HostStopped) -> {
                     holdReason = OfflineReason.HostStopped
+                    goodbyeChecks = GoodbyeChecks(now = monotonicMs(), fullFirst = true)
                     launchConnectLoop()
                 }
                 else -> {
@@ -551,14 +595,20 @@ class RemoteClient(
             val cred = store.credential.value ?: store.load() ?: return
             val hold = holdReason
 
-            val candidates = candidatesFor(cred)
+            val every = candidatesFor(cred)
+            // While the host is gone on purpose, the LAN is checked often and
+            // quietly in between the slow checks of every route: a refused
+            // connection costs next to nothing, and the host doesn't count
+            // it, while the tunnel is somebody else's server.
+            val lanOnly = hold != null && !goodbyeChecks.takeCheck(monotonicMs())
+            val candidates = if (lanOnly) every.filterIsInstance<Endpoint.Lan>() else every
             if (candidates.isEmpty()) {
                 _state.value = when {
                     hold != null -> RemoteState.Offline(hold)
                     !environment.localNetworkAllowed -> RemoteState.Offline(OfflineReason.NoLocalNetwork)
                     else -> RemoteState.Searching
                 }
-                awaitRetry(slow = hold != null)
+                awaitRetry(slow = hold != null, lanToCheck = hasQuickLanCheck(every))
                 continue
             }
 
@@ -569,7 +619,7 @@ class RemoteClient(
                 _state.value = RemoteState.Connecting
             }
             try {
-                val attempt = connectOnce(cred, candidates)
+                val attempt = connectOnce(cred, candidates, quiet = lanOnly)
                 // Connected; the close handler restarts the loop — unless the
                 // socket already went in the instant before this returned,
                 // when the handler found this loop still running.
@@ -595,7 +645,7 @@ class RemoteClient(
                 _state.value = RemoteState.Offline(
                     hold ?: if (refused) OfflineReason.Rejected else offlineTransportReason(cred, candidates),
                 )
-                log("connect failed (${e.code}): ${e.message}")
+                if (!lanOnly || RemoteAuthError.isAuthCode(e.code)) log("connect failed (${e.code}): ${e.message}")
                 if (refused && _refusals.value > 1) {
                     // The host counts failed handshakes per address and
                     // blocks a run of them; over the tunnel that address may
@@ -606,12 +656,20 @@ class RemoteClient(
             } catch (e: Exception) {
                 teardown()
                 _state.value = RemoteState.Offline(hold ?: offlineTransportReason(cred, candidates))
-                log("connect failed: ${e.message}")
+                if (!lanOnly) log("connect failed: ${e.message}")
             }
 
-            awaitRetry(slow = hold != null)
+            awaitRetry(slow = hold != null, lanToCheck = hasQuickLanCheck(every))
         }
     }
+
+    /**
+     * Whether the quick LAN checks after a goodbye run: only with a LAN
+     * route to try, and only in sight — a backgrounded app waits out its
+     * grace on the slow poll, then [stop] ends the checks altogether.
+     */
+    private fun hasQuickLanCheck(candidates: List<Endpoint>): Boolean =
+        candidates.any { it is Endpoint.Lan } && pendingStop?.isActive != true
 
     private fun candidatesFor(cred: RemoteCredential): List<Endpoint> =
         EndpointPlan.candidates(
@@ -625,20 +683,24 @@ class RemoteClient(
     private fun offlineTransportReason(cred: RemoteCredential, tried: List<Endpoint>): OfflineReason =
         EndpointPlan.offlineReason(tried, hostDiscovered = discovery.host(cred.hostID) != null, environment)
 
-    /** Sleeps out the backoff (or the slow goodbye poll), or less if something pokes [retrySignal]. */
-    private suspend fun awaitRetry(slow: Boolean = false) {
+    /**
+     * Sleeps out the backoff — or, after a goodbye ([slow]), until the next
+     * quick LAN check or slow check of every route — or less if something
+     * pokes [retrySignal].
+     */
+    private suspend fun awaitRetry(slow: Boolean = false, lanToCheck: Boolean = false) {
         if (slow) {
-            withTimeoutOrNull(HOST_STOPPED_POLL_MS) { retrySignal.receive() }
+            withTimeoutOrNull(goodbyeChecks.nextWait(monotonicMs(), lanToCheck)) { retrySignal.receive() }
             return
         }
         withTimeoutOrNull(backoffMs) { retrySignal.receive() }
         backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
     }
 
-    private suspend fun connectOnce(cred: RemoteCredential, candidates: List<Endpoint>): Attempt {
+    private suspend fun connectOnce(cred: RemoteCredential, candidates: List<Endpoint>, quiet: Boolean = false): Attempt {
         teardown()
         val attempt = try {
-            race(candidates, cred.hostID)
+            race(candidates, cred.hostID, quiet = quiet)
         } catch (e: RaceFailure) {
             throw (e.cause as? Exception) ?: e
         }
@@ -698,9 +760,10 @@ class RemoteClient(
     private suspend fun race(
         candidates: List<Endpoint>,
         hostID: String,
+        quiet: Boolean = false,
         vet: (Attempt) -> Unit = {},
     ): Attempt {
-        log("trying ${candidates.joinToString { it.label }}")
+        if (!quiet) log("trying ${candidates.joinToString { it.label }}")
         return raceStaggered(
             candidates = candidates,
             stagger = RACE_HEAD_START_MS,
@@ -717,7 +780,7 @@ class RemoteClient(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    log("${endpoint.label}: ${e.message}")
+                    if (!quiet) log("${endpoint.label}: ${e.message}")
                     throw e
                 }
             },
@@ -866,11 +929,13 @@ class RemoteClient(
             log("host stopped sharing${note.message?.let { ": $it" } ?: ""}")
             if (keepsCheckingAfterGoodbye(store.credential.value, note.remoteHost)) {
                 holdReason = OfflineReason.HostStopped
+                goodbyeChecks = GoodbyeChecks(now = monotonicMs())
                 connectJob = scope.launch {
                     // The same wait the loop uses, so rediscovery, coming to
                     // the foreground or Try again cut it short.
                     retrySignal.tryReceive()
-                    awaitRetry(slow = true)
+                    val routes = store.credential.value?.let(::candidatesFor).orEmpty()
+                    awaitRetry(slow = true, lanToCheck = hasQuickLanCheck(routes))
                     connectLoop()
                 }
             }
@@ -978,6 +1043,8 @@ class RemoteClient(
         }
     }
 
+    private fun monotonicMs(): Long = System.nanoTime() / 1_000_000
+
     private fun isoNow(): String {
         val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
         fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
@@ -1018,8 +1085,14 @@ class RemoteClient(
             return !remoteHost.isNullOrBlank() || !cred?.lastAddress.isNullOrBlank()
         }
 
-        /** Between quiet checks on a host that said goodbye. */
-        private const val HOST_STOPPED_POLL_MS = 45_000L
+        /** Between checks of every route (the tunnel too) on a host that said goodbye. */
+        internal const val HOST_STOPPED_POLL_MS = 45_000L
+
+        /** The first quick LAN check after a goodbye; each next one waits twice as long… */
+        internal const val GOODBYE_LAN_FIRST_MS = 3_000L
+
+        /** …up to this. */
+        internal const val GOODBYE_LAN_MAX_MS = 15_000L
 
         /**
          * Between handshakes once the host has refused more than one in a

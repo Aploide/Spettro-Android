@@ -1,5 +1,6 @@
 package to.eyed.spettro.mobile.core.remote
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,5 +34,38 @@ class GoodbyePollTest {
     fun nowhereToCheckWaitsForBonjour() {
         assertFalse(RemoteClient.keepsCheckingAfterGoodbye(cred(), announcedRemoteHost = ""))
         assertFalse(RemoteClient.keepsCheckingAfterGoodbye(null, announcedRemoteHost = null))
+    }
+
+    @Test
+    fun theLanIsCheckedQuicklyWithABackoffBetweenFullChecks() {
+        val checks = GoodbyeChecks(now = 0L)
+        var now = 0L
+        val waits = mutableListOf<Long>()
+        val full = mutableListOf<Boolean>()
+        repeat(8) {
+            val wait = checks.nextWait(now, lanToCheck = true)
+            waits += wait
+            now += wait
+            full += checks.takeCheck(now)
+        }
+        // 3, 6, 12, then 15 s apart, cut short so every route is still checked at 45 s.
+        assertEquals(listOf(3_000L, 6_000L, 12_000L, 15_000L, 9_000L, 15_000L, 15_000L, 15_000L), waits)
+        assertEquals(listOf(false, false, false, false, true, false, false, true), full)
+    }
+
+    @Test
+    fun withNoLanRouteOnlyTheSlowCheckRuns() {
+        val checks = GoodbyeChecks(now = 1_000L)
+        assertEquals(RemoteClient.HOST_STOPPED_POLL_MS, checks.nextWait(1_000L, lanToCheck = false))
+        assertFalse(checks.takeCheck(30_000L))
+        assertTrue(checks.takeCheck(1_000L + RemoteClient.HOST_STOPPED_POLL_MS))
+    }
+
+    @Test
+    fun comingBackToTheForegroundChecksEveryRouteAtOnce() {
+        val checks = GoodbyeChecks(now = 5_000L, fullFirst = true)
+        assertEquals(0L, checks.nextWait(5_000L, lanToCheck = true))
+        assertTrue(checks.takeCheck(5_000L))
+        assertFalse(checks.takeCheck(8_000L))
     }
 }
