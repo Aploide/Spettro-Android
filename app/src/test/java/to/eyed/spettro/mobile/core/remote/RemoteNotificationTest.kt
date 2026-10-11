@@ -144,22 +144,15 @@ class RemoteNotificationTest {
         assertFalse(host.agentReady)
         assertTrue(host.shuttingDown)
         assertEquals("sharing was turned off", host.message)
-        // An older host doesn't say anything about a tunnel.
-        assertNull(host.remoteHost)
     }
 
     @Test
-    fun `host state carries the tunnel hostname, blank meaning none`() {
-        val on = parse(
+    fun `a remoteHost from an older host is ignored`() {
+        val note = parse(
             RemoteMethod.HOST_STATE,
             """{"agentReady":true,"shuttingDown":false,"remoteHost":"spettro.example.com"}""",
-        ) as RemoteNotification.HostState
-        assertEquals("spettro.example.com", on.remoteHost)
-        val off = parse(
-            RemoteMethod.HOST_STATE,
-            """{"agentReady":true,"shuttingDown":false,"remoteHost":""}""",
-        ) as RemoteNotification.HostState
-        assertEquals("", off.remoteHost)
+        )
+        assertEquals(RemoteNotification.HostState(agentReady = true, shuttingDown = false, message = null), note)
     }
 
     @Test
@@ -167,9 +160,9 @@ class RemoteNotificationTest {
         val hello = (parse(
             RemoteMethod.HELLO,
             """{"protocolVersion":1,"hostID":"H1","hostName":"Spettro","challenge":"AAAA",
-               "features":["configResult","remoteHost","somethingNewer"]}""",
+               "features":["configResult","rename","somethingNewer"]}""",
         ) as RemoteNotification.Hello).hello
-        assertEquals(listOf("configResult", "remoteHost", "somethingNewer"), hello.features)
+        assertEquals(listOf("configResult", "rename", "somethingNewer"), hello.features)
 
         val old = (parse(
             RemoteMethod.HELLO,
@@ -180,15 +173,21 @@ class RemoteNotificationTest {
         val result = SpettroJson.decodeFromString(
             RemoteAuthResult.serializer(),
             """{"hostID":"H1","hostName":"Mac","hostKind":"app","agentReady":true,
-               "features":["remoteHost"],"remoteHost":"spettro.example.com"}""",
+               "features":["rename"]}""",
         )
-        assertEquals(listOf(RemoteFeature.REMOTE_HOST), result.features)
-        assertEquals("spettro.example.com", result.remoteHost)
+        assertEquals(listOf(RemoteFeature.RENAME), result.features)
+        // An older host still names its internet address and feature: both pass unnoticed.
+        val tunnelResult = SpettroJson.decodeFromString(
+            RemoteAuthResult.serializer(),
+            """{"hostID":"H1","hostName":"Mac","hostKind":"app","agentReady":true,
+               "features":["rename","remoteHost"],"remoteHost":"spettro.example.com"}""",
+        )
+        assertEquals("H1", tunnelResult.hostID)
+        assertEquals(listOf("rename", "remoteHost"), tunnelResult.features)
         val oldResult = SpettroJson.decodeFromString(
             RemoteAuthResult.serializer(),
             """{"hostID":"H1","hostName":"Mac","agentReady":false}""",
         )
-        assertNull(oldResult.remoteHost)
         assertTrue(oldResult.features.isEmpty())
     }
 

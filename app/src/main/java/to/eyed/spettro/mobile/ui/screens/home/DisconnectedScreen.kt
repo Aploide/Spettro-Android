@@ -99,7 +99,6 @@ enum class DisconnectReason {
         fun from(state: RemoteState, hostQuit: Boolean = false): DisconnectReason = when (state) {
             is RemoteState.Offline -> when (state.reason) {
                 OfflineReason.HostNotFound -> HostAsleep
-                OfflineReason.TunnelUnreachable -> Unreachable
                 OfflineReason.Rejected -> TurnedAway
                 OfflineReason.VersionMismatch -> VersionMismatch
                 OfflineReason.NotRecognised -> Revoked

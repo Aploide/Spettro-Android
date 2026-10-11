@@ -97,9 +97,6 @@ object RemoteFeature {
     /** `projects/files` exists. */
     const val PROJECT_FILES = "projectFiles"
 
-    /** The auth result and `host/state` carry `remoteHost`. */
-    const val REMOTE_HOST = "remoteHost"
-
     /** `chats/open` snapshots carry the extra message and tool fields. */
     const val SNAPSHOT_V2 = "snapshotV2"
 }
@@ -152,10 +149,7 @@ data class RemoteHello(
     val hostVersion: String = "",
     /** Random per-connection nonce, base64url. */
     val challenge: String,
-    /**
-     * True while the host is showing a pairing QR. Always false on a
-     * connection that came in over the internet while internet pairing is off.
-     */
+    /** True while the host is showing a pairing QR. */
     val pairingOpen: Boolean = false,
     /** Host capabilities ([RemoteFeature]); empty from hosts that predate them. */
     val features: List<String> = emptyList(),
@@ -196,12 +190,6 @@ data class RemoteAuthResult(
     val agentReady: Boolean = false,
     /** Host capabilities ([RemoteFeature]); authoritative over the hello's list. */
     val features: List<String> = emptyList(),
-    /**
-     * Bare public hostname the host can be reached at over the internet
-     * (`wss://<remoteHost>/`). Present only while its tunnel is on and
-     * configured; an older host never sends it.
-     */
-    val remoteHost: String? = null,
 )
 
 // MARK: - Chats
@@ -309,11 +297,6 @@ data class HostStateParams(
     /** True when the host is going away deliberately. */
     val shuttingDown: Boolean = false,
     val message: String? = null,
-    /**
-     * The host's public hostname: `""` means no tunnel, absent means an
-     * older host that doesn't say.
-     */
-    val remoteHost: String? = null,
 )
 
 @Serializable

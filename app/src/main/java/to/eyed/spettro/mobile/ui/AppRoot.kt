@@ -137,7 +137,7 @@ private const val RECONNECT_GRACE_MS = 20_000L
 internal fun isTransientDrop(state: RemoteState, refusals: Int = 0): Boolean = when (state) {
     RemoteState.Searching, RemoteState.Connecting -> true
     is RemoteState.Offline -> when (state.reason) {
-        OfflineReason.HostNotFound, OfflineReason.TunnelUnreachable, OfflineReason.Transport -> true
+        OfflineReason.HostNotFound, OfflineReason.Transport -> true
         OfflineReason.Rejected -> refusals <= 1
         // Each of these needs the user to see why, and usually to act.
         else -> false
@@ -248,9 +248,8 @@ fun AppRoot(container: AppContainer) {
             }
             val localNetwork = rememberLocalNetworkPermission { granted ->
                 if (granted) client.start()
-                // Pair either way: without the permission a code with an
-                // internet address can still go over the tunnel, and the
-                // client says what's missing when nothing works.
+                // Pair either way: without the permission nothing can be
+                // reached, and the client says what's missing.
                 awaitingPermission?.let(startPairing)
                 awaitingPermission = null
             }
@@ -262,7 +261,7 @@ fun AppRoot(container: AppContainer) {
                 val payload = RemotePairing.parse(text)
                 if (payload == null) {
                     error = "That doesn't look like a Spettro pairing code."
-                } else if (!localNetwork.isGranted && (payload.address != null || payload.remoteHost == null)) {
+                } else if (!localNetwork.isGranted) {
                     awaitingPermission = payload
                     localNetwork.request()
                 } else {
@@ -301,7 +300,7 @@ fun AppRoot(container: AppContainer) {
                 onRetry = { client.start() },
                 onPairAgain = { client.forget() },
                 onForget = { client.forget() },
-                hasRemoteHost = credential?.remoteHost != null,
+                hasRemoteHost = false,
                 onAllowLocalNetwork = localNetwork::request,
                 localNetworkMissing = !localNetwork.isGranted,
                 refusedRepeatedly = refusals > 1,
@@ -734,7 +733,6 @@ private fun SettingsHost(
     val account by model.account.collectAsState()
     val login by model.login.collectAsState()
     val diagnostics by model.client.diagnostics.collectAsState()
-    val credential by model.client.credential.collectAsState()
     val theme by themeStore.choice.collectAsState()
     SettingsScreen(
         hostName = connected.host.hostName,
@@ -745,7 +743,6 @@ private fun SettingsHost(
             connectionLabel(connected.link)
         },
         isConnected = !reconnecting,
-        remoteHost = credential?.remoteHost,
         agentReady = agentReady,
         account = account,
         login = login,

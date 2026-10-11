@@ -26,18 +26,12 @@ class EndpointTest {
     fun `LAN endpoints are plain ws, IPv6 bracketed, scope dropped`() {
         assertEquals("ws://192.168.1.2:7879/", Endpoint.Lan("192.168.1.2", 7879).url)
         assertEquals("ws://[fe80::1]:7879/", Endpoint.Lan("fe80::1%wlan0", 7879).url)
-        assertEquals(RemoteRoute.Lan, Endpoint.Lan("192.168.1.2", 7879).route)
-    }
-
-    @Test
-    fun `the tunnel is wss on the default port with no path`() {
-        val tunnel = Endpoint.Tunnel("spettro.example.com")
-        assertEquals("wss://spettro.example.com/", tunnel.url)
-        assertEquals(RemoteRoute.Internet, tunnel.route)
     }
 }
 
 class EndpointPlanTest {
+
+    private val secret = Base64Url.encode(ByteArray(32) { 1 })
 
     @Test
     fun `the link names what actually carries the connection`() {
@@ -48,17 +42,15 @@ class EndpointPlanTest {
         // A loopback address is a USB port forward, whatever network the phone is on.
         assertEquals(RemoteLink.Usb, EndpointPlan.linkOf(Endpoint.Lan("127.0.0.1", 7879), LocalTransport.WiFi))
         assertEquals(RemoteLink.Usb, EndpointPlan.linkOf(Endpoint.Lan("::1", 7879), null))
-        assertEquals(RemoteLink.Internet, EndpointPlan.linkOf(Endpoint.Tunnel("spettro.example.com"), LocalTransport.WiFi))
     }
 
     @Test
-    fun `orders Bonjour, then the last address, then the tunnel`() {
-        val plan = EndpointPlan.candidates(bonjour, "192.168.1.20", 7879, "spettro.example.com", environment())
+    fun `orders Bonjour, then the last address`() {
+        val plan = EndpointPlan.candidates(bonjour, "192.168.1.20", 7879, environment())
         assertEquals(
             listOf(
                 Endpoint.Lan("192.168.1.30", 7879),
                 Endpoint.Lan("192.168.1.20", 7879),
-                Endpoint.Tunnel("spettro.example.com"),
             ),
             plan,
         )
@@ -66,15 +58,15 @@ class EndpointPlanTest {
 
     @Test
     fun `the last address is skipped off Wi-Fi and Ethernet`() {
-        val plan = EndpointPlan.candidates(null, "192.168.1.20", 7879, "spettro.example.com", environment(onLocalNetwork = false))
-        assertEquals(listOf(Endpoint.Tunnel("spettro.example.com")), plan)
+        val plan = EndpointPlan.candidates(null, "192.168.1.20", 7879, environment(onLocalNetwork = false))
+        assertTrue(plan.isEmpty())
     }
 
     @Test
     fun `a loopback last address is tried off Wi-Fi too`() {
         // A USB port forward (adb reverse) reaches the computer with no
         // network at all; 127.0.0.1 can't be someone else's machine.
-        val plan = EndpointPlan.candidates(null, "127.0.0.1", 7879, null, environment(onLocalNetwork = false))
+        val plan = EndpointPlan.candidates(null, "127.0.0.1", 7879, environment(onLocalNetwork = false))
         assertEquals(listOf(Endpoint.Lan("127.0.0.1", 7879)), plan)
         assertTrue(EndpointPlan.isLoopback("::1"))
         assertTrue(EndpointPlan.isLoopback("localhost"))
@@ -84,93 +76,88 @@ class EndpointPlanTest {
     }
 
     @Test
-    fun `without the local-network permission only the tunnel is left`() {
-        val plan = EndpointPlan.candidates(bonjour, "192.168.1.20", 7879, "spettro.example.com", environment(allowed = false))
-        assertEquals(listOf(Endpoint.Tunnel("spettro.example.com")), plan)
-        assertTrue(EndpointPlan.candidates(bonjour, "192.168.1.20", 7879, null, environment(allowed = false)).isEmpty())
+    fun `without the local-network permission nothing is left to try`() {
+        assertTrue(EndpointPlan.candidates(bonjour, "192.168.1.20", 7879, environment(allowed = false)).isEmpty())
+        assertTrue(EndpointPlan.candidates(null, "127.0.0.1", 7879, environment(allowed = false)).isEmpty())
     }
 
     @Test
-    fun `a stored tunnel alone is still somewhere to go`() {
-        // No Bonjour and no address used to mean "search forever".
-        assertEquals(
-            listOf(Endpoint.Tunnel("spettro.example.com")),
-            EndpointPlan.candidates(null, null, null, "spettro.example.com", environment()),
-        )
-        assertTrue(EndpointPlan.candidates(null, null, null, "", environment()).isEmpty())
+    fun `no address and no Bonjour is nowhere to go`() {
+        assertTrue(EndpointPlan.candidates(null, null, null, environment()).isEmpty())
     }
 
     @Test
-    fun `a tunnel that didn't answer is unreachable, permission or not`() {
-        val tunnel = listOf(Endpoint.Tunnel("spettro.example.com"))
-        // On mobile data with the permission refused, the tunnel was the
-        // only route there was: a blip on it is not a permission problem.
-        assertEquals(
-            OfflineReason.TunnelUnreachable,
-            EndpointPlan.offlineReason(tunnel, hostDiscovered = false, environment(onLocalNetwork = false, allowed = false)),
-        )
-        assertEquals(
-            OfflineReason.TunnelUnreachable,
-            EndpointPlan.offlineReason(tunnel, hostDiscovered = false, environment(allowed = false)),
-        )
-        assertEquals(
-            OfflineReason.TunnelUnreachable,
-            EndpointPlan.offlineReason(listOf(Endpoint.Lan("192.168.1.20", 7879)) + tunnel, false, environment()),
-        )
+    fun `every route is a plain ws address on the LAN`() {
+        val plans = listOf(
+            EndpointPlan.candidates(bonjour, "192.168.1.20", 7879, environment()),
+            EndpointPlan.candidates(null, "::1", 7879, environment(onLocalNetwork = false)),
+            EndpointPlan.pairingCandidates(
+                RemotePairing.parse("h=H&s=$secret&a=192.168.1.20&p=7879&r=spettro.example.com")!!,
+                bonjour,
+                environment(),
+            ),
+        ).flatten()
+        assertTrue(plans.isNotEmpty())
+        for (endpoint in plans) {
+            assertTrue(endpoint.url, endpoint is Endpoint.Lan && endpoint.url.startsWith("ws://"))
+        }
     }
 
     @Test
     fun `the permission is the reason only when nothing could be tried`() {
         assertEquals(
             OfflineReason.NoLocalNetwork,
-            EndpointPlan.offlineReason(emptyList(), hostDiscovered = false, environment(allowed = false)),
+            EndpointPlan.offlineReason(hostDiscovered = false, environment(allowed = false)),
         )
         // A stale Bonjour sighting doesn't count while browsing is refused.
         assertEquals(
             OfflineReason.NoLocalNetwork,
-            EndpointPlan.offlineReason(emptyList(), hostDiscovered = true, environment(allowed = false)),
+            EndpointPlan.offlineReason(hostDiscovered = true, environment(allowed = false)),
         )
     }
 
     @Test
     fun `seen on Bonjour is a transport fault, not seen is not here`() {
-        val lan = listOf(Endpoint.Lan("192.168.1.30", 7879))
-        assertEquals(OfflineReason.Transport, EndpointPlan.offlineReason(lan, hostDiscovered = true, environment()))
-        assertEquals(OfflineReason.HostNotFound, EndpointPlan.offlineReason(lan, hostDiscovered = false, environment()))
-    }
-
-    @Test
-    fun `a tunnel closed to pairing can't win the pairing race`() {
-        val tunnel = Endpoint.Tunnel("spettro.example.com")
-        val lan = Endpoint.Lan("192.168.1.20", 7879)
-        assertFalse(EndpointPlan.canPairOver(tunnel, pairingOpen = false))
-        assertTrue(EndpointPlan.canPairOver(tunnel, pairingOpen = true))
-        // On the LAN the host's own answer to auth explains a closed window.
-        assertTrue(EndpointPlan.canPairOver(lan, pairingOpen = false))
+        assertEquals(OfflineReason.Transport, EndpointPlan.offlineReason(hostDiscovered = true, environment()))
+        assertEquals(OfflineReason.HostNotFound, EndpointPlan.offlineReason(hostDiscovered = false, environment()))
+        // Off Wi-Fi too: there is no other route to blame.
+        assertEquals(
+            OfflineReason.HostNotFound,
+            EndpointPlan.offlineReason(hostDiscovered = false, environment(onLocalNetwork = false)),
+        )
     }
 
     @Test
     fun `duplicates collapse`() {
-        val plan = EndpointPlan.candidates(bonjour, "192.168.1.30", 7879, null, environment())
+        val plan = EndpointPlan.candidates(bonjour, "192.168.1.30", 7879, environment())
         assertEquals(listOf(Endpoint.Lan("192.168.1.30", 7879)), plan)
     }
 
     @Test
-    fun `pairing tries the code's hint, Bonjour, then its tunnel`() {
-        val secret = Base64Url.encode(ByteArray(32) { 1 })
-        val payload = RemotePairing.parse("h=H&s=$secret&a=192.168.1.20&p=7879&r=spettro.example.com")!!
+    fun `pairing tries the code's hint, then Bonjour`() {
+        val payload = RemotePairing.parse("h=H&s=$secret&a=192.168.1.20&p=7879")!!
         assertEquals(
             listOf(
                 Endpoint.Lan("192.168.1.20", 7879),
                 Endpoint.Lan("192.168.1.30", 7879),
-                Endpoint.Tunnel("spettro.example.com"),
             ),
             EndpointPlan.pairingCandidates(payload, bonjour, environment()),
         )
+        assertTrue(EndpointPlan.pairingCandidates(payload, bonjour, environment(allowed = false)).isEmpty())
+    }
+
+    @Test
+    fun `an internet hostname in an older code adds no route`() {
+        val withR = RemotePairing.parse("h=H&s=$secret&a=192.168.1.20&p=7879&r=spettro.example.com")!!
+        val without = RemotePairing.parse("h=H&s=$secret&a=192.168.1.20&p=7879")!!
         assertEquals(
-            listOf(Endpoint.Tunnel("spettro.example.com")),
-            EndpointPlan.pairingCandidates(payload, bonjour, environment(allowed = false)),
+            EndpointPlan.pairingCandidates(without, bonjour, environment()),
+            EndpointPlan.pairingCandidates(withR, bonjour, environment()),
         )
+        // Without the permission such a code has nowhere to go, rather than the internet.
+        assertTrue(EndpointPlan.pairingCandidates(withR, bonjour, environment(allowed = false)).isEmpty())
+        val rOnly = RemotePairing.parse("h=H&s=$secret&r=spettro.example.com")!!
+        assertTrue(EndpointPlan.pairingCandidates(rOnly, null, environment()).isEmpty())
     }
 }
 

@@ -16,7 +16,6 @@ class TransientDropTest {
         assertTrue(isTransientDrop(RemoteState.Searching))
         assertTrue(isTransientDrop(RemoteState.Connecting))
         assertTrue(offline(OfflineReason.HostNotFound))
-        assertTrue(offline(OfflineReason.TunnelUnreachable))
         assertTrue(offline(OfflineReason.Transport))
     }
 

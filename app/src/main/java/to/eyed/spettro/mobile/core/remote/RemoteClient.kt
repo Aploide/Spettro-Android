@@ -65,10 +65,8 @@ sealed interface RemoteState {
         val host: HostInfo,
         val agentReady: Boolean,
         val pairingOpen: Boolean = false,
-        /** Which route won: the LAN directly, or the host's internet tunnel. */
-        val via: RemoteRoute = RemoteRoute.Lan,
-        /** What carries it — Wi-Fi, Ethernet, a USB cable, or the internet. */
-        val link: RemoteLink = if (via == RemoteRoute.Internet) RemoteLink.Internet else RemoteLink.LocalNetwork,
+        /** What carries it — Wi-Fi, Ethernet, or a USB cable. */
+        val link: RemoteLink = RemoteLink.LocalNetwork,
         /** What this host can do beyond the original protocol ([RemoteFeature]). */
         val features: Set<String> = emptySet(),
     ) : RemoteState {
@@ -80,11 +78,8 @@ sealed interface RemoteState {
 }
 
 enum class OfflineReason {
-    /** Not on this network (closed, asleep, or elsewhere), and no tunnel to try. */
+    /** Not on this network (closed, asleep, or elsewhere). */
     HostNotFound,
-
-    /** Not on this network, and its internet tunnel didn't answer either. */
-    TunnelUnreachable,
 
     /**
      * Reached it but the handshake was turned down for a reason that can
@@ -99,7 +94,7 @@ enum class OfflineReason {
     /** The host said it does not know (or no longer allows) this device. Permanent. */
     NotRecognised,
 
-    /** The host deliberately stopped sharing. Polled slowly when it has a tunnel. */
+    /** The host deliberately stopped sharing. Checked on while there is an address to try. */
     HostStopped,
 
     /** Android's local-network permission is missing, and nothing else reached the host. */
@@ -116,7 +111,7 @@ class RemotePairingException(message: String) : Exception(message)
 
 /**
  * When a host that said goodbye ([OfflineReason.HostStopped]) is checked
- * on again. Every route, the tunnel included, is checked every
+ * on again. Every route, Bonjour included, is checked every
  * [RemoteClient.HOST_STOPPED_POLL_MS]. In between, its LAN address gets
  * quick checks — 3 s, then twice as long each time up to 15 s — so sharing
  * coming back on is noticed in seconds: Android's NSD often misses the
@@ -160,8 +155,7 @@ internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
  *  - The stored credential is the source of truth for "paired", never the
  *    socket. Losing the connection never unpairs anything; only [forget] does.
  *  - Every route to the host is tried at once with a head start each
- *    (Bonjour, last LAN address, then the public tunnel — see
- *    [EndpointPlan]); the first `hello` wins and the rest are closed before
+ *    (Bonjour, then the last LAN address — see [EndpointPlan]); the first `hello` wins and the rest are closed before
  *    `auth` goes out.
  *  - Reconnection is driven by discovery as well as a backoff timer: the host
  *    reappearing on Bonjour resets the backoff and retries immediately.
@@ -191,7 +185,8 @@ class RemoteClient(
 
     /**
      * Same pool, shorter fuse: a LAN address that doesn't answer in a few
-     * seconds is on another network, and the tunnel is already being tried.
+     * seconds is on another network, and the next route is already being
+     * tried.
      */
     private val lanHttp: OkHttpClient = http.newBuilder()
         .connectTimeout(LAN_CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -395,9 +390,9 @@ class RemoteClient(
     // MARK: Pairing
 
     /**
-     * Completes a QR scan: connects (address hint and discovered host first,
-     * then the tunnel), proves the pairing secret, stores the returned device
-     * key, and discards the secret.
+     * Completes a QR scan: connects (address hint and discovered host, racing
+     * each other), proves the pairing secret, stores the returned device key,
+     * and discards the secret.
      *
      * Safe to call while already paired (a pairing link): the current
      * pairing is only replaced once the new one is made, and if this
@@ -446,23 +441,13 @@ class RemoteClient(
 
         // The QR's address hint is the fast path — the user is standing in
         // front of the screen. But it can be missing or stale, so the
-        // discovered (Bonjour) route and the tunnel race it.
+        // discovered (Bonjour) route races it.
         val candidates = EndpointPlan.pairingCandidates(payload, discovery.host(payload.hostID), environment)
         var opened: Attempt? = null
         var lastError: Throwable? = null
-        // A tunnel that says pairing isn't open there (internet pairing is
-        // off by default) can't pair this phone, however fast it answered —
-        // so it doesn't win the race: a LAN route that is merely slower, or
-        // Bonjour below, still gets to.
-        var tunnelWontPair = false
         if (candidates.isNotEmpty()) {
             try {
-                opened = race(candidates, payload.hostID) { attempt ->
-                    if (!EndpointPlan.canPairOver(attempt.endpoint, attempt.hello.pairingOpen)) {
-                        tunnelWontPair = true
-                        throw RpcException(RemoteAuthError.PAIRING_EXPIRED, "the tunnel isn't open for pairing")
-                    }
-                }
+                opened = race(candidates, payload.hostID)
             } catch (e: RaceFailure) {
                 lastError = e.cause
                 log("pairing: no candidate answered (${e.message})")
@@ -474,9 +459,7 @@ class RemoteClient(
         // declaring it gone — the user just scanned a code off a computer
         // that is clearly running.
         if (opened == null && environment.localNetworkAllowed) {
-            // With the tunnel out of the running, Bonjour is the last hope.
-            val wait = if (payload.remoteHost != null && !tunnelWontPair) DISCOVERY_WAIT_WITH_TUNNEL_MS else DISCOVERY_WAIT_MS
-            val discovered = withTimeoutOrNull(wait) {
+            val discovered = withTimeoutOrNull(DISCOVERY_WAIT_MS) {
                 discovery.hosts.first { payload.hostID in it }[payload.hostID]
             }
             val ep = discovered?.let { Endpoint.Lan(it.host, it.port) }
@@ -497,17 +480,8 @@ class RemoteClient(
             throw RemotePairingException(
                 when {
                     lastError is WrongHostException -> "That code belongs to a different computer."
-                    // The computer answered over the internet, and only
-                    // pairs on its own network.
-                    tunnelWontPair && !environment.localNetworkAllowed ->
-                        "Pair on the same network as this computer first, and allow Spettro to reach devices on your local network."
-                    tunnelWontPair -> "Pair on the same network as this computer first."
-                    !environment.localNetworkAllowed && payload.remoteHost == null ->
-                        "Allow Spettro to reach devices on your local network, then scan again."
                     !environment.localNetworkAllowed ->
-                        "Couldn't reach that computer over the internet. To pair on this Wi-Fi, allow Spettro to reach devices on your local network."
-                    payload.remoteHost != null ->
-                        "Couldn't reach that computer, here or over the internet. Check that it's awake, then show a new code."
+                        "Allow Spettro to reach devices on your local network, then scan again."
                     else ->
                         "Couldn't reach that computer. Make sure this phone is on the same Wi-Fi, then try again."
                 },
@@ -530,7 +504,6 @@ class RemoteClient(
                 pairedAt = isoNow(),
                 lastAddress = (attempt.endpoint as? Endpoint.Lan)?.host ?: payload.address,
                 lastPort = (attempt.endpoint as? Endpoint.Lan)?.port ?: payload.port,
-                remoteHost = advertisedRemoteHost(result) ?: payload.remoteHost,
             )
             store.save(credential)
             // The QR secret is never kept: the durable key replaces it.
@@ -595,20 +568,18 @@ class RemoteClient(
             val cred = store.credential.value ?: store.load() ?: return
             val hold = holdReason
 
-            val every = candidatesFor(cred)
+            val candidates = candidatesFor(cred)
             // While the host is gone on purpose, the LAN is checked often and
-            // quietly in between the slow checks of every route: a refused TCP
-            // connection costs next to nothing, and the host doesn't count
-            // it, while the tunnel is somebody else's server.
+            // quietly in between the slow checks: a refused TCP connection
+            // costs next to nothing, and the host doesn't count it.
             val lanOnly = hold != null && !goodbyeChecks.takeCheck(monotonicMs())
-            val candidates = if (lanOnly) every.filterIsInstance<Endpoint.Lan>() else every
             if (candidates.isEmpty()) {
                 _state.value = when {
                     hold != null -> RemoteState.Offline(hold)
                     !environment.localNetworkAllowed -> RemoteState.Offline(OfflineReason.NoLocalNetwork)
                     else -> RemoteState.Searching
                 }
-                awaitRetry(slow = hold != null, lanToCheck = hasQuickLanCheck(every))
+                awaitRetry(slow = hold != null, lanToCheck = hasQuickLanCheck(candidates))
                 continue
             }
 
@@ -646,24 +617,23 @@ class RemoteClient(
                 val refused = holdReason == null && RemoteAuthError.isAuthCode(e.code)
                 if (refused) _refusals.update { it + 1 }
                 _state.value = RemoteState.Offline(
-                    holdReason ?: if (refused) OfflineReason.Rejected else offlineTransportReason(cred, candidates),
+                    holdReason ?: if (refused) OfflineReason.Rejected else offlineTransportReason(cred),
                 )
                 if (!lanOnly || RemoteAuthError.isAuthCode(e.code)) log("connect failed (${e.code}): ${e.message}")
                 val spacing = if (refused) refusalSpacingMs(_refusals.value) else null
                 if (spacing != null) {
                     // The host counts failed handshakes per address and
-                    // blocks a run of them; over the tunnel that address may
-                    // be shared. Ask rarely enough never to trip it.
+                    // blocks a run of them. Ask rarely enough never to trip it.
                     withTimeoutOrNull(spacing) { retrySignal.receive() }
                     continue
                 }
             } catch (e: Exception) {
                 teardown()
-                _state.value = RemoteState.Offline(hold ?: offlineTransportReason(cred, candidates))
+                _state.value = RemoteState.Offline(hold ?: offlineTransportReason(cred))
                 if (!lanOnly) log("connect failed: ${e.message}")
             }
 
-            awaitRetry(slow = holdReason != null, lanToCheck = hasQuickLanCheck(every))
+            awaitRetry(slow = holdReason != null, lanToCheck = hasQuickLanCheck(candidates))
         }
     }
 
@@ -673,19 +643,18 @@ class RemoteClient(
      * grace on the slow poll, then [stop] ends the checks altogether.
      */
     private fun hasQuickLanCheck(candidates: List<Endpoint>): Boolean =
-        candidates.any { it is Endpoint.Lan } && pendingStop?.isActive != true
+        candidates.isNotEmpty() && pendingStop?.isActive != true
 
     private fun candidatesFor(cred: RemoteCredential): List<Endpoint> =
         EndpointPlan.candidates(
             discovered = discovery.host(cred.hostID),
             lastAddress = cred.lastAddress,
             lastPort = cred.lastPort,
-            remoteHost = cred.remoteHost,
             environment = environment,
         )
 
-    private fun offlineTransportReason(cred: RemoteCredential, tried: List<Endpoint>): OfflineReason =
-        EndpointPlan.offlineReason(tried, hostDiscovered = discovery.host(cred.hostID) != null, environment)
+    private fun offlineTransportReason(cred: RemoteCredential): OfflineReason =
+        EndpointPlan.offlineReason(hostDiscovered = discovery.host(cred.hostID) != null, environment)
 
     /**
      * Sleeps out the backoff — or, after a goodbye ([slow]), until the next
@@ -719,29 +688,13 @@ class RemoteClient(
             discard(attempt)
             throw e
         }
-        // Only a LAN route is an address worth remembering; the tunnel has
-        // its own field, and must never overwrite the LAN hint.
+        // Remembered for the next cold start, when Bonjour is still looking.
         (attempt.endpoint as? Endpoint.Lan)?.let { lan ->
             persist { store.updateEndpoint(cred.hostID, lan.host, lan.port) }
-        }
-        // A host that announces the feature omits the field when it has no
-        // tunnel, so absence is an answer; from an older host it says nothing.
-        if (result.features.contains(RemoteFeature.REMOTE_HOST) || result.remoteHost != null) {
-            val advertised = result.remoteHost.orEmpty()
-            persist { store.updateRemoteHost(cred.hostID, advertised) }
         }
         log("connected to ${result.hostName} via ${attempt.endpoint.label}")
         return attempt
     }
-
-    /**
-     * The tunnel hostname an auth result vouches for. A host that announces
-     * [RemoteFeature.REMOTE_HOST] omits the field when it has no tunnel, so
-     * absence is an answer; from an older host it's no information (null
-     * here, and the caller keeps what it had).
-     */
-    private fun advertisedRemoteHost(result: RemoteAuthResult): String? =
-        result.remoteHost?.let(RemotePairing::normalizeRemoteHost)
 
     // MARK: Handshake
 
@@ -758,14 +711,12 @@ class RemoteClient(
 
     /**
      * Races every candidate to a `hello` from [hostID]; losers are closed
-     * before this returns. [vet] may turn a hello down by throwing — the
-     * attempt is closed and counts as failed, and the race goes on.
+     * before this returns.
      */
     private suspend fun race(
         candidates: List<Endpoint>,
         hostID: String,
         quiet: Boolean = false,
-        vet: (Attempt) -> Unit = {},
     ): Attempt {
         if (!quiet) log("trying ${candidates.joinToString { it.label }}")
         return raceStaggered(
@@ -773,14 +724,7 @@ class RemoteClient(
             stagger = RACE_HEAD_START_MS,
             attempt = { endpoint ->
                 try {
-                    openAndHello(endpoint, hostID).also { opened ->
-                        try {
-                            vet(opened)
-                        } catch (e: Exception) {
-                            discard(opened)
-                            throw e
-                        }
-                    }
+                    openAndHello(endpoint, hostID)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -798,7 +742,7 @@ class RemoteClient(
      * included — a race abandons attempts mid-flight.
      */
     private suspend fun openAndHello(endpoint: Endpoint, hostID: String): Attempt {
-        val activePeer = connectWebSocketPeer(if (endpoint is Endpoint.Lan) lanHttp else http, endpoint.url)
+        val activePeer = connectWebSocketPeer(lanHttp, endpoint.url)
         var handedOff = false
         try {
             val helloDeferred = CompletableDeferred<RemoteHello>()
@@ -892,7 +836,6 @@ class RemoteClient(
             host = HostInfo(hostID = result.hostID, hostName = result.hostName, hostKind = result.hostKind),
             agentReady = result.agentReady,
             pairingOpen = attempt.hello.pairingOpen,
-            via = attempt.endpoint.route,
             link = EndpointPlan.linkOf(attempt.endpoint, environment.localTransport),
             features = features,
         )
@@ -913,8 +856,6 @@ class RemoteClient(
     }
 
     private fun applyHostState(note: RemoteNotification.HostState) {
-        val hostID = (_state.value as? RemoteState.Connected)?.host?.hostID
-        if (hostID != null) note.remoteHost?.let { host -> persist { store.updateRemoteHost(hostID, host) } }
         if (note.shuttingDown) {
             // The first goodbye says which it was: a quitting desktop follows
             // its own with the sharing-off one as it takes the listener down.
@@ -923,15 +864,15 @@ class RemoteClient(
             }
             // Deliberate, so don't dress it up as a network fault — and don't
             // retry into a host that just told us it left. Rediscovery says
-            // when it's back, but only where Bonjour gets through: not over
-            // a tunnel, and not on the many networks that filter it. So keep
-            // checking slowly whenever there is somewhere to check.
+            // when it's back, but only where Bonjour gets through, and many
+            // networks filter it. So keep checking whenever there is
+            // somewhere to check.
             teardown()
             connectJob?.cancel()
             connectJob = null
             _state.value = RemoteState.Offline(OfflineReason.HostStopped)
             log("host stopped sharing${note.message?.let { ": $it" } ?: ""}")
-            if (keepsCheckingAfterGoodbye(store.credential.value, note.remoteHost)) {
+            if (keepsCheckingAfterGoodbye(store.credential.value)) {
                 holdReason = OfflineReason.HostStopped
                 goodbyeChecks = GoodbyeChecks(now = monotonicMs())
                 connectJob = scope.launch {
@@ -982,7 +923,6 @@ class RemoteClient(
                     is RemoteState.Searching -> kickRetry()
                     is RemoteState.Offline -> when (current.reason) {
                         OfflineReason.HostNotFound,
-                        OfflineReason.TunnelUnreachable,
                         OfflineReason.Transport,
                         OfflineReason.Rejected,
                         // Advertising again after a goodbye means sharing is
@@ -1069,9 +1009,6 @@ class RemoteClient(
         private const val HELLO_TIMEOUT_MS = 10_000L
         private const val DISCOVERY_WAIT_MS = 8_000L
 
-        /** With a tunnel in the QR the race already tried the internet; Bonjour gets less patience. */
-        private const val DISCOVERY_WAIT_WITH_TUNNEL_MS = 3_000L
-
         private const val LAN_CONNECT_TIMEOUT_MS = 3_000L
 
         /** How long each route gets to itself before the next one joins the race. */
@@ -1079,17 +1016,14 @@ class RemoteClient(
 
         /**
          * Whether a host that said goodbye is checked on now and then: when
-         * the phone knows an address to try — its public hostname, or the
-         * LAN address it last reached it at. "This screen updates by itself
-         * once it's on" can't wait on Bonjour alone, which a network that
-         * filters mDNS never delivers.
+         * the phone knows an address to try: the LAN address it last reached
+         * it at. "This screen updates by itself once it's on" can't wait on
+         * Bonjour alone, which a network that filters mDNS never delivers.
          */
-        internal fun keepsCheckingAfterGoodbye(cred: RemoteCredential?, announcedRemoteHost: String?): Boolean {
-            val remoteHost = announcedRemoteHost ?: cred?.remoteHost
-            return !remoteHost.isNullOrBlank() || !cred?.lastAddress.isNullOrBlank()
-        }
+        internal fun keepsCheckingAfterGoodbye(cred: RemoteCredential?): Boolean =
+            !cred?.lastAddress.isNullOrBlank()
 
-        /** Between checks of every route (the tunnel too) on a host that said goodbye. */
+        /** Between checks of every route on a host that said goodbye. */
         internal const val HOST_STOPPED_POLL_MS = 45_000L
 
         /** The first quick LAN check after a goodbye; each next one waits twice as long… */

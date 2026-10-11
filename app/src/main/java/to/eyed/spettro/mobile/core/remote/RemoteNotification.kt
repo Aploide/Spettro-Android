@@ -36,8 +36,6 @@ sealed class RemoteNotification {
         val agentReady: Boolean,
         val shuttingDown: Boolean,
         val message: String?,
-        /** `""` = no tunnel; null = the host didn't say (older host). */
-        val remoteHost: String? = null,
     ) : RemoteNotification()
 
     data class PermissionAsk(
@@ -87,7 +85,7 @@ sealed class RemoteNotification {
                     }
                     RemoteMethod.HOST_STATE -> params?.let {
                         val p = SpettroJson.decodeFromJsonElement(HostStateParams.serializer(), it)
-                        HostState(p.agentReady, p.shuttingDown, p.message, p.remoteHost)
+                        HostState(p.agentReady, p.shuttingDown, p.message)
                     }
                     RemoteMethod.PERMISSION_ASK -> params?.let {
                         val p = SpettroJson.decodeFromJsonElement(PermissionAskParams.serializer(), it)

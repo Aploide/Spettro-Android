@@ -37,7 +37,6 @@ class DisconnectReasonTest {
     @Test
     fun `every offline reason has its own screen`() {
         assertEquals(DisconnectReason.HostAsleep, offline(OfflineReason.HostNotFound))
-        assertEquals(DisconnectReason.Unreachable, offline(OfflineReason.TunnelUnreachable))
         assertEquals(DisconnectReason.SharingOff, offline(OfflineReason.HostStopped))
         assertEquals(DisconnectReason.NoLocalNetwork, offline(OfflineReason.NoLocalNetwork))
         assertEquals(DisconnectReason.Transport, offline(OfflineReason.Transport))

@@ -86,7 +86,6 @@ internal fun connectionLabel(link: RemoteLink): String = when (link) {
     RemoteLink.Ethernet -> "Connected over Ethernet"
     RemoteLink.Usb -> "Connected over USB"
     RemoteLink.LocalNetwork -> "Connected on your network"
-    RemoteLink.Internet -> "Connected over the internet"
 }
 
 /**

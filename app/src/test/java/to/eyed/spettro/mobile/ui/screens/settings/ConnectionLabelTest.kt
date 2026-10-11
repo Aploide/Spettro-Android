@@ -1,6 +1,7 @@
 package to.eyed.spettro.mobile.ui.screens.settings
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import to.eyed.spettro.mobile.core.remote.RemoteLink
 
@@ -15,8 +16,10 @@ class ConnectionLabelTest {
     }
 
     @Test
-    fun `the internet route leaves the tunnel host to the row below`() {
-        // Settings shows "Internet address  <host>" right under it.
-        assertEquals("Connected over the internet", connectionLabel(RemoteLink.Internet))
+    fun `no route is the internet`() {
+        for (link in RemoteLink.entries) {
+            val label = connectionLabel(link)
+            assertFalse(label, label.contains("internet", ignoreCase = true))
+        }
     }
 }

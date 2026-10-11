@@ -170,69 +170,28 @@ class PairPayloadParseTest {
     }
 
     @Test
-    fun `reads the tunnel hostname from r`() {
+    fun `an internet hostname from an older host is ignored`() {
         val url = "spettro-pair://pair?v=1&h=HOST-123&n=Mac&k=app&s=$secretB64" +
             "&a=192.168.1.24&p=7879&r=spettro.example.com"
-        val payload = RemotePairing.parse(url)!!
-        assertEquals("spettro.example.com", payload.remoteHost)
-        // The LAN hint is untouched by it.
-        assertEquals("192.168.1.24", payload.address)
-        assertEquals(7879, payload.port)
-    }
-
-    @Test
-    fun `a code without r has no tunnel`() {
-        assertNull(RemotePairing.parse("h=HOST-123&s=$secretB64")!!.remoteHost)
-        assertNull(RemotePairing.parse("h=HOST-123&s=$secretB64&r=")!!.remoteHost)
-    }
-
-    @Test
-    fun `an unusable r is dropped, not the whole code`() {
-        val payload = RemotePairing.parse("h=HOST-123&s=$secretB64&r=not%20a%20host")
+        val payload = RemotePairing.parse(url)
         assertNotNull(payload)
-        assertNull(payload!!.remoteHost)
+        // The LAN hint is all that's used; the code is the same one without r.
+        assertEquals("192.168.1.24", payload!!.address)
+        assertEquals(7879, payload.port)
+        assertEquals(
+            RemotePairing.parse("spettro-pair://pair?v=1&h=HOST-123&n=Mac&k=app&s=$secretB64&a=192.168.1.24&p=7879"),
+            payload,
+        )
+        assertFalse(payload.toString().contains("example.com"))
     }
 
     @Test
-    fun `r takes part in equality`() {
-        val a = RemotePairing.parse("h=H&s=$secretB64&r=a.example.com")
-        val b = RemotePairing.parse("h=H&s=$secretB64&r=b.example.com")
-        assertFalse(a == b)
-        assertEquals(a, RemotePairing.parse("h=H&s=$secretB64&r=A.Example.com"))
-    }
-}
-
-class RemoteHostNormalizeTest {
-
-    @Test
-    fun `keeps a bare hostname as is`() {
-        assertEquals("spettro.example.com", RemotePairing.normalizeRemoteHost("spettro.example.com"))
-        assertEquals("a-b.c.example.co", RemotePairing.normalizeRemoteHost("a-b.c.example.co"))
-    }
-
-    @Test
-    fun `strips scheme, path, case, whitespace and a trailing dot`() {
-        assertEquals("spettro.example.com", RemotePairing.normalizeRemoteHost(" https://Spettro.Example.com/ "))
-        assertEquals("spettro.example.com", RemotePairing.normalizeRemoteHost("wss://spettro.example.com/x?y#z"))
-        assertEquals("spettro.example.com", RemotePairing.normalizeRemoteHost("spettro.example.com."))
-    }
-
-    @Test
-    fun `accepts punycode, in the TLD too`() {
-        assertEquals("spettro.xn--p1ai", RemotePairing.normalizeRemoteHost("spettro.xn--p1ai"))
-        assertEquals("xn--80ak6aa92e.xn--80asehdb", RemotePairing.normalizeRemoteHost("xn--80ak6aa92e.xn--80asehdb"))
-        // A digit-only TLD is still an IP address, not a hostname.
-        assertNull(RemotePairing.normalizeRemoteHost("spettro.example.123"))
-    }
-
-    @Test
-    fun `rejects what is not a DNS name`() {
-        assertNull(RemotePairing.normalizeRemoteHost(""))
-        assertNull(RemotePairing.normalizeRemoteHost("   "))
-        assertNull(RemotePairing.normalizeRemoteHost("localhost"))
-        assertNull(RemotePairing.normalizeRemoteHost("192.168.1.2"))
-        assertNull(RemotePairing.normalizeRemoteHost("spettro.example.com:8443"))
-        assertNull(RemotePairing.normalizeRemoteHost("-bad.example.com"))
-        assertNull(RemotePairing.normalizeRemoteHost("has space.example.com"))
+    fun `an unusable r doesn't spoil the code`() {
+        for (r in listOf("", "not%20a%20host", "wss://x/%%", "%ZZ")) {
+            val payload = RemotePairing.parse("spettro-pair://pair?h=HOST-123&s=$secretB64&a=10.0.0.2&p=7000&r=$r")
+            assertNotNull(r, payload)
+            assertEquals("10.0.0.2", payload!!.address)
+            assertEquals(7000, payload.port)
+        }
     }
 }

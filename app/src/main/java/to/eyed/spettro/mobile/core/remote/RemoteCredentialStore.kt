@@ -53,7 +53,9 @@ class RemoteCredentialStore(
 
     /** Reads the credential straight from disk and refreshes the cache. */
     suspend fun load(): RemoteCredential? {
-        val value = CredentialPrefs.read(dataStore.data.first())
+        val prefs = dataStore.data.first()
+        if (CredentialPrefs.hasLegacy(prefs)) dataStore.edit(CredentialPrefs::dropLegacy)
+        val value = CredentialPrefs.read(prefs)
         _credential.value = value
         return value
     }
@@ -72,20 +74,8 @@ class RemoteCredentialStore(
     }
 
     /**
-     * Remembers (or, for blank, forgets) [hostID]'s public tunnel hostname.
-     * A value that isn't a usable hostname is ignored rather than taken to
-     * mean "no tunnel", and an unchanged one costs no disk write — the host
-     * repeats itself in every `host/state`.
-     */
-    suspend fun updateRemoteHost(hostID: String, host: String) {
-        val normalized = if (host.isBlank()) null else RemotePairing.normalizeRemoteHost(host) ?: return
-        modify(hostID) { current -> current.copyWithRemoteHost(normalized) }
-    }
-
-    /**
-     * Read-modify-write in one DataStore transaction, so two updates landing
-     * together (a new LAN address from the connect, a new hostname from
-     * `host/state`) can't each overwrite the other with a stale copy.
+     * Read-modify-write in one DataStore transaction, so an update landing
+     * while another is being written can't overwrite it with a stale copy.
      */
     private suspend fun modify(hostID: String, transform: (RemoteCredential) -> RemoteCredential) {
         val prefs = dataStore.edit { prefs ->
@@ -136,7 +126,13 @@ internal object CredentialPrefs {
     private val KEY_PAIRED_AT = stringPreferencesKey("remote.pairedAt")
     private val KEY_LAST_ADDRESS = stringPreferencesKey("remote.lastAddress")
     private val KEY_LAST_PORT = intPreferencesKey("remote.lastPort")
-    private val KEY_REMOTE_HOST = stringPreferencesKey("remote.remoteHost")
+
+    /**
+     * Where older builds kept the computer's internet (tunnel) hostname.
+     * Nothing reads it any more; it is dropped on [load][RemoteCredentialStore.load],
+     * on every write and on clear, and the pairing beside it keeps working on the LAN.
+     */
+    private val LEGACY_KEY_REMOTE_HOST = stringPreferencesKey("remote.remoteHost")
 
     fun write(prefs: MutablePreferences, credential: RemoteCredential) {
         prefs[KEY_HOST_ID] = credential.hostID
@@ -146,7 +142,7 @@ internal object CredentialPrefs {
         prefs[KEY_PAIRED_AT] = credential.pairedAt
         credential.lastAddress?.let { prefs[KEY_LAST_ADDRESS] = it } ?: prefs.remove(KEY_LAST_ADDRESS)
         credential.lastPort?.let { prefs[KEY_LAST_PORT] = it } ?: prefs.remove(KEY_LAST_PORT)
-        credential.remoteHost?.let { prefs[KEY_REMOTE_HOST] = it } ?: prefs.remove(KEY_REMOTE_HOST)
+        prefs.remove(LEGACY_KEY_REMOTE_HOST)
     }
 
     fun read(prefs: Preferences): RemoteCredential? {
@@ -160,8 +156,14 @@ internal object CredentialPrefs {
             pairedAt = prefs[KEY_PAIRED_AT] ?: "",
             lastAddress = prefs[KEY_LAST_ADDRESS],
             lastPort = prefs[KEY_LAST_PORT],
-            remoteHost = prefs[KEY_REMOTE_HOST]?.takeIf { it.isNotEmpty() },
         )
+    }
+
+    /** Whether [prefs] still hold a value only older builds wrote. */
+    fun hasLegacy(prefs: Preferences): Boolean = LEGACY_KEY_REMOTE_HOST in prefs
+
+    fun dropLegacy(prefs: MutablePreferences) {
+        prefs.remove(LEGACY_KEY_REMOTE_HOST)
     }
 
     fun clear(prefs: MutablePreferences) {
@@ -172,6 +174,6 @@ internal object CredentialPrefs {
         prefs.remove(KEY_PAIRED_AT)
         prefs.remove(KEY_LAST_ADDRESS)
         prefs.remove(KEY_LAST_PORT)
-        prefs.remove(KEY_REMOTE_HOST)
+        prefs.remove(LEGACY_KEY_REMOTE_HOST)
     }
 }

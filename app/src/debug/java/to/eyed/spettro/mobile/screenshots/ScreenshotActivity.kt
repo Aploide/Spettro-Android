@@ -31,7 +31,6 @@ import to.eyed.spettro.mobile.core.acp.AcpConfigOption
 import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpUsage
 import to.eyed.spettro.mobile.core.remote.HostInfo
-import to.eyed.spettro.mobile.core.remote.RemoteRoute
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.remote.ChatSummary
 import to.eyed.spettro.mobile.model.ConfigValue
@@ -364,7 +363,6 @@ private fun Scene(scene: String, tablet: Boolean) {
                 state = RemoteState.Connected(
                     host = HostInfo("host-1", "Carlo's MacBook Pro", "mac"),
                     agentReady = true,
-                    via = RemoteRoute.Lan,
                 ),
                 pairedHostID = "host-1",
                 pairedHostName = "Carlo's MacBook Pro",
