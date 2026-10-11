@@ -1,5 +1,32 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import to.eyed.spettro.mobile.core.B64
+import to.eyed.spettro.mobile.core.acp.AcpToolImage
+import to.eyed.spettro.mobile.model.ToolPresentation
+import to.eyed.spettro.mobile.model.DisplayRow
+import to.eyed.spettro.mobile.model.ToolGroups
+import androidx.compose.runtime.key
+import to.eyed.spettro.mobile.model.UnifiedDiff
+import to.eyed.spettro.mobile.ui.components.Pill
 import to.eyed.spettro.mobile.ui.theme.SpettroMotion
 import to.eyed.spettro.mobile.ui.theme.MonoTool
 import to.eyed.spettro.mobile.ui.components.StatusDot
@@ -120,16 +147,65 @@ fun ToolCallRow(
     }
 }
 
+/**
+ * The open chat's project folder, so paths inside it are named from there
+ * ([ToolPresentation.shortPath]). Provided by ChatScreen around the
+ * transcript and the prompt dock.
+ */
+val LocalProjectPath = staticCompositionLocalOf<String?> { null }
+
+/**
+ * The cards an approval of the open chat's is waiting on, by the id each is
+ * filed under: they draw amber with "Needs approval", the one state that is
+ * the reader's move rather than the agent's.
+ */
+val LocalAwaitingTools = compositionLocalOf<Set<String>> { emptySet() }
+
+/** Output lines shown before "Show more". */
+private const val OUTPUT_LINES = 30
+
+/** Diff lines drawn before "Show all". */
+private const val MAX_DIFF_LINES = 400
+
+/**
+ * One tool call as one quiet line, the desktop's ToolRow: a status dot, the
+ * bold verb ("Read", "Bash"), the argument in mono, and a muted note at the
+ * right edge ("+12 −3", "42 lines", "exit 1"). Opening it shows what the
+ * call did in a panel under a thin rule: the locations it touched, a real
+ * unified diff for an edit, `$ command` and its output for a shell call,
+ * and the images it returned.
+ */
 @Composable
-private fun PlainToolRow(tool: ToolCallItem, modifier: Modifier) {
+internal fun PlainToolRow(tool: ToolCallItem, modifier: Modifier = Modifier) {
     val colors = LocalSpettroColors.current
     var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
-    val hasDetail = tool.output.isNotEmpty() || tool.diffs.isNotEmpty()
+    val awaiting = tool.id in LocalAwaitingTools.current
+    val command = tool.shellCommand
+    val hasDetail = tool.output.isNotBlank() || tool.diffs.isNotEmpty() || tool.images.isNotEmpty() ||
+        command != null || tool.locations.isNotEmpty()
+    val stat = tool.diffStat
+    val meta = tool.rowMeta
+    val argument = tool.rowArgument
+    val verb = tool.displayName
+    val denied = tool.denied && tool.status == AcpToolStatus.FAILED
     val chevronAngle by animateFloatAsState(
         targetValue = if (expanded) 90f else 0f,
         animationSpec = SpettroMotion.chevron(),
         label = "toolChevron",
     )
+    val spoken = listOfNotNull(
+        "$verb $argument".trim(),
+        when {
+            awaiting -> "needs approval"
+            denied -> "denied"
+            tool.status == AcpToolStatus.PENDING -> "not started"
+            tool.status == AcpToolStatus.IN_PROGRESS -> "running"
+            tool.status == AcpToolStatus.FAILED -> "failed"
+            else -> null
+        },
+        stat?.takeIf { it.added > 0 || it.removed > 0 }?.let { "${it.added} added, ${it.removed} removed" },
+        meta,
+    ).joinToString(", ")
 
     Column(
         modifier = modifier
@@ -141,34 +217,43 @@ private fun PlainToolRow(tool: ToolCallItem, modifier: Modifier) {
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(Dimens.radiusXs))
                 .clickable(enabled = hasDetail) { expanded = !expanded }
-                .heightIn(min = 32.dp)
-                .padding(end = 4.dp),
+                .heightIn(min = 36.dp)
+                .padding(horizontal = 2.dp, vertical = 3.dp)
+                .semantics(mergeDescendants = true) { contentDescription = spoken },
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolStatusGlyph(status = tool.status, denied = tool.denied)
+            ToolStatusGlyph(status = tool.status, denied = denied, awaiting = awaiting)
+            Text(text = verb, style = ToolVerb, color = colors.textPrimary, maxLines = 1)
             Text(
-                text = tool.displayName,
-                style = ToolVerb,
-                color = colors.textPrimary,
-            )
-            Text(
-                text = tool.displayDetail,
+                text = argument,
                 style = MonoTool,
                 color = colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            tool.diffStat?.let { stat ->
-                if (stat.added > 0 || stat.removed > 0) {
-                    DiffStatLabel(added = stat.added, removed = stat.removed, fontSize = 12.sp)
-                }
+            if (awaiting) {
+                Text(
+                    "Needs approval",
+                    style = ToolMeta.copy(fontWeight = FontWeight.Medium),
+                    color = colors.warning,
+                    maxLines = 1,
+                )
+            }
+            stat?.let { if (it.added > 0 || it.removed > 0) DiffStatLabel(added = it.added, removed = it.removed, fontSize = 12.sp) }
+            if (meta != null) {
+                Text(
+                    meta,
+                    style = ToolMeta,
+                    color = if (tool.status == AcpToolStatus.FAILED && !denied) colors.danger else colors.textTertiary,
+                    maxLines = 1,
+                )
             }
             if (hasDetail) {
                 Icon(
                     imageVector = Icons.Outlined.ChevronRight,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    contentDescription = null,
                     tint = colors.textTertiary,
                     modifier = Modifier
                         .size(15.dp)
@@ -177,24 +262,113 @@ private fun PlainToolRow(tool: ToolCallItem, modifier: Modifier) {
             }
         }
         if (expanded && hasDetail) {
-            // The desktop's expanded panel: indented to the glyph's centre,
-            // behind a 1dp hairline rule.
+            ToolPanel(tool = tool, command = command)
+        }
+    }
+}
+
+/**
+ * The folded "Read 5 files" line (the desktop's ToolGroup): it reads like
+ * one more tool row — the same done dot, the same weight — and opens to the
+ * rows it stands for, each still expandable on its own.
+ */
+@Composable
+fun ToolGroupRow(group: DisplayRow.Tools, modifier: Modifier = Modifier) {
+    val colors = LocalSpettroColors.current
+    var expanded by rememberSaveable(group.id) { mutableStateOf(false) }
+    val chevronAngle by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = SpettroMotion.chevron(),
+        label = "groupChevron",
+    )
+    val summary = ToolGroups.summary(group.tools)
+    Column(modifier = modifier.fillMaxWidth().animateContentSize(transcriptSpring())) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(Dimens.radiusXs))
+                .clickable { expanded = !expanded }
+                .heightIn(min = 36.dp)
+                .padding(horizontal = 2.dp, vertical = 3.dp)
+                .semantics(mergeDescendants = true) { contentDescription = summary },
+            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ToolStatusGlyph(status = AcpToolStatus.COMPLETED)
+            Text(summary, style = ToolVerb, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                tint = colors.textTertiary,
+                modifier = Modifier.size(15.dp).rotate(chevronAngle),
+            )
+        }
+        if (expanded) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 7.dp, top = 2.dp, bottom = Dimens.spacingSm)
-                    .drawBehind {
-                        drawRect(colors.hairline, size = Size(1.dp.toPx(), size.height))
-                    }
-                    .padding(start = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                    .padding(start = 9.dp, bottom = Dimens.spacingXs)
+                    .drawBehind { drawRect(colors.hairline, size = Size(1.dp.toPx(), size.height)) }
+                    .padding(start = 6.dp),
             ) {
-                if (tool.diffs.isNotEmpty()) {
-                    ToolDiffView(diffs = tool.diffs)
+                group.tools.forEach { key(it.id) { PlainToolRow(tool = it) } }
+            }
+        }
+    }
+}
+
+/** The row's right-edge note: label size, tertiary, tabular digits. */
+private val ToolMeta = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontFeatureSettings = TabularNums)
+
+/**
+ * The opened row (`.tr-tool-panel`): indented to the glyph's centre, behind
+ * a 1dp hairline rule.
+ */
+@Composable
+private fun ToolPanel(tool: ToolCallItem, command: String?) {
+    val colors = LocalSpettroColors.current
+    val projectPath = LocalProjectPath.current
+    val output = tool.output.trimEnd()
+    // An edit's text is a one-line receipt of what its diff already shows.
+    val showOutput = output.isNotEmpty() && (tool.diffs.isEmpty() || tool.status == AcpToolStatus.FAILED)
+    // A diff already names its file, with every line numbered.
+    val diffPaths = tool.diffs.map { it.path }.toSet()
+    val locations = tool.locations.filter { it.path !in diffPaths }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 9.dp, top = 2.dp, bottom = Dimens.spacingSm)
+            .drawBehind {
+                drawRect(colors.hairline, size = Size(1.dp.toPx(), size.height))
+            }
+            .padding(start = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+    ) {
+        if (locations.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                locations.forEach { location ->
+                    Text(
+                        text = buildAnnotatedString {
+                            append(ToolPresentation.shortPath(location.path, projectPath))
+                            location.line?.let { line ->
+                                withStyle(SpanStyle(color = colors.textTertiary)) { append(":$line") }
+                            }
+                        },
+                        style = MonoSmall,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                if (tool.output.isNotEmpty()) {
-                    ToolOutputBlock(output = tool.output)
-                }
+            }
+        }
+        tool.diffs.forEach { DiffView(diff = it) }
+        if (command != null || showOutput) {
+            OutputBlock(command = command, output = if (showOutput) output else "")
+        }
+        if (tool.images.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Dimens.spacingXs)) {
+                tool.images.forEach { ToolImageThumb(it) }
             }
         }
     }
@@ -202,160 +376,287 @@ private fun PlainToolRow(tool: ToolCallItem, modifier: Modifier) {
 
 /**
  * The desktop's tool status glyph, a 7dp mark in a 16dp slot: a hollow
- * tertiary ring while pending, a pulsing accent dot while running, a success
- * dot when done, the danger icon when it failed, and a struck-through ring
- * when the user turned it down.
+ * tertiary ring not yet started, a pulsing accent dot while running, a
+ * success dot done, a danger cross failed, amber with a halo while the CLI
+ * waits on the user's approval, and a struck-through ring when the user
+ * turned it down — their answer, not a failure.
  */
 @Composable
-private fun ToolStatusGlyph(status: AcpToolStatus, denied: Boolean = false) {
+internal fun ToolStatusGlyph(status: AcpToolStatus, denied: Boolean = false, awaiting: Boolean = false) {
     val colors = LocalSpettroColors.current
     Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
         when {
-            denied -> Canvas(Modifier.size(9.dp).semantics { contentDescription = "Denied" }) {
+            awaiting -> StatusDot(color = colors.warning, halo = true)
+            denied -> Canvas(Modifier.size(8.dp)) {
                 val stroke = 1.5.dp.toPx()
                 drawCircle(colors.textTertiary, radius = size.minDimension / 2f - stroke / 2f, style = Stroke(stroke))
                 drawLine(colors.textTertiary, Offset(0f, size.height), Offset(size.width, 0f), strokeWidth = stroke)
             }
-            status == AcpToolStatus.PENDING -> Canvas(Modifier.size(8.dp)) {
+            status == AcpToolStatus.IN_PROGRESS -> StatusDot(color = colors.accent, pulsing = true)
+            status == AcpToolStatus.COMPLETED -> StatusDot(color = colors.success)
+            status == AcpToolStatus.FAILED -> Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = null,
+                tint = colors.danger,
+                modifier = Modifier.size(12.dp),
+            )
+            else -> Canvas(Modifier.size(8.dp)) {
                 val stroke = 1.5.dp.toPx()
                 drawCircle(colors.textTertiary, radius = size.minDimension / 2f - stroke / 2f, style = Stroke(stroke))
             }
-            status == AcpToolStatus.IN_PROGRESS -> StatusDot(color = colors.accent, pulsing = true)
-            status == AcpToolStatus.COMPLETED -> StatusDot(
-                color = colors.success,
-                modifier = Modifier.semantics { contentDescription = "Completed" },
-            )
-            status == AcpToolStatus.FAILED -> Icon(
-                imageVector = Icons.Outlined.ErrorOutline,
-                contentDescription = "Failed",
-                tint = colors.danger,
-                modifier = Modifier.size(14.dp),
-            )
-            else -> Unit
         }
-    }
-}
-
-/** Tool output: monospace 12sp, capped at ~12 lines, scrolls horizontally. */
-@Composable
-private fun ToolOutputBlock(output: String) {
-    val colors = LocalSpettroColors.current
-    val shape = RoundedCornerShape(Dimens.radiusSm)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(colors.surfaceSunken)
-            .border(Dimens.hairlineWidth, colors.hairline, shape)
-            .horizontalScroll(rememberScrollState()),
-    ) {
-        Text(
-            text = output.trim(),
-            style = MonoSmall,
-            color = colors.textSecondary,
-            softWrap = false,
-            maxLines = 12,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(Dimens.spacingSm),
-        )
     }
 }
 
 /**
- * A minimal red/green line view of file edits: for each diff, the changed
- * region only — removed lines prefixed "-" on a translucent red ground, added
- * lines "+" on green — in 12sp monospace with horizontal scrolling.
+ * A shell call's `$ command` and its output, or any tool's output, held to
+ * the first 30 lines until asked for the rest (`.tr-output`).
  */
 @Composable
-fun ToolDiffView(
-    diffs: List<ToolCallItem.ToolDiff>,
-    modifier: Modifier = Modifier,
-) {
+private fun OutputBlock(command: String?, output: String) {
+    val colors = LocalSpettroColors.current
+    var all by rememberSaveable(output) { mutableStateOf(false) }
+    val lines = if (output.isEmpty()) emptyList() else output.split("\n")
+    val hidden = if (all) 0 else (lines.size - OUTPUT_LINES).coerceAtLeast(0)
+    val shown = if (hidden > 0) lines.take(OUTPUT_LINES).joinToString("\n") else output
+    val shape = RoundedCornerShape(Dimens.radiusSm)
     Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.surfaceSunken)
+            .border(Dimens.hairlineWidth, colors.hairline, shape),
     ) {
-        diffs.forEach { diff -> SingleDiff(diff) }
+        Column(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp, vertical = Dimens.spacingSm),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
+        ) {
+            if (command != null) {
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(color = colors.textTertiary)) { append("$ ") }
+                        append(command)
+                    },
+                    style = MonoSmall,
+                    color = colors.textPrimary,
+                    softWrap = false,
+                )
+            }
+            if (shown.isNotEmpty()) {
+                SelectionContainer {
+                    Text(text = shown, style = MonoSmall, color = colors.textSecondary, softWrap = false)
+                }
+            }
+        }
+        if (hidden > 0) {
+            MoreButton(if (hidden == 1) "Show 1 more line" else "Show $hidden more lines") { all = true }
+        }
     }
 }
 
-private const val MAX_DIFF_LINES = 80
-
+/** The quiet "Show more" link under an output or a diff (`.tr-more`). */
 @Composable
-private fun SingleDiff(diff: ToolCallItem.ToolDiff) {
+private fun MoreButton(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        style = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.Medium),
+        color = LocalSpettroColors.current.textSecondary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    )
+}
+
+/**
+ * One file's change as a unified diff, the desktop's DiffView: the path,
+ * "New file" for a created one, the stat; then old and new line numbers, the
+ * sign, and the text, added and removed rows on their tinted grounds, hunks
+ * after the first headed `@@ −a,b +c,d @@`. The transcript draws up to 400
+ * lines before "Show all"; an approval card asks for a glance (30) and says
+ * "Show full diff".
+ */
+@Composable
+fun DiffView(
+    diff: ToolCallItem.ToolDiff,
+    modifier: Modifier = Modifier,
+    maxLines: Int = MAX_DIFF_LINES,
+    moreLabel: String? = null,
+) {
     val colors = LocalSpettroColors.current
-    val (old, new) = diff.changedLines
-    Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs)) {
+    var all by rememberSaveable(diff.path, diff.newText.length) { mutableStateOf(false) }
+    // Worked out off the main thread for a big file; the head shows meanwhile.
+    val unified by produceState<UnifiedDiff.Diff?>(initialValue = null, diff) {
+        value = withContext(Dispatchers.Default) { diff.unified }
+    }
+    val name = ToolPresentation.shortPath(diff.path, LocalProjectPath.current)
+    val shape = RoundedCornerShape(Dimens.radiusSm)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .border(Dimens.hairlineWidth, colors.hairline, shape),
+    ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(colors.surfaceRaised)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Description,
-                contentDescription = null,
-                tint = colors.textTertiary,
-                modifier = Modifier.size(12.dp),
-            )
             Text(
-                text = ToolCallItem.shortPath(diff.path),
+                text = name,
                 style = MonoSmall.copy(fontWeight = FontWeight.Medium),
                 color = colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            DiffStatLabel(added = new.size, removed = old.size, fontSize = 11.sp)
+            if (diff.oldText == null) Pill("New file")
+            unified?.let { DiffStatLabel(added = it.added, removed = it.removed, fontSize = 11.sp) }
         }
-        val shape = RoundedCornerShape(Dimens.radiusSm)
+        HairlineDivider()
+        val d = unified ?: return@Column
+        val total = d.lineCount
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(shape)
-                .background(colors.surfaceRaised)
-                .border(Dimens.hairlineWidth, colors.hairline, shape)
+                .background(colors.surfaceSunken)
+                // An approval's glance scrolls inside 300dp; the transcript's
+                // diff is as tall as its lines (the list scrolls it).
+                .then(
+                    if (maxLines < MAX_DIFF_LINES) {
+                        Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())
+                    } else {
+                        Modifier
+                    },
+                )
                 .horizontalScroll(rememberScrollState()),
         ) {
-            Column(modifier = Modifier.width(IntrinsicSize.Max)) {
-                old.take(MAX_DIFF_LINES).forEach { line ->
-                    DiffLine(line = line, prefix = "-", tint = colors.danger)
+            Column(modifier = Modifier.width(IntrinsicSize.Max).padding(vertical = 2.dp)) {
+                if (d.hunks.isEmpty()) {
+                    Text(
+                        "No changes",
+                        style = MonoSmall,
+                        color = colors.textTertiary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
                 }
-                if (old.size > MAX_DIFF_LINES) TruncationNote(old.size - MAX_DIFF_LINES)
-                new.take(MAX_DIFF_LINES).forEach { line ->
-                    DiffLine(line = line, prefix = "+", tint = colors.success)
+                var budget = if (all) Int.MAX_VALUE else maxLines
+                d.hunks.forEachIndexed { index, hunk ->
+                    if (budget <= 0) return@forEachIndexed
+                    val lines = hunk.lines.take(budget)
+                    budget -= lines.size
+                    if (index > 0) {
+                        Text(
+                            text = "@@ −${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@",
+                            style = MonoSmall,
+                            color = colors.textTertiary,
+                            softWrap = false,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(colors.hoverFill)
+                                .padding(horizontal = 10.dp, vertical = 2.dp),
+                        )
+                    }
+                    lines.forEach { DiffRow(it) }
                 }
-                if (new.size > MAX_DIFF_LINES) TruncationNote(new.size - MAX_DIFF_LINES)
             }
+        }
+        if (!all && total > maxLines) {
+            MoreButton(moreLabel ?: "Show all $total lines") { all = true }
         }
     }
 }
 
+private val LineNumberStyle = TextStyle(fontFamily = MonoSmall.fontFamily, fontSize = 11.sp, lineHeight = 18.sp, fontFeatureSettings = TabularNums)
+
 @Composable
-private fun DiffLine(line: String, prefix: String, tint: androidx.compose.ui.graphics.Color) {
-    val style = MonoSmall
-    Row(modifier = Modifier.fillMaxWidth().background(tint.copy(alpha = 0.12f))) {
+private fun DiffRow(line: UnifiedDiff.Line) {
+    val colors = LocalSpettroColors.current
+    val ground = when (line.kind) {
+        UnifiedDiff.Kind.ADDED -> colors.diffAddedBg
+        UnifiedDiff.Kind.REMOVED -> colors.diffRemovedBg
+        UnifiedDiff.Kind.CONTEXT -> Color.Transparent
+    }
+    val sign = when (line.kind) {
+        UnifiedDiff.Kind.ADDED -> "+"
+        UnifiedDiff.Kind.REMOVED -> "−"
+        UnifiedDiff.Kind.CONTEXT -> " "
+    }
+    val spoken = when (line.kind) {
+        UnifiedDiff.Kind.ADDED -> "Added: "
+        UnifiedDiff.Kind.REMOVED -> "Removed: "
+        UnifiedDiff.Kind.CONTEXT -> ""
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(ground)
+            .semantics(mergeDescendants = true) { contentDescription = spoken + line.text },
+    ) {
         Text(
-            text = prefix,
-            style = style,
-            color = tint,
-            modifier = Modifier.width(18.dp).padding(start = Dimens.spacingXs),
+            line.oldNo?.toString() ?: "",
+            style = LineNumberStyle,
+            color = colors.textTertiary,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(34.dp).padding(end = 6.dp),
         )
         Text(
-            text = line.ifEmpty { " " },
-            style = style,
-            color = LocalSpettroColors.current.textPrimary,
+            line.newNo?.toString() ?: "",
+            style = LineNumberStyle,
+            color = colors.textTertiary,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(34.dp).padding(end = 6.dp),
+        )
+        Text(
+            sign,
+            style = MonoSmall.copy(lineHeight = 18.sp),
+            color = when (line.kind) {
+                UnifiedDiff.Kind.ADDED -> colors.success
+                UnifiedDiff.Kind.REMOVED -> colors.danger
+                UnifiedDiff.Kind.CONTEXT -> colors.textTertiary
+            },
+            modifier = Modifier.width(14.dp),
+        )
+        Text(
+            text = buildAnnotatedString {
+                append(line.text.ifEmpty { " " })
+                if (line.noNewline && line.kind != UnifiedDiff.Kind.CONTEXT) {
+                    withStyle(SpanStyle(color = colors.textTertiary)) { append("  No newline at end of file") }
+                }
+            },
+            style = MonoSmall.copy(lineHeight = 18.sp),
+            color = if (line.kind == UnifiedDiff.Kind.CONTEXT) colors.textSecondary else colors.textPrimary,
             softWrap = false,
-            modifier = Modifier.padding(end = Dimens.spacingSm),
+            modifier = Modifier.padding(end = 10.dp),
         )
     }
 }
 
+/** An image a tool returned, as a small thumbnail. */
 @Composable
-private fun TruncationNote(count: Int) {
-    Text(
-        text = "… $count more lines",
-        style = MonoSmall,
-        color = LocalSpettroColors.current.textTertiary,
-        modifier = Modifier.padding(start = 18.dp, top = 2.dp, bottom = 2.dp),
-    )
+private fun ToolImageThumb(image: AcpToolImage) {
+    val bitmap = remember(image.data) {
+        B64.decodeStd(image.data)?.let { bytes ->
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }
+    }
+    val shape = RoundedCornerShape(Dimens.radiusSm)
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = "Image from the tool",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(72.dp)
+                .clip(shape)
+                .border(Dimens.hairlineWidth, LocalSpettroColors.current.hairline, shape),
+        )
+    }
 }
 
 /**
@@ -551,8 +852,8 @@ private fun ToolCallRowPreviewLight() {
 @Composable
 private fun ToolDiffViewPreview() {
     SpettroTheme(darkTheme = true) {
-        ToolDiffView(
-            diffs = ChatPreviewData.editTool.diffs,
+        DiffView(
+            diff = ChatPreviewData.editTool.diffs.first(),
             modifier = Modifier.padding(Dimens.spacingLg),
         )
     }

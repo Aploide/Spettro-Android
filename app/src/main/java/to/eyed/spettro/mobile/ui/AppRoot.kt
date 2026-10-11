@@ -1075,6 +1075,8 @@ private fun RemoteChatHost(
         thinking = thinking,
         awaitingApproval = shownPermissions.any { it.chatID.equals(session.chatId, ignoreCase = true) },
         awaitingAnswer = shownQuestions.any { it.chatID.equals(session.chatId, ignoreCase = true) },
+        projectPath = session.projectPath.ifEmpty { null },
+        awaitingToolIds = shownPermissions.mapNotNull { it.card?.toolCallId }.toSet(),
         onDelete = {
             model.deleteChat(session.chatId)
             onBack()

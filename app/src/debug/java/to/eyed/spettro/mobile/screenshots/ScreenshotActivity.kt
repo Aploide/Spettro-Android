@@ -167,6 +167,9 @@ private fun Scene(scene: String, tablet: Boolean) {
     when (scene) {
         "chat" -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
         "chat_busy" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true)
+        // Tool rows: reads folded into one line, a two-hunk edit, a failed
+        // command, and one waiting on approval (amber, "Needs approval").
+        "tools" -> Shell(tablet, items = ChatPreviewData.toolsTranscript, busy = true, awaitingToolIds = setOf("tool-await"))
         // Orchestration: a workflow live and settled, waiting at a checkpoint,
         // continued in a later turn and stopped, a workflow that never
         // started, and a transcript with two runs mixed into ordinary
@@ -341,11 +344,13 @@ private fun Shell(
     workflowGate: WorkflowGate = WorkflowGate(),
     thinking: ThinkingControl? = previewThinking(ChatPreviewData.configOptions),
     thinkingFrame: ThinkingFrame? = null,
+    awaitingToolIds: Set<String> = emptySet(),
 ) {
     if (tablet) {
         SplitShell(
             items = items,
             busy = busy,
+            awaitingToolIds = awaitingToolIds,
             composerText = composerText,
             workflowGate = workflowGate,
             thinking = thinking,
@@ -355,6 +360,7 @@ private fun Shell(
         Chat(
             items = items,
             busy = busy,
+            awaitingToolIds = awaitingToolIds,
             composerText = composerText,
             workflowGate = workflowGate,
             thinking = thinking,
@@ -436,6 +442,7 @@ private fun SplitShell(
     workflowGate: WorkflowGate = WorkflowGate(),
     thinking: ThinkingControl? = previewThinking(ChatPreviewData.configOptions),
     thinkingFrame: ThinkingFrame? = null,
+    awaitingToolIds: Set<String> = emptySet(),
 ) {
     val colors = LocalSpettroColors.current
     Row(Modifier.fillMaxSize()) {
@@ -448,6 +455,7 @@ private fun SplitShell(
                 Chat(
                     items = items,
                     busy = busy,
+                    awaitingToolIds = awaitingToolIds,
                     showBack = false,
                     composerText = composerText,
                     workflowGate = workflowGate,
@@ -470,6 +478,7 @@ private fun Chat(
     workflowGate: WorkflowGate = WorkflowGate(),
     thinking: ThinkingControl? = null,
     thinkingFrame: ThinkingFrame? = null,
+    awaitingToolIds: Set<String> = emptySet(),
 ) {
     var text by remember { mutableStateOf(composerText) }
     ChatScreen(
@@ -510,6 +519,9 @@ private fun Chat(
         onSwitchPermission = {},
         thinking = thinking,
         thinkingFrame = thinkingFrame,
+        projectPath = "/Users/dev/spettro",
+        awaitingToolIds = awaitingToolIds,
+        awaitingApproval = awaitingToolIds.isNotEmpty(),
     )
 }
 

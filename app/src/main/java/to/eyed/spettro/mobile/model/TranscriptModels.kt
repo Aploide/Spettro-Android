@@ -175,6 +175,13 @@ data class ToolCallItem(
         val newText: String,
     ) {
         /**
+         * The real line diff, worked out once per diff: the session replaces
+         * a diff whenever it changes and never mutates one, so a row that
+         * recomposes on every streamed chunk doesn't re-diff a whole file.
+         */
+        val unified: UnifiedDiff.Diff by lazy { UnifiedDiff.of(oldText, newText) }
+
+        /**
          * The lines that actually changed: both sides with the common leading
          * and trailing lines stripped. Not a real diff, but tight enough that
          * small edits show only their changed region.
@@ -249,19 +256,43 @@ data class ToolCallItem(
         return null
     }
 
-    /** A short verb for the row label, e.g. "Terminal" / "Read". */
+    /**
+     * The row's bold verb, Claude Code-style (the desktop's displayName):
+     * what the agent did, in one word where one will do — Read, Edit,
+     * Write, Bash, Search, Fetch, Think, Agent. The ACP kind picks the
+     * family; the tool's own name tells apart the members that read
+     * differently.
+     */
     val displayName: String
         get() {
-            val name = parsedTitle().name
+            val (_, name, args) = parsedTitle()
+            if (askedQuestion(args) != null || ASK_USER.matches(name)) return "Ask"
             return when (kind) {
-                "execute" -> "Terminal"
-                "read" -> "Read"
-                "edit" -> "Edit"
+                "execute" -> when {
+                    name.startsWith("pty") -> "Terminal"
+                    name == "job-kill" -> "Stop job"
+                    else -> "Bash"
+                }
+                "read" -> when (name) {
+                    "view-image" -> "View"
+                    "skill" -> "Skill"
+                    "job-output", "tool-output" -> "Output"
+                    else -> "Read"
+                }
+                "edit" -> when (name) {
+                    "file-write", "write" -> "Write"
+                    "rename-symbol" -> "Rename"
+                    else -> "Edit"
+                }
                 "delete" -> "Delete"
                 "move" -> "Move"
                 "search" -> if (name == "ls") "List" else "Search"
-                "fetch" -> "Fetch"
-                "think" -> if (name.startsWith("agent")) "Agent" else "Plan"
+                "fetch" -> if (name == "web-search") "Web search" else "Fetch"
+                "think" -> when {
+                    name.startsWith("agent") -> "Agent"
+                    name == "todo-write" -> "Todos"
+                    else -> "Think"
+                }
                 "switch_mode" -> "Mode"
                 else -> if (name.isEmpty()) "Tool" else name.split(" ")
                     .joinToString(" ") { word ->
@@ -269,6 +300,86 @@ data class ToolCallItem(
                     }
             }
         }
+
+    /**
+     * The mono argument after a row's verb (the desktop's rowArgument): the
+     * question an ask-user call put, a command's first line, a search's
+     * pattern and where it looked, a file's base name — the full path is in
+     * the opened panel. Unlike [displayDetail] it drops the `[agent#n]`
+     * prefix: a row nested under its agent already says whose it is. Cut in
+     * the middle at [ToolPresentation.ROW_ARGUMENT_MAX].
+     */
+    val rowArgument: String
+        get() {
+            val (agent, name, args) = parsedTitle()
+            var text: String? = askedQuestion(args)
+            if (text == null && (kind == "execute" || name == "bash" || name == "shell" || name == "exec")) {
+                argString(args, "command", "cmd")?.let { command ->
+                    val lines = command.trim().split("\n")
+                    text = if (lines.size > 1) "${lines[0]} …" else lines[0]
+                }
+            }
+            if (text == null) {
+                val path = argString(args, "path", "file", "file_path", "filename") ?: locations.firstOrNull()?.path
+                val pattern = argString(args, "pattern", "query", "regex")
+                text = when {
+                    pattern != null -> if (path != null) "$pattern in ${ToolPresentation.baseName(path)}" else pattern
+                    path != null -> ToolPresentation.baseName(path)
+                    else -> null
+                }
+            }
+            val shown = text ?: run {
+                val detail = displayDetail
+                val prefix = agent?.let { "[$it] " }
+                if (prefix != null && detail.startsWith(prefix)) detail.removePrefix(prefix) else detail
+            }
+            return ToolPresentation.middleTruncate(shown.replace("\n", " ⏎ "), ToolPresentation.ROW_ARGUMENT_MAX)
+        }
+
+    /**
+     * The muted note at a row's right edge (the desktop's rowMeta): "denied",
+     * "exit 1" or "failed", "42 lines" for a read, "3 results" or "no
+     * results" for a search. Null when there is nothing worth saying.
+     */
+    val rowMeta: String?
+        get() {
+            if (status == AcpToolStatus.FAILED && denied) return "denied"
+            if (status == AcpToolStatus.FAILED) {
+                val code = if (kind == "execute") ToolPresentation.exitCode(output) else null
+                return if (code != null) "exit $code" else "failed"
+            }
+            if (status != AcpToolStatus.COMPLETED) return null
+            if (kind == "execute") {
+                val code = ToolPresentation.exitCode(output)
+                return if (code != null && code != 0) "exit $code" else null
+            }
+            val trimmed = output.trimEnd()
+            if (trimmed.isEmpty()) return null
+            val n = trimmed.count { it == '\n' } + 1
+            return when (displayName) {
+                "Read" -> if (n == 1) "1 line" else "$n lines"
+                "Search", "List" -> when {
+                    NO_RESULTS.containsMatchIn(output) -> "no results"
+                    n == 1 -> "1 result"
+                    else -> "$n results"
+                }
+                else -> null
+            }
+        }
+
+    /** The command a shell call ran, for the opened panel's `$ …` line. */
+    val shellCommand: String?
+        get() {
+            if (kind != "execute") return null
+            return argString(parsedTitle().args, "command", "cmd")?.trim()?.takeIf { it.isNotEmpty() }
+        }
+
+    /** The first question an ask-user call put (its `questions[].question`). */
+    private fun askedQuestion(args: JsonObject?): String? {
+        val questions = args?.get("questions") as? kotlinx.serialization.json.JsonArray ?: return null
+        val first = questions.firstOrNull() as? JsonObject ?: return null
+        return first["question"].asString?.trim()?.takeIf { it.isNotEmpty() }
+    }
 
     /**
      * The one-line human detail: the shell command, the file's short path,
@@ -381,8 +492,8 @@ data class ToolCallItem(
         }
 
     /**
-     * Added/removed line counts across this call's diffs, with the unchanged
-     * prefix/suffix trimmed so pure insertions don't count the whole file.
+     * Added/removed line counts across this call's diffs, from the real
+     * diff: unchanged lines between two edits are not churn.
      */
     data class DiffStat(val added: Int, val removed: Int)
 
@@ -392,9 +503,8 @@ data class ToolCallItem(
             var added = 0
             var removed = 0
             for (diff in diffs) {
-                val (old, new) = diff.changedLines
-                removed += old.size
-                added += new.size
+                removed += diff.unified.removed
+                added += diff.unified.added
             }
             return DiffStat(added, removed)
         }
@@ -437,11 +547,10 @@ data class ToolCallItem(
         }
 
         /** Collapses an absolute path to its last few meaningful components. */
-        fun shortPath(path: String): String {
-            val parts = path.split("/").filter { it.isNotEmpty() }
-            if (parts.size <= 3) return path
-            return parts.takeLast(3).joinToString("/")
-        }
+        fun shortPath(path: String): String = ToolPresentation.shortPath(path)
+
+        private val ASK_USER = Regex("^ask[- ](?:the[- ])?user$", RegexOption.IGNORE_CASE)
+        private val NO_RESULTS = Regex("^\\s*no (matches|results|files)", RegexOption.IGNORE_CASE)
     }
 }
 

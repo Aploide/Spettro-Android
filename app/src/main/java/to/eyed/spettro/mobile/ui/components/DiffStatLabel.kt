@@ -40,8 +40,9 @@ fun DiffStatLabel(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("+$added", color = colors.success, style = style)
-        Text("-$removed", color = colors.danger, style = style)
+        // Only the sides that moved, as the desktop's label: "+3", not "+3 −0".
+        if (added > 0) Text("+$added", color = colors.success, style = style)
+        if (removed > 0) Text("−$removed", color = colors.danger, style = style)
     }
 }
 

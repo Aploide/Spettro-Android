@@ -161,6 +161,41 @@ internal object ChatPreviewData {
         streamingAssistant,
     )
 
+    private val bigOld = (1..40).joinToString("\n") { "    val line$it = compute($it)" }
+    private val bigNew = bigOld
+        .replace("    val line6 = compute(6)", "    val line6 = compute(6, cached = true)")
+        .replace("    val line31 = compute(31)", "    val line31 = compute(31)\n    check(line31 > 0)")
+
+    /**
+     * A turn's tools as the desktop draws them: three reads and a search
+     * folded into one line, an edit touching two places, a failed command
+     * with its exit status, and a command waiting on the user's approval.
+     */
+    val toolsTranscript: List<TranscriptItem> = listOf(
+        userMessage,
+        TranscriptItem.Tool(readTool),
+        TranscriptItem.Tool(readTool.copy(id = "tool-read-2", title = """file-read {"path":"/Users/dev/spettro/Core/Remote/RemoteApi.kt"}""", output = "a\nb\nc")),
+        TranscriptItem.Tool(ToolCallItem(id = "tool-grep", title = """grep {"pattern":"agentReady","path":"/Users/dev/spettro/app/src"}""", kind = "search", status = AcpToolStatus.COMPLETED, output = "a.kt:12\nb.kt:40\nc.kt:7")),
+        TranscriptItem.Tool(
+            ToolCallItem(
+                id = "tool-edit-2",
+                title = """file-edit {"path":"/Users/dev/spettro/app/src/main/java/Resume.kt"}""",
+                kind = "edit",
+                status = AcpToolStatus.COMPLETED,
+                diffs = listOf(ToolCallItem.ToolDiff("/Users/dev/spettro/app/src/main/java/Resume.kt", bigOld, bigNew)),
+            ),
+        ),
+        TranscriptItem.Tool(failedTool.copy(output = failedTool.output + "\n[exit status 1]")),
+        TranscriptItem.Tool(
+            ToolCallItem(
+                id = "tool-await",
+                title = """bash {"command":"git push --force-with-lease origin fix/resume"}""",
+                kind = "execute",
+                status = AcpToolStatus.PENDING,
+            ),
+        ),
+    )
+
     val plan = listOf(
         AcpPlanEntry("Reproduce the resume crash", status = "completed"),
         AcpPlanEntry("Guard navigation on agentReady", status = "completed"),

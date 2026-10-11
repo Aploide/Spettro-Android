@@ -71,6 +71,9 @@ import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpUsage
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.RunPhase
+import to.eyed.spettro.mobile.model.DisplayRow
+import to.eyed.spettro.mobile.model.ToolGroups
+import androidx.compose.runtime.CompositionLocalProvider
 import to.eyed.spettro.mobile.model.TranscriptItem
 import to.eyed.spettro.mobile.ui.components.RunTicker
 import to.eyed.spettro.mobile.model.TranscriptRow
@@ -136,6 +139,8 @@ fun ChatScreen(
     thinkingFrame: ThinkingFrame? = null,
     awaitingApproval: Boolean = false,
     awaitingAnswer: Boolean = false,
+    projectPath: String? = null,
+    awaitingToolIds: Set<String> = emptySet(),
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -151,7 +156,14 @@ fun ChatScreen(
     // strip needs the same answer, and the fold walks the whole transcript
     // twice: doing it per surface would double that on every streamed chunk.
     val rows = remember(items) { groupTranscript(items) }
+    // Then runs of finished reads and searches fold to one line ("Read 5
+    // files, searched 2 patterns"); the live strip keeps the unfolded rows.
+    val display = remember(rows) { ToolGroups.fold(rows) }
 
+    CompositionLocalProvider(
+        LocalProjectPath provides projectPath,
+        LocalAwaitingTools provides awaitingToolIds,
+    ) {
     Scaffold(
         modifier = modifier,
         containerColor = colors.canvas,
@@ -223,7 +235,7 @@ fun ChatScreen(
             } else {
                 Box(Modifier.weight(1f)) {
                     Transcript(
-                        rows = rows,
+                        rows = display,
                         modifier = Modifier.fillMaxSize(),
                         ticker = if (isBusy && runStartedAt != null) {
                             {
@@ -291,6 +303,8 @@ fun ChatScreen(
         }
     }
 
+    }
+
     if (confirmingDelete) {
         DeleteChatDialog(
             title = title,
@@ -336,7 +350,7 @@ private fun ReadableColumn(content: @Composable () -> Unit) {
  */
 @Composable
 private fun Transcript(
-    rows: List<TranscriptRow>,
+    rows: List<DisplayRow>,
     modifier: Modifier,
     ticker: (@Composable () -> Unit)? = null,
 ) {
@@ -370,7 +384,10 @@ private fun Transcript(
     ) {
         items(rows, key = { it.id }) { row ->
             ReadableColumn {
-                TranscriptRowView(row = row)
+                when (row) {
+                    is DisplayRow.Row -> TranscriptRowView(row = row.row)
+                    is DisplayRow.Tools -> ToolGroupRow(group = row)
+                }
             }
         }
         if (ticker != null) {

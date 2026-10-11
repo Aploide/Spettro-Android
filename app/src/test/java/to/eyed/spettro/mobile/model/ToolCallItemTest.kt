@@ -25,7 +25,7 @@ class ToolCallItemTest {
     @Test
     fun bashTitleWithAgentPrefixShowsCommand() {
         val t = item("""[agent#1] bash {"command":"ls -la"}""", kind = "execute")
-        assertEquals("Terminal", t.displayName)
+        assertEquals("Bash", t.displayName)
         assertEquals("[agent#1] ls -la", t.displayDetail)
         assertEquals(ToolIcon.EXECUTE, t.icon)
     }

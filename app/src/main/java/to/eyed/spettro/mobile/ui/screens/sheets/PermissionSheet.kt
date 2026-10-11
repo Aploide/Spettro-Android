@@ -60,7 +60,7 @@ import to.eyed.spettro.mobile.core.acp.AcpPermissionRequest
 import to.eyed.spettro.mobile.core.acp.AcpToolContent
 import to.eyed.spettro.mobile.model.Prompts
 import to.eyed.spettro.mobile.model.ToolCallItem
-import to.eyed.spettro.mobile.ui.screens.chat.ToolDiffView
+import to.eyed.spettro.mobile.ui.screens.chat.DiffView
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.MonoSmall
@@ -107,7 +107,7 @@ fun PermissionSheet(
 }
 
 /** The headline's icon, by kind. */
-private fun iconFor(request: AcpPermissionRequest): ImageVector = when {
+internal fun permissionIcon(request: AcpPermissionRequest): ImageVector = when {
     request.isCompact -> Icons.Outlined.Compress
     else -> when (request.toolKind) {
         "execute" -> Icons.Outlined.Terminal
@@ -123,7 +123,7 @@ private fun iconFor(request: AcpPermissionRequest): ImageVector = when {
 }
 
 /** Fence languages that are a shell command, drawn with a `$ ` prompt. */
-private val SHELL_LANGS = setOf("sh", "bash", "shell", "zsh", "console")
+internal val SHELL_LANGS = setOf("sh", "bash", "shell", "zsh", "console")
 
 @Composable
 internal fun PermissionSheetContent(
@@ -158,7 +158,7 @@ internal fun PermissionSheetContent(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.Top,
         ) {
-            PromptIconTile(icon = iconFor(request))
+            PromptIconTile(icon = permissionIcon(request))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = Prompts.permissionHeadline(request),
@@ -214,9 +214,13 @@ internal fun PermissionSheetContent(
                 }
             }
             if (request.diffs.isNotEmpty()) {
-                ToolDiffView(
-                    diffs = request.diffs.map { ToolCallItem.ToolDiff(it.path, it.oldText, it.newText) },
-                )
+                request.diffs.forEach {
+                    DiffView(
+                        diff = ToolCallItem.ToolDiff(it.path, it.oldText, it.newText),
+                        maxLines = 30,
+                        moreLabel = "Show full diff",
+                    )
+                }
             }
             for (location in locations) {
                 Text(
