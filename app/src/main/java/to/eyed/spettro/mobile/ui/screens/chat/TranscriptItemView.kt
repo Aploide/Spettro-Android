@@ -1,5 +1,22 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
+import to.eyed.spettro.mobile.core.ErrorActionKind
+import to.eyed.spettro.mobile.core.humanizeError
+import to.eyed.spettro.mobile.ui.components.SpettroMenu
+import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
 import to.eyed.spettro.mobile.ui.theme.SpettroMotion
 import to.eyed.spettro.mobile.ui.components.activationAnnotated
 import to.eyed.spettro.mobile.ui.components.Shimmer
@@ -73,6 +90,29 @@ import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
 /**
+ * What a transcript row can ask of the chat around it (the desktop's
+ * TranscriptActions). Rows are drawn in places other than the chat too —
+ * a workflow card's members, the previews — and only the chat can fill a
+ * composer or resend a prompt, so the actions come from here rather than
+ * parameters: where they're absent a row simply doesn't offer them.
+ */
+@Immutable
+data class TranscriptActions(
+    /** Puts a sent message's text back in the composer ("Edit & resend"). */
+    val editMessage: ((String) -> Unit)? = null,
+    /** Sends the last prompt again ("Try again" on a failed turn). */
+    val retry: (() -> Unit)? = null,
+    /** Opens Models & providers: the fix for an error about the model. */
+    val openProviders: (() -> Unit)? = null,
+    /** The newest user message: the only one that offers Edit & resend. */
+    val lastUserMessageId: String? = null,
+    /** The error that ended the last turn, while nothing runs: the only one with Try again. */
+    val retryNoticeId: String? = null,
+)
+
+val LocalTranscriptActions = compositionLocalOf { TranscriptActions() }
+
+/**
  * Dispatches a transcript entry to the right renderer: a right-aligned
  * neutral bubble for the user, full-width markdown prose for the assistant, a
  * one-line disclosure for streamed reasoning, a muted line for notices (an
@@ -122,15 +162,23 @@ private fun UserBubble(message: ChatMessage, modifier: Modifier) {
                 modifier = Modifier.fillMaxWidth(0.85f),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                Text(
-                    text = activationAnnotated(message.text),
-                    style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
-                    color = colors.textPrimary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(Dimens.radiusBubble))
-                        .background(colors.userBubble)
-                        .padding(horizontal = Dimens.spacingLg, vertical = 10.dp),
-                )
+                val actions = LocalTranscriptActions.current
+                val canEdit = actions.editMessage != null && actions.lastUserMessageId == message.id
+                MessageActions(
+                    text = message.text,
+                    onEdit = if (canEdit) ({ actions.editMessage?.invoke(message.text) }) else null,
+                ) { onLongPress ->
+                    Text(
+                        text = activationAnnotated(message.text),
+                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+                        color = colors.textPrimary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(Dimens.radiusBubble))
+                            .background(colors.userBubble)
+                            .then(onLongPress)
+                            .padding(horizontal = Dimens.spacingLg, vertical = 10.dp),
+                    )
+                }
             }
         }
         SteeringCaption(message.steering)
@@ -230,13 +278,65 @@ private fun rememberAttachmentBitmap(attachment: ImageAttachment): ImageBitmap? 
 // bubble chrome and no avatar — the agent's output owns the whole column.
 @Composable
 private fun AssistantProse(message: ChatMessage, modifier: Modifier) {
-    Column(
-        modifier = modifier.fillMaxWidth().padding(top = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
-    ) {
-        MarkdownText(text = message.text)
-        if (message.isStreaming) {
-            TypingDots()
+    MessageActions(text = message.text, onEdit = null, enabled = !message.isStreaming) { onLongPress ->
+        Column(
+            modifier = modifier.fillMaxWidth().then(onLongPress).padding(top = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
+        ) {
+            MarkdownText(text = message.text)
+            if (message.isStreaming) {
+                TypingDots()
+            }
+        }
+    }
+}
+
+/**
+ * A message's actions, the phone's way: the desktop shows Copy (and, on the
+ * newest user message, Edit & resend) on hover; here a long press opens
+ * them as a menu at the message. [content] gets the modifier that listens.
+ */
+@Composable
+private fun MessageActions(
+    text: String,
+    onEdit: (() -> Unit)?,
+    enabled: Boolean = true,
+    content: @Composable (Modifier) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    val haptics = LocalHapticFeedback.current
+    val listen = if (enabled && text.isNotEmpty()) {
+        Modifier.pointerInput(text) {
+            detectTapGestures(onLongPress = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                open = true
+            })
+        }
+    } else {
+        Modifier
+    }
+    Box {
+        content(listen)
+        SpettroMenu(expanded = open, onDismissRequest = { open = false }) {
+            SpettroMenuItem(
+                text = "Copy",
+                icon = Icons.Outlined.ContentCopy,
+                onClick = {
+                    open = false
+                    clipboard.setText(AnnotatedString(text))
+                },
+            )
+            if (onEdit != null) {
+                SpettroMenuItem(
+                    text = "Edit & resend",
+                    icon = Icons.Outlined.Edit,
+                    onClick = {
+                        open = false
+                        onEdit()
+                    },
+                )
+            }
         }
     }
 }
@@ -363,7 +463,9 @@ private fun NoticeCard(message: ChatMessage, isError: Boolean, modifier: Modifie
                     text = message.text,
                     style = TextStyle(fontSize = 13.5.sp, lineHeight = 19.5.sp),
                     color = colors.textPrimary,
+                    modifier = Modifier.weight(1f),
                 )
+                ErrorNextStep(message)
             }
         }
         return
@@ -386,6 +488,47 @@ private fun NoticeCard(message: ChatMessage, isError: Boolean, modifier: Modifie
             style = MaterialTheme.typography.bodyMedium,
             color = colors.textTertiary,
         )
+    }
+}
+
+/**
+ * The error card's next step, as the desktop picks it: when resending can't
+ * help — no model connected, the model unavailable — the fix ("Connect…",
+ * "Choose a model…"); otherwise Try again, on the error that ended the last
+ * turn only.
+ */
+@Composable
+private fun ErrorNextStep(message: ChatMessage) {
+    val actions = LocalTranscriptActions.current
+    val human = remember(message.text) { humanizeError(message.text) }
+    val action = human.action
+    val opensProviders = action != null &&
+        (action.kind == ErrorActionKind.Connect || action.kind == ErrorActionKind.Models)
+    when {
+        opensProviders && actions.openProviders != null ->
+            ErrorButton(label = "${action!!.label}…", icon = null, onClick = actions.openProviders)
+        !opensProviders && actions.retry != null && actions.retryNoticeId == message.id ->
+            ErrorButton(label = "Try again", icon = Icons.Outlined.Refresh, onClick = actions.retry)
+    }
+}
+
+/** The error card's trailing button (`.tr-error-retry`): outlined, 28dp (36 for a thumb). */
+@Composable
+private fun ErrorButton(label: String, icon: ImageVector?, onClick: () -> Unit) {
+    val colors = LocalSpettroColors.current
+    val shape = RoundedCornerShape(Dimens.radiusSm)
+    Row(
+        modifier = Modifier
+            .heightIn(min = 36.dp)
+            .clip(shape)
+            .border(Dimens.hairlineWidth, colors.hairline, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) Icon(icon, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(13.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = colors.textPrimary, maxLines = 1)
     }
 }
 

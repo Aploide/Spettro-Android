@@ -207,6 +207,16 @@ fun humanizeError(message: String?, ctx: HumanizeContext = HumanizeContext()): H
     return HumanError("Something went wrong", asSentence(detail), null, raw, known = false)
 }
 
+/**
+ * [message] as one line for the transcript (the desktop's humanSentence): a
+ * recognised failure's title and what to do; otherwise the message itself,
+ * as a sentence.
+ */
+fun humanSentence(message: String?, ctx: HumanizeContext = HumanizeContext()): String {
+    val human = humanizeError(message, ctx)
+    return if (human.known) "${human.title}. ${human.detail}" else human.detail
+}
+
 private fun asSentence(text: String): String {
     val t = text.replaceFirstChar { it.uppercaseChar() }
     return if (t.last() in ".!?…)") t else "$t."

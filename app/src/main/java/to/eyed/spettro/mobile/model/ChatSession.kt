@@ -387,12 +387,14 @@ class ChatSession(
         text: String,
         attachments: List<ImageAttachment> = emptyList(),
         steering: ChatMessage.Steering? = null,
+        mentions: List<String> = emptyList(),
     ): ChatMessage {
         val message = ChatMessage(
             role = ChatMessage.Role.User,
             text = text,
             attachments = attachments,
             steering = steering,
+            mentions = mentions,
         )
         if (steering == null) beginTurn()
         _items.value = _items.value + TranscriptItem.Message(message)
@@ -404,9 +406,10 @@ class ChatSession(
         return message
     }
 
-    fun appendNotice(text: String, isError: Boolean) {
+    /** Appends a notice; [endsTurn] marks the error a turn ended on (it offers Try again). */
+    fun appendNotice(text: String, isError: Boolean, endsTurn: Boolean = false) {
         _items.value = _items.value +
-            TranscriptItem.Message(ChatMessage(role = ChatMessage.Role.Notice(isError), text = text))
+            TranscriptItem.Message(ChatMessage(role = ChatMessage.Role.Notice(isError), text = text, endsTurn = endsTurn))
     }
 
     /**

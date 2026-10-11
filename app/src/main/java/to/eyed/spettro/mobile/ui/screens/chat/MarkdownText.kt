@@ -1,5 +1,20 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -147,13 +162,17 @@ private fun SpettroCodeBlock(code: String, language: String?) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Dimens.spacingSm, vertical = Dimens.spacingXs + 1.dp),
+                .padding(start = Dimens.spacingSm, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = language?.takeIf { it.isNotBlank() } ?: "code",
+                // The fence's first word, as the desktop labels it.
+                text = language?.trim()?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "code",
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.textTertiary,
+                modifier = Modifier.weight(1f),
             )
+            CopyButton(text = code.trimEnd('\n'))
         }
         HairlineDivider()
         Box(modifier = Modifier.horizontalScroll(rememberScrollState())) {
@@ -165,6 +184,47 @@ private fun SpettroCodeBlock(code: String, language: String?) {
                 modifier = Modifier.padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
             )
         }
+    }
+}
+
+/** How long "Copied" stays before the button says Copy again. */
+private const val COPIED_MS = 1200L
+
+/** A code block's Copy, which says "Copied" for a moment once it has (the desktop's CopyButton). */
+@Composable
+private fun CopyButton(text: String) {
+    val colors = LocalSpettroColors.current
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(COPIED_MS)
+            copied = false
+        }
+    }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(Dimens.radiusXs))
+            .clickable {
+                clipboard.setText(AnnotatedString(text))
+                copied = true
+            }
+            .heightIn(min = 32.dp)
+            .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+            contentDescription = null,
+            tint = colors.textTertiary,
+            modifier = Modifier.size(12.dp),
+        )
+        Text(
+            text = if (copied) "Copied" else "Copy",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.textSecondary,
+        )
     }
 }
 

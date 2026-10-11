@@ -196,6 +196,19 @@ internal object ChatPreviewData {
         ),
     )
 
+    /** A turn that ended on an error: the card offers Try again. */
+    val failedTurnTranscript: List<TranscriptItem> = listOf(
+        userMessage,
+        TranscriptItem.Tool(readTool),
+        TranscriptItem.Message(
+            ChatMessage(
+                role = ChatMessage.Role.Notice(isError = true),
+                text = "The model provider is overloaded. Wait a moment, then try again.",
+                endsTurn = true,
+            ),
+        ),
+    )
+
     val plan = listOf(
         AcpPlanEntry("Reproduce the resume crash", status = "completed"),
         AcpPlanEntry("Guard navigation on agentReady", status = "completed"),

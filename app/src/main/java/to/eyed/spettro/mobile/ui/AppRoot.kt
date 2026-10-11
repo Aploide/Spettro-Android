@@ -364,6 +364,15 @@ private fun RemoteNavigator(
         model.sendPrompt(text, images)
     }
 
+    // Where Providers goes back to: Settings, or the screen an error card
+    // or toast opened it from.
+    var providersBack by rememberSaveable { mutableStateOf(RemoteScreen.Settings) }
+    val openProviders = {
+        model.refreshProviders()
+        providersBack = if (screen == RemoteScreen.Settings) RemoteScreen.Settings else screen
+        screen = RemoteScreen.Providers
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val isExpanded = maxWidth >= ExpandedMinWidth && maxHeight >= ExpandedMinHeight
 
@@ -411,6 +420,7 @@ private fun RemoteNavigator(
                                 session,
                                 showBack = false,
                                 onBack = { model.closeChat() },
+                                onOpenProviders = openProviders,
                             )
                         }
                     } else {
@@ -435,12 +445,15 @@ private fun RemoteNavigator(
                             reconnecting = reconnecting,
                             agentReady = agentReady,
                             onDisconnect = onDisconnect,
-                            onOpenProviders = { screen = RemoteScreen.Providers },
+                            onOpenProviders = {
+                            providersBack = RemoteScreen.Settings
+                            screen = RemoteScreen.Providers
+                        },
                             onBack = { screen = RemoteScreen.ChatList },
                         )
                     } else {
-                        BackHandler { screen = RemoteScreen.Settings }
-                        ProvidersHost(model = model, onBack = { screen = RemoteScreen.Settings })
+                        BackHandler { screen = providersBack }
+                        ProvidersHost(model = model, onBack = { screen = providersBack })
                     }
                 }
             }
@@ -471,10 +484,15 @@ private fun RemoteNavigator(
                         // Keyed so per-chat UI state (scroll position, composer
                         // draft) resets when a different chat opens.
                         key(session.chatId) {
-                            RemoteChatHost(model, session, onBack = {
-                                model.closeChat()
-                                screen = RemoteScreen.ChatList
-                            })
+                            RemoteChatHost(
+                                model,
+                                session,
+                                onBack = {
+                                    model.closeChat()
+                                    screen = RemoteScreen.ChatList
+                                },
+                                onOpenProviders = openProviders,
+                            )
                         }
                     }
                 }
@@ -498,14 +516,17 @@ private fun RemoteNavigator(
                         reconnecting = reconnecting,
                         agentReady = agentReady,
                         onDisconnect = onDisconnect,
-                        onOpenProviders = { screen = RemoteScreen.Providers },
+                        onOpenProviders = {
+                            providersBack = RemoteScreen.Settings
+                            screen = RemoteScreen.Providers
+                        },
                         onBack = { screen = RemoteScreen.ChatList },
                     )
                 }
 
                 RemoteScreen.Providers -> {
-                    BackHandler { screen = RemoteScreen.Settings }
-                    ProvidersHost(model = model, onBack = { screen = RemoteScreen.Settings })
+                    BackHandler { screen = providersBack }
+                    ProvidersHost(model = model, onBack = { screen = providersBack })
                 }
             }
         }
@@ -535,10 +556,7 @@ private fun RemoteNavigator(
         }
 
         RemotePromptOverlays(model)
-        BannerOverlay(model, onOpenProviders = {
-            model.refreshProviders()
-            screen = RemoteScreen.Providers
-        })
+        BannerOverlay(model, onOpenProviders = openProviders)
         ReconnectingPill(visible = reconnecting)
     }
 }
@@ -974,6 +992,7 @@ private fun RemoteChatHost(
     session: ChatSession,
     onBack: () -> Unit,
     showBack: Boolean = true,
+    onOpenProviders: () -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
     val scope = rememberCoroutineScope()
@@ -1101,6 +1120,10 @@ private fun RemoteChatHost(
         // "What should Spettro do instead?" goes as the next message, or as
         // guidance to the turn still running.
         onDeniedFeedback = { model.sendPrompt(it) },
+        // Edit & resend fills the composer; it deletes nothing.
+        onEditMessage = { composerText = it },
+        onRetry = { model.retryLast() },
+        onOpenProviders = onOpenProviders,
         onDelete = {
             model.deleteChat(session.chatId)
             onBack()

@@ -71,6 +71,7 @@ import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpUsage
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.RunPhase
+import to.eyed.spettro.mobile.model.TranscriptAnchors
 import to.eyed.spettro.mobile.model.DisplayRow
 import to.eyed.spettro.mobile.model.ToolGroups
 import androidx.compose.runtime.CompositionLocalProvider
@@ -146,6 +147,9 @@ fun ChatScreen(
     prompts: List<DockPrompt> = emptyList(),
     onPromptReply: (DockReply) -> Unit = {},
     onDeniedFeedback: (String) -> Unit = {},
+    onEditMessage: ((String) -> Unit)? = null,
+    onRetry: (() -> Unit)? = null,
+    onOpenProviders: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -169,9 +173,17 @@ fun ChatScreen(
             ?.let { (it as TranscriptItem.Message).message.id }
     }
 
+    val anchors = remember(items, isBusy) { TranscriptAnchors.of(items, isBusy) }
     CompositionLocalProvider(
         LocalProjectPath provides projectPath,
         LocalAwaitingTools provides awaitingToolIds,
+        LocalTranscriptActions provides TranscriptActions(
+            editMessage = onEditMessage,
+            retry = onRetry,
+            openProviders = onOpenProviders,
+            lastUserMessageId = anchors.lastUserMessageId,
+            retryNoticeId = anchors.retryNoticeId,
+        ),
     ) {
     Scaffold(
         modifier = modifier,

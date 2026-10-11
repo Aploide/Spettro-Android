@@ -41,6 +41,7 @@ object RemoteMethod {
     const val CHATS_NEW = "_spettro/remote/chats/new"
     const val CHATS_DELETE = "_spettro/remote/chats/delete"
     const val CHATS_FLAG = "_spettro/remote/chats/flag"
+    const val CHATS_RENAME = "_spettro/remote/chats/rename"
 
     // Driving a turn.
     const val CHATS_PROMPT = "_spettro/remote/chats/prompt"
@@ -68,6 +69,7 @@ object RemoteMethod {
 
     // Projects.
     const val PROJECTS_LIST = "_spettro/remote/projects/list"
+    const val PROJECT_FILES = "_spettro/remote/projects/files"
 }
 
 /**

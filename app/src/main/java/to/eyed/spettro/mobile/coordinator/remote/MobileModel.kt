@@ -20,6 +20,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import to.eyed.spettro.mobile.core.ErrorActionKind
 import to.eyed.spettro.mobile.core.humanizeError
+import to.eyed.spettro.mobile.core.humanSentence
 import to.eyed.spettro.mobile.core.acp.AcpAccountStatus
 import to.eyed.spettro.mobile.core.acp.AcpExtensionMethod
 import to.eyed.spettro.mobile.core.acp.AcpLocalProbeResult
@@ -364,7 +365,7 @@ class MobileModel(
                 if (notification.stopReason != null) session.endRun(notification.stopReason)
                 if (!notification.chat.isBusy && notification.stopReason == null) session.setBusy(false)
                 notification.notice?.takeIf { it.text.isNotEmpty() }
-                    ?.let { session.appendNotice(it.text, it.isError) }
+                    ?.let { session.appendNotice(it.text, it.isError, endsTurn = notification.stopReason != null) }
             }
             else -> Unit
         }
@@ -606,28 +607,55 @@ class MobileModel(
      * running agent, which reads it at its next step. It is drawn as
      * "sending" until the CLI's acknowledgement moves it along, and the
      * turn keeps its clock.
+     *
+     * [mentions] are the project files the text @-mentions; they go only to
+     * a host with [RemoteFeature.MENTIONS], which hands each to the agent as
+     * a file to read. An older host gets the text alone, "@path" and all.
      */
-    fun sendPrompt(text: String, attachments: List<ImageAttachment> = emptyList()): Boolean {
+    fun sendPrompt(
+        text: String,
+        attachments: List<ImageAttachment> = emptyList(),
+        mentions: List<String> = emptyList(),
+    ): Boolean {
         val session = _openChat.value ?: return false
-        if (client.state.value !is RemoteState.Connected) return false
+        val connected = client.state.value as? RemoteState.Connected ?: return false
+        val sentMentions = if (connected.has(RemoteFeature.MENTIONS)) mentions.distinct() else emptyList()
         // Optimistic: we draw our own message; the host will not echo it back.
         val steering = if (session.isBusy.value) ChatMessage.Steering.SENDING else null
-        val message = session.appendUserMessage(text, attachments, steering)
+        val message = session.appendUserMessage(text, attachments, steering, sentMentions)
         if (steering == null) session.beginRun()
         val blocks = buildList {
             if (text.isNotBlank()) add(textBlock(text))
             attachments.forEach { add(imageBlock(it)) }
         }
         scope.launch {
-            runCatching { api.prompt(session.chatId, blocks) }
+            runCatching { api.prompt(session.chatId, blocks, sentMentions) }
                 .onFailure {
                     // A steer that didn't go is a plain message; the turn
                     // it meant to steer carries on.
                     if (steering != null) session.setSteering(message.id, null) else session.endRun()
-                    session.appendNotice("Send failed: ${it.message}", isError = true)
+                    session.appendNotice(
+                        "Your message didn’t go. ${humanSentence(it.message)}",
+                        isError = true,
+                        endsTurn = steering == null,
+                    )
                 }
         }
         return true
+    }
+
+    /**
+     * Sends the open chat's last message again — Try again on the error a
+     * turn ended on (the desktop's retryLast). False when there is nothing
+     * to resend, or no connection to send it on.
+     */
+    fun retryLast(): Boolean {
+        val session = _openChat.value ?: return false
+        if (session.isBusy.value) return false
+        val last = session.items.value.lastOrNull {
+            it is to.eyed.spettro.mobile.model.TranscriptItem.Message && it.message.role == ChatMessage.Role.User
+        } as? to.eyed.spettro.mobile.model.TranscriptItem.Message ?: return false
+        return sendPrompt(last.message.text, last.message.attachments, last.message.mentions)
     }
 
     fun cancelRun() {

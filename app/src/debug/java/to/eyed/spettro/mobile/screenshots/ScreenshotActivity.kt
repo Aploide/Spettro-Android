@@ -168,6 +168,8 @@ private fun Scene(scene: String, tablet: Boolean) {
     when (scene) {
         "chat" -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
         "chat_busy" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true)
+        // A turn that ended on an error, with Try again on its card.
+        "error" -> Shell(tablet, items = ChatPreviewData.failedTurnTranscript, busy = false)
         // Tool rows: reads folded into one line, a two-hunk edit, a failed
         // command, and one waiting on approval (amber, "Needs approval").
         "tools" -> Shell(tablet, items = ChatPreviewData.toolsTranscript, busy = true, awaitingToolIds = setOf("tool-await"))
@@ -545,6 +547,9 @@ private fun Chat(
         awaitingApproval = awaitingToolIds.isNotEmpty() || prompts.any { it is DockPrompt.Permission },
         awaitingAnswer = prompts.any { it is DockPrompt.Question },
         prompts = prompts,
+        onEditMessage = { text = it },
+        onRetry = {},
+        onOpenProviders = {},
     )
 }
 

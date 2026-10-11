@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import to.eyed.spettro.mobile.core.SpettroJson
@@ -79,14 +80,34 @@ class RemoteApi(
     // MARK: Driving a turn
 
     /** `blocks` are ACP content blocks (`{"type":"text",...}` / `{"type":"image",...}`), verbatim. */
-    suspend fun prompt(chatID: String, blocks: List<JsonObject>) {
+    /** [mentions]: project-relative files the text @-mentions (feature `mentions`); left off when empty. */
+    suspend fun prompt(chatID: String, blocks: List<JsonObject>, mentions: List<String> = emptyList()) {
         requester(
             RemoteMethod.CHATS_PROMPT,
             buildJsonObject {
                 put("chatID", chatID)
                 putJsonArray("blocks") { blocks.forEach { add(it) } }
+                if (mentions.isNotEmpty()) putJsonArray("mentions") { mentions.forEach { add(it) } }
             },
         )
+    }
+
+    /** `chats/rename` (feature `rename`): every screen hears the new title as a chat/state. */
+    suspend fun chatsRename(chatID: String, title: String) {
+        requester(
+            RemoteMethod.CHATS_RENAME,
+            buildJsonObject {
+                put("chatID", chatID)
+                put("title", title)
+            },
+        )
+    }
+
+    /** `projects/files` (feature `projectFiles`): what the @-mention menu lists for a folder. */
+    suspend fun projectFiles(projectPath: String): List<String> {
+        val result = requester(RemoteMethod.PROJECT_FILES, buildJsonObject { put("projectPath", projectPath) })
+        val files = (result as? JsonObject)?.get("files") as? kotlinx.serialization.json.JsonArray ?: return emptyList()
+        return files.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }
     }
 
     suspend fun cancel(chatID: String) {
