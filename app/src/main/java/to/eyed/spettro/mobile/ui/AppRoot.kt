@@ -94,6 +94,7 @@ import to.eyed.spettro.mobile.core.remote.RemoteRoute
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.remote.RemoteFeature
 import to.eyed.spettro.mobile.model.ChatSession
+import to.eyed.spettro.mobile.model.Drafts
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.ImageProcessing
 import to.eyed.spettro.mobile.model.Thinking
@@ -427,12 +428,14 @@ private fun RemoteNavigator(
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     val session = openChat
                     if (session != null) {
-                        // Keyed so per-chat UI state (scroll position, composer
-                        // draft) resets when a different chat opens.
+                        // Keyed so per-chat UI state (scroll position, picked
+                        // images) resets when a different chat opens; the
+                        // draft is kept per chat in [Drafts].
                         key(session.chatId) {
                             RemoteChatHost(
                                 model,
                                 session,
+                                drafts = container.drafts,
                                 showBack = false,
                                 onBack = { model.closeChat() },
                                 onOpenProviders = openProviders,
@@ -447,6 +450,7 @@ private fun RemoteNavigator(
                             mentionFiles = newSessionFiles,
                             onChooseFolder = { showProjectPicker = true },
                             onStart = startChat,
+                            drafts = container.drafts,
                         )
                     }
                 }
@@ -501,12 +505,14 @@ private fun RemoteNavigator(
                 RemoteScreen.Chat -> {
                     val session = openChat
                     if (session != null) {
-                        // Keyed so per-chat UI state (scroll position, composer
-                        // draft) resets when a different chat opens.
+                        // Keyed so per-chat UI state (scroll position, picked
+                        // images) resets when a different chat opens; the
+                        // draft is kept per chat in [Drafts].
                         key(session.chatId) {
                             RemoteChatHost(
                                 model,
                                 session,
+                                drafts = container.drafts,
                                 onBack = {
                                     model.closeChat()
                                     screen = RemoteScreen.ChatList
@@ -528,6 +534,7 @@ private fun RemoteNavigator(
                         onChooseFolder = { showProjectPicker = true },
                         onStart = startChat,
                         onBack = { screen = RemoteScreen.ChatList },
+                        drafts = container.drafts,
                     )
                 }
 
@@ -793,10 +800,12 @@ private fun NewSessionHost(
     onChooseFolder: () -> Unit,
     onStart: suspend (String, List<ImageAttachment>, List<String>) -> Boolean,
     onBack: (() -> Unit)? = null,
+    drafts: Drafts = Drafts(),
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var text by rememberSaveable { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf(drafts.load(null)) }
+    LaunchedEffect(text) { drafts.save(null, text) }
     var attachments by remember { mutableStateOf(listOf<ImageAttachment>()) }
     var mentions by rememberSaveable { mutableStateOf(listOf<String>()) }
     var sending by remember { mutableStateOf(false) }
@@ -1033,6 +1042,7 @@ private fun RemoteChatHost(
     onOpenProviders: () -> Unit = {},
     reconnecting: Boolean = false,
     agentReady: Boolean = true,
+    drafts: Drafts = Drafts(),
 ) {
     BackHandler(onBack = onBack)
     val scope = rememberCoroutineScope()
@@ -1065,7 +1075,10 @@ private fun RemoteChatHost(
     val dockPrompts = routes.dockPermissions.map { DockPrompt.Permission(it.promptID, it.request, it.questionForm) } +
         routes.dockQuestions.map { DockPrompt.Question(it.promptID, it.request) }
 
-    var composerText by rememberSaveable(session.chatId) { mutableStateOf("") }
+    // What was typed and not sent outlives this screen: back to the list,
+    // another chat, the app closed (the desktop keeps drafts the same way).
+    var composerText by rememberSaveable(session.chatId) { mutableStateOf(drafts.load(session.chatId)) }
+    LaunchedEffect(session.chatId, composerText) { drafts.save(session.chatId, composerText) }
     // The files picked from the @-mention menu; only those still written in
     // the text when it goes are sent.
     var mentions by rememberSaveable(session.chatId) { mutableStateOf(listOf<String>()) }

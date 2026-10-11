@@ -14,6 +14,7 @@ import to.eyed.spettro.mobile.core.remote.AndroidNetworkEnvironment
 import to.eyed.spettro.mobile.core.remote.RemoteClient
 import to.eyed.spettro.mobile.core.remote.RemoteCredentialStore
 import to.eyed.spettro.mobile.core.remote.RemoteDiscovery
+import to.eyed.spettro.mobile.model.Drafts
 import to.eyed.spettro.mobile.ui.theme.ThemeStore
 
 /**
@@ -36,6 +37,9 @@ class AppContainer private constructor(context: Context) {
 
     /** The phone's appearance and accent settings. */
     val themeStore = ThemeStore(context)
+
+    /** What was typed but not sent, per chat, kept across launches. */
+    val drafts = Drafts(SharedPreferencesDraftStorage(context))
 
     /** A pairing link opened from outside the app, waiting for the UI to act on it. */
     val pendingPairingLink = MutableStateFlow<String?>(null)
@@ -83,5 +87,14 @@ class AppContainer private constructor(context: Context) {
                 "${manufacturer.replaceFirstChar { it.uppercase() }} $model"
             }
         }
+    }
+}
+
+/** [Drafts] in a SharedPreferences file; writes go to disk in the background. */
+private class SharedPreferencesDraftStorage(context: Context) : Drafts.Storage {
+    private val prefs = context.applicationContext.getSharedPreferences("spettro_drafts", Context.MODE_PRIVATE)
+    override fun get(key: String): String? = prefs.getString(key, null)
+    override fun put(key: String, value: String?) {
+        prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
     }
 }
