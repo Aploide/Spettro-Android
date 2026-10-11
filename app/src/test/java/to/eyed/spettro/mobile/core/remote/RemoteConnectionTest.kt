@@ -59,6 +59,19 @@ class EndpointPlanTest {
     }
 
     @Test
+    fun `a loopback last address is tried off Wi-Fi too`() {
+        // A USB port forward (adb reverse) reaches the computer with no
+        // network at all; 127.0.0.1 can't be someone else's machine.
+        val plan = EndpointPlan.candidates(null, "127.0.0.1", 7879, null, environment(onLocalNetwork = false))
+        assertEquals(listOf(Endpoint.Lan("127.0.0.1", 7879)), plan)
+        assertTrue(EndpointPlan.isLoopback("::1"))
+        assertTrue(EndpointPlan.isLoopback("localhost"))
+        assertTrue(EndpointPlan.isLoopback("127.1.2.3"))
+        assertFalse(EndpointPlan.isLoopback("192.168.1.20"))
+        assertFalse(EndpointPlan.isLoopback("1270.0.0.1"))
+    }
+
+    @Test
     fun `without the local-network permission only the tunnel is left`() {
         val plan = EndpointPlan.candidates(bonjour, "192.168.1.20", 7879, "spettro.example.com", environment(allowed = false))
         assertEquals(listOf(Endpoint.Tunnel("spettro.example.com")), plan)

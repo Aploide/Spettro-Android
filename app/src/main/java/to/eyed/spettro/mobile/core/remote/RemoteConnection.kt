@@ -82,7 +82,9 @@ object EndpointPlan {
      * Every endpoint worth trying for a paired host, best first:
      *  1. where Bonjour sees it right now (survives the host changing address),
      *  2. the last LAN address that worked — only on Wi-Fi or Ethernet, since
-     *     on mobile data a `192.168.x` address is at best someone else's,
+     *     on mobile data a `192.168.x` address is at best someone else's;
+     *     a loopback address is this phone whatever the network (a USB
+     *     cable's port forward), so it is always worth a try,
      *  3. its public tunnel, the one route that works from anywhere.
      *
      * LAN routes are dropped entirely while the local-network permission is
@@ -97,12 +99,21 @@ object EndpointPlan {
     ): List<Endpoint> = buildList {
         if (environment.localNetworkAllowed) {
             discovered?.let { add(Endpoint.Lan(it.host, it.port)) }
-            if (environment.onLocalNetwork && lastAddress != null && lastPort != null) {
+            if (lastAddress != null && lastPort != null &&
+                (environment.onLocalNetwork || isLoopback(lastAddress))
+            ) {
                 add(Endpoint.Lan(lastAddress, lastPort))
             }
         }
         remoteHost?.takeIf { it.isNotBlank() }?.let { add(Endpoint.Tunnel(it)) }
     }.distinct()
+
+    /** `127.x.x.x`, `::1` or `localhost`: an address on this phone itself. */
+    fun isLoopback(address: String): Boolean {
+        val plain = address.substringBefore('%').removePrefix("[").removeSuffix("]").lowercase()
+        return plain == "localhost" || plain == "::1" ||
+            Regex("""^(::ffff:)?127\.\d{1,3}\.\d{1,3}\.\d{1,3}$""").matches(plain)
+    }
 
     /** The same order for a fresh QR scan: its address hint, Bonjour, then its tunnel. */
     fun pairingCandidates(
