@@ -116,10 +116,17 @@ enum class DisconnectReason {
 /**
  * Whether to say the phone isn't on Wi-Fi: only for the "can't find it"
  * stories, and only when the computer has no internet tunnel — with one,
- * mobile data is a fine way in and Wi-Fi isn't the advice.
+ * mobile data is a fine way in and Wi-Fi isn't the advice. Nor is it when
+ * the computer was last reached on a loopback address (a USB cable through
+ * `adb reverse`): that route needs no network, and it's the one being tried.
  */
-internal fun offNetworkHint(reason: DisconnectReason, hasRemoteHost: Boolean, onLocalNetwork: Boolean): Boolean =
-    !onLocalNetwork && !hasRemoteHost &&
+internal fun offNetworkHint(
+    reason: DisconnectReason,
+    hasRemoteHost: Boolean,
+    onLocalNetwork: Boolean,
+    lastAddressIsLoopback: Boolean = false,
+): Boolean =
+    !onLocalNetwork && !hasRemoteHost && !lastAddressIsLoopback &&
         (reason == DisconnectReason.Searching || reason == DisconnectReason.HostAsleep)
 
 /**
@@ -150,12 +157,14 @@ fun DisconnectedScreen(
     refusedRepeatedly: Boolean = false,
     /** The phone is on Wi-Fi or Ethernet, where a computer on the LAN can be found. */
     onLocalNetwork: Boolean = true,
+    /** The computer was last reached on a loopback address, e.g. over USB. */
+    lastAddressIsLoopback: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     val host = hostName ?: "your computer"
     val isWorking = reason == DisconnectReason.Searching
     var confirmingForget by rememberSaveable { mutableStateOf(false) }
-    val offNetwork = offNetworkHint(reason, hasRemoteHost, onLocalNetwork)
+    val offNetwork = offNetworkHint(reason, hasRemoteHost, onLocalNetwork, lastAddressIsLoopback)
 
     val icon: ImageVector = if (offNetwork) Icons.Outlined.WifiOff else when (reason) {
         DisconnectReason.Searching -> Icons.Outlined.Wifi

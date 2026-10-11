@@ -88,6 +88,7 @@ import to.eyed.spettro.mobile.ui.screens.chat.STARTING_PLACEHOLDER
 import to.eyed.spettro.mobile.model.CommandCopy
 import to.eyed.spettro.mobile.model.Mentions
 import to.eyed.spettro.mobile.ui.screens.chat.DockReply
+import to.eyed.spettro.mobile.core.remote.EndpointPlan
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.PairPayload
 import to.eyed.spettro.mobile.core.remote.RemotePairing
@@ -305,6 +306,7 @@ fun AppRoot(container: AppContainer) {
                 localNetworkMissing = !localNetwork.isGranted,
                 refusedRepeatedly = refusals > 1,
                 onLocalNetwork = onLocalNetwork,
+                lastAddressIsLoopback = credential?.lastAddress?.let(EndpointPlan::isLoopback) == true,
             )
         }
     }
