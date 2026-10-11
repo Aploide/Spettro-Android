@@ -71,4 +71,12 @@ class MentionsTest {
         assertEquals(emptyList<String>(), Mentions.live("see @a.tsx", listOf("a.ts")))
         assertEquals(listOf("a.ts"), Mentions.live("see @a.ts.", listOf("a.ts")))
     }
+
+    @Test
+    fun aNameThatGrowsWhenLowercasedDoesNotThrow() {
+        // "İ" lowercases to two chars, so the lowercased path is longer
+        // than the original; scoring must not index past the original.
+        assertEquals(true, Mentions.score("İab", "ib") > 0)
+        assertEquals(listOf("İab"), Mentions.rank(listOf("İab", "zzz"), "ib"))
+    }
 }

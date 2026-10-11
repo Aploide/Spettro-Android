@@ -63,13 +63,17 @@ object Mentions {
         val inPath = p.indexOf(q)
         if (inPath >= 0) return 700 - inPath * 0.5 - p.length * 0.05
 
+        // lowercase() can lengthen a string ("İ" becomes "i̇"), and then an
+        // index into p is not one into path: the original case is only read
+        // when the two still line up.
+        val caseAligned = p.length == path.length
         var score = 0.0
         var pi = 0
         var run = 0
         for (ch in q) {
             val at = p.indexOf(ch, pi)
             if (at < 0) return -1.0
-            val boundary = at == 0 || BOUNDARY.matches(p[at - 1].toString()) || path[at] in 'A'..'Z'
+            val boundary = at == 0 || BOUNDARY.matches(p[at - 1].toString()) || (caseAligned && path[at] in 'A'..'Z')
             run = if (at == pi && pi > 0) run + 1 else 0
             score += 10 + run * 8 + (if (boundary) 12 else 0) + (if (at >= nameStart) 6 else 0)
             pi = at + 1
