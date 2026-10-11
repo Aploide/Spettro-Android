@@ -489,13 +489,16 @@ private fun Transcript(
             val shrank = last.height > 0 && frame.height in 1 until last.height
             val tailChanged = last.tailSize > 0 && frame.tailSize > 0 && frame.tailSize != last.tailSize
             val settling = System.currentTimeMillis() - openedAt < SETTLE_MS
-            val drifted = last.atEnd && !frame.atEnd && !listState.isScrollInProgress &&
+            // The slack says who was reading at the end; once the layout
+            // moves, the end comes all the way back into view — a ticker
+            // half under the prompt dock is still in the slack.
+            val drifted = last.atEnd && frame.overflowPx > 0 && !listState.isScrollInProgress &&
                 (shrank || tailChanged || settling)
             if (drifted && frame.total > 0) {
                 // Past the last item's top by its own height: the list
                 // clamps that to the very end of the content.
                 listState.scrollToItem(frame.total - 1, frame.tailSize.coerceAtLeast(0))
-                last = frame.copy(atEnd = true)
+                last = frame.copy(atEnd = true, overflowPx = 0)
             } else {
                 last = frame
             }
@@ -534,17 +537,20 @@ private data class FollowFrame(
     /** The last item's height while it is on screen, else -1. */
     val tailSize: Int,
     val total: Int = 0,
+    /** How far the last item reaches past the end of the view (0 when it
+     *  ends inside it; [Int.MAX_VALUE] while it is off screen). */
+    val overflowPx: Int = 0,
 ) {
     companion object {
         fun of(info: androidx.compose.foundation.lazy.LazyListLayoutInfo, slackPx: Int): FollowFrame {
             val lastVisible = info.visibleItemsInfo.lastOrNull()
             val tail = lastVisible?.takeIf { it.index == info.totalItemsCount - 1 }
-            val atEnd = when {
-                info.totalItemsCount == 0 -> true
-                tail == null -> false
-                else -> tail.offset + tail.size - (info.viewportEndOffset - info.afterContentPadding) <= slackPx
+            val overflow = when {
+                info.totalItemsCount == 0 -> 0
+                tail == null -> Int.MAX_VALUE
+                else -> (tail.offset + tail.size - (info.viewportEndOffset - info.afterContentPadding)).coerceAtLeast(0)
             }
-            return FollowFrame(info.viewportSize.height, atEnd, tail?.size ?: -1, info.totalItemsCount)
+            return FollowFrame(info.viewportSize.height, overflow <= slackPx, tail?.size ?: -1, info.totalItemsCount, overflow)
         }
     }
 }
