@@ -217,6 +217,20 @@ fun SettingsScreen(
 
 // MARK: - Connection
 
+/** What the Agent row says. */
+internal enum class AgentRow { Running, Starting, Unknown }
+
+/**
+ * The Agent row's state. While the link is down ([isConnected] false,
+ * "Reconnecting…") the agent flag is the one from before the drop, so the
+ * row says nothing rather than a green "Running" it can't vouch for.
+ */
+internal fun agentRow(isConnected: Boolean, agentReady: Boolean): AgentRow = when {
+    !isConnected -> AgentRow.Unknown
+    agentReady -> AgentRow.Running
+    else -> AgentRow.Starting
+}
+
 @Composable
 private fun ConnectionSection(
     hostName: String?,
@@ -281,12 +295,19 @@ private fun ConnectionSection(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (agentReady) {
-                        StatusDot(color = colors.success)
-                        Text("Running", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
-                    } else {
-                        SpettroSpinner(size = 12.dp)
-                        Text("Starting…", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                    when (agentRow(isConnected = isConnected, agentReady = agentReady)) {
+                        AgentRow.Running -> {
+                            StatusDot(color = colors.success)
+                            Text("Running", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        AgentRow.Starting -> {
+                            SpettroSpinner(size = 12.dp)
+                            Text("Starting…", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        AgentRow.Unknown -> {
+                            StatusDot(color = colors.textTertiary)
+                            Text("—", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
             },
