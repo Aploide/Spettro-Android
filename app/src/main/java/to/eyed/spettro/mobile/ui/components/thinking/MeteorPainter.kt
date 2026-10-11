@@ -108,10 +108,10 @@ fun DrawScope.drawMeteor(run: MeteorRun, progress: Double, palette: MeteorPalett
     // stood to the head, white-hot at the head and cooling back to ember.
     // Painted, not added, so it is the bar itself rather than light on it.
     // Set out from the first stop (Off, or Low when the CLI lists no Off), it
-    // burns the end cap too; from further along, the
-    // tail that reaches back over the fill fades in from nothing, so the
-    // accent turns to fire rather than being cut off by it. After impact the
-    // real fill is under it and it fades away.
+    // burns the end cap too; from further along, the tail that reaches back
+    // over the fill fades in from nothing, so the accent turns to fire rather
+    // than being cut off by it. After impact the real fill is under it and it
+    // fades away.
     val barAlpha = if (landed) 1 - clamp01(since / 0.22) else 1.0
     val fromLow = abs(run.fillX - (if (dir > 0) run.railLeft else run.railRight)) < 1
     val barEnd = if (dir > 0) run.railLeft - h / 2 else run.railRight + h / 2

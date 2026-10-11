@@ -192,8 +192,9 @@ Ultra paused under Ask first offers Restricted instead. It opens from the compos
 thinking chip as a sheet.
 
 - The track's fill is the accent up to the thumb, and empty at Off, end cap included;
-  toward Ultra it warms through the fire tokens. A lit Ultra paints the whole track in fire with the smoulder (`Embers`, seed 11,
-  a wave every 3.8 s) and a breathing white-hot thumb.
+  toward Ultra it warms through the fire tokens. A lit Ultra paints the whole track in
+  fire with the smoulder (`Embers`, seed 11, a wave every 3.8 s) and a breathing
+  white-hot thumb.
 - Moving into Ultra flies a **meteor** (`Meteor`, seeded by the flight count) from the stop
   the thumb stood on; the thumb and lit fill take over when the head lands. Reduced motion
   swaps the flight for the thumb glowing up, and keeps the fades.
