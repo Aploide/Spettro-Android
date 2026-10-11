@@ -66,4 +66,15 @@ class ToolGroupsTest {
         assertEquals("Searched 1 pattern, read 1 file", ToolGroups.summary(listOf(grep, read1)))
         assertEquals("Listed 1 folder, read 2 files", ToolGroups.summary(listOf(ls, read1, read2)))
     }
+
+    @Test
+    fun theNewestUserMessageIsFoundPastTheRowsAfterIt() {
+        val user = { id: String ->
+            TranscriptRow.Item(TranscriptItem.Message(ChatMessage(id = id, role = ChatMessage.Role.User, text = id)))
+        }
+        val rows = ToolGroups.fold(listOf(user("u1"), message("a1"), user("u2"), row(read1), row(read2), message("a2")))
+        assertEquals("msg-u2", newestUserMessageId(rows))
+        assertEquals(null, newestUserMessageId(ToolGroups.fold(listOf(message("a"), row(read1)))))
+        assertEquals(null, newestUserMessageId(emptyList()))
+    }
 }

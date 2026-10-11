@@ -29,6 +29,17 @@ sealed class DisplayRow {
     data class Tools(override val id: String, val tools: List<ToolCallItem>) : DisplayRow()
 }
 
+/**
+ * The id of the newest of the user's own messages in [rows], or null. When
+ * it changes the user has just sent something (or steered), and whatever
+ * they were reading, the transcript goes to its end to show it and the
+ * answer — the desktop's ChatView re-pins on the same signal.
+ */
+fun newestUserMessageId(rows: List<DisplayRow>): String? = rows.lastOrNull { row ->
+    val item = ((row as? DisplayRow.Row)?.row as? TranscriptRow.Item)?.item
+    item is TranscriptItem.Message && item.message.role == ChatMessage.Role.User
+}?.id
+
 object ToolGroups {
     /** Calls a group never holds fewer of: one read is just a row. */
     private const val MIN_GROUP = 2

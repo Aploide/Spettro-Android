@@ -78,6 +78,7 @@ import to.eyed.spettro.mobile.model.RunPhase
 import to.eyed.spettro.mobile.model.TranscriptAnchors
 import to.eyed.spettro.mobile.model.DisplayRow
 import to.eyed.spettro.mobile.model.ToolGroups
+import to.eyed.spettro.mobile.model.newestUserMessageId
 import androidx.compose.runtime.CompositionLocalProvider
 import to.eyed.spettro.mobile.model.TranscriptItem
 import to.eyed.spettro.mobile.model.ChatMessage
@@ -457,6 +458,18 @@ private fun Transcript(
         if (lastVisible >= count - 3) {
             listState.animateScrollToItem(count - 1)
         }
+    }
+
+    // The user's own message: whatever they were reading, they want to see
+    // what they just sent and the answer to it (the desktop re-pins on it).
+    // The rule above only follows a reader already near the end.
+    val newestUser = remember(rows) { newestUserMessageId(rows) }
+    var seenUser by remember { mutableStateOf(newestUser) }
+    LaunchedEffect(newestUser) {
+        if (newestUser != null && newestUser != seenUser && count > 0) {
+            listState.animateScrollToItem(count - 1)
+        }
+        seenUser = newestUser
     }
 
     // Stay at the end when the layout, not the reader, moves it away. The
