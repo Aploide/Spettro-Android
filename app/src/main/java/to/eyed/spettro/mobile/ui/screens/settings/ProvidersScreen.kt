@@ -34,7 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.Close
@@ -186,8 +185,13 @@ fun ProvidersScreen(
                 )
             }
 
+            // While a search is typed, its results come straight under the
+            // box, as in the desktop's model picker: the sections above the
+            // models would otherwise keep the matches off screen.
+            val searching = search.isNotBlank()
+
             // Subscription.
-            if (providers != null && providers.subscription.connected) {
+            if (!searching && providers != null && providers.subscription.connected) {
                 item(key = "subscription") {
                     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
                         SectionHeader("Spettro subscription", modifier = Modifier.padding(start = 12.dp))
@@ -221,7 +225,7 @@ fun ProvidersScreen(
             }
 
             // Local endpoints.
-            if (providers != null) {
+            if (!searching && providers != null) {
                 item(key = "local") {
                     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
                         SectionHeader("Models on your computer", modifier = Modifier.padding(start = 12.dp))
@@ -271,10 +275,8 @@ fun ProvidersScreen(
                                 if (index > 0) HairlineDivider()
                                 ProviderRow(
                                     provider = provider,
-                                    onClick = {
-                                        if (provider.connected) disconnectingId = provider.id
-                                        else connectingId = provider.id
-                                    },
+                                    onConnect = { connectingId = provider.id },
+                                    onDisconnect = { disconnectingId = provider.id },
                                 )
                             }
                         }
@@ -296,6 +298,16 @@ fun ProvidersScreen(
                         }
                     }
                     if (filtered.isEmpty()) null else group.copy(models = filtered)
+                }
+                if (searching && groups.isEmpty()) {
+                    item(key = "no-match") {
+                        Text(
+                            "No model matches “${search.trim()}”.",
+                            color = colors.textSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(start = 12.dp, top = Dimens.spacingSm),
+                        )
+                    }
                 }
                 if (groups.isNotEmpty()) {
                     item(key = "models-header") {
@@ -451,20 +463,30 @@ private fun LocalEndpointRow(endpoint: AcpLocalEndpoint, onRemove: () -> Unit) {
     }
 }
 
+/**
+ * One API provider. A connected one is not a button: removing its key takes
+ * the explicit "Disconnect…" (the desktop's row), so a tap on the row on the
+ * way to somewhere else can't land on it. An unconnected one opens Connect.
+ */
 @Composable
-private fun ProviderRow(provider: AcpProviderEntry, onClick: () -> Unit) {
+private fun ProviderRow(provider: AcpProviderEntry, onConnect: () -> Unit, onDisconnect: () -> Unit) {
     val colors = LocalSpettroColors.current
-    Surface(onClick = onClick, color = Color.Transparent) {
+    val content: @Composable () -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Dimens.spacingMd),
+                .padding(
+                    start = Dimens.spacingMd,
+                    end = Dimens.spacingMd,
+                    top = if (provider.connected) Dimens.spacingSm else Dimens.spacingMd,
+                    bottom = if (provider.connected) Dimens.spacingSm else Dimens.spacingMd,
+                ),
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.Outlined.Key,
-                contentDescription = null,
+                if (provider.connected) Icons.Outlined.Verified else Icons.Outlined.Key,
+                contentDescription = if (provider.connected) "Connected" else null,
                 tint = if (provider.connected) colors.accentText else colors.textTertiary,
                 modifier = Modifier.size(18.dp),
             )
@@ -487,20 +509,14 @@ private fun ProviderRow(provider: AcpProviderEntry, onClick: () -> Unit) {
                 }
                 if (provider.connected) {
                     Text(
-                        "${provider.modelCount} models",
+                        if (provider.modelCount > 0) "Connected · ${provider.modelCount} models" else "Connected",
                         color = colors.textSecondary,
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }
             }
             if (provider.connected) {
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = colors.accentText,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text("Connected", color = colors.accentText, style = MaterialTheme.typography.labelMedium)
+                SpettroButton("Disconnect…", onClick = onDisconnect, size = ButtonSize.Small)
             } else {
                 Text(
                     "Connect",
@@ -516,6 +532,7 @@ private fun ProviderRow(provider: AcpProviderEntry, onClick: () -> Unit) {
             }
         }
     }
+    if (provider.connected) content() else Surface(onClick = onConnect, color = Color.Transparent) { content() }
 }
 
 @Composable
