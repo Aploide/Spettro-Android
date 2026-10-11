@@ -56,6 +56,17 @@ class AndroidNetworkEnvironment(context: Context) : NetworkEnvironment {
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
         }
 
+    override val localTransport: LocalTransport?
+        get() {
+            val manager = connectivity ?: return LocalTransport.WiFi
+            val caps = manager.getNetworkCapabilities(manager.activeNetwork) ?: return null
+            return when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> LocalTransport.WiFi
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> LocalTransport.Ethernet
+                else -> null
+            }
+        }
+
     override val localNetworkAllowed: Boolean
         get() = LocalNetworkAccess.isGranted(appContext)
 }

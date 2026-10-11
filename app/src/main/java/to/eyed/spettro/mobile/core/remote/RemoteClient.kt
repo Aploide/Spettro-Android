@@ -67,6 +67,8 @@ sealed interface RemoteState {
         val pairingOpen: Boolean = false,
         /** Which route won: the LAN directly, or the host's internet tunnel. */
         val via: RemoteRoute = RemoteRoute.Lan,
+        /** What carries it — Wi-Fi, Ethernet, a USB cable, or the internet. */
+        val link: RemoteLink = if (via == RemoteRoute.Internet) RemoteLink.Internet else RemoteLink.LocalNetwork,
         /** What this host can do beyond the original protocol ([RemoteFeature]). */
         val features: Set<String> = emptySet(),
     ) : RemoteState {
@@ -824,6 +826,7 @@ class RemoteClient(
             agentReady = result.agentReady,
             pairingOpen = attempt.hello.pairingOpen,
             via = attempt.endpoint.route,
+            link = EndpointPlan.linkOf(attempt.endpoint, environment.localTransport),
             features = features,
         )
         backoffMs = INITIAL_BACKOFF_MS

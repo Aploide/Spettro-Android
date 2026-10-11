@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import to.eyed.spettro.mobile.core.remote.RemoteLink
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +74,21 @@ import kotlin.math.roundToInt
 
 /** Space between grouped sections, as the desktop's `.form-section + .form-section`. */
 private val SectionGap = 22.dp
+
+/**
+ * What the connection row says about a live connection: the way it actually
+ * reaches the computer, in the desktop's words ("Connected over the
+ * internet", "Connected on your network").
+ */
+internal fun connectionLabel(link: RemoteLink, remoteHost: String?): String = when (link) {
+    RemoteLink.WiFi -> "Connected over Wi-Fi"
+    RemoteLink.Ethernet -> "Connected over Ethernet"
+    RemoteLink.Usb -> "Connected over USB"
+    RemoteLink.LocalNetwork -> "Connected on your network"
+    RemoteLink.Internet ->
+        remoteHost?.takeIf { it.isNotBlank() }?.let { "Connected over the internet · $it" }
+            ?: "Connected over the internet"
+}
 
 /**
  * Settings, laid out as the desktop's grouped form: the computer this phone

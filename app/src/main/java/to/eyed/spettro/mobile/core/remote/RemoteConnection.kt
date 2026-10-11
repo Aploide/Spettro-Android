@@ -25,6 +25,24 @@ enum class RemoteRoute {
     Internet,
 }
 
+/** The physical way a connection reaches the host — what Settings names. */
+enum class RemoteLink {
+    WiFi,
+    Ethernet,
+
+    /** A loopback address: a USB cable's port forward to the computer. */
+    Usb,
+
+    /** The LAN, over a network that didn't say what it is. */
+    LocalNetwork,
+
+    /** The host's public tunnel. */
+    Internet,
+}
+
+/** The kind of local network the phone is on, when it is on one. */
+enum class LocalTransport { WiFi, Ethernet }
+
 // MARK: - Endpoints
 
 /** One place the host might be listening. */
@@ -68,6 +86,10 @@ interface NetworkEnvironment {
     /** Android 17's local-network permission is granted (always true before it). */
     val localNetworkAllowed: Boolean
 
+    /** Which local network the phone is on, or null when it isn't on one. */
+    val localTransport: LocalTransport?
+        get() = if (onLocalNetwork) LocalTransport.WiFi else null
+
     companion object {
         /** For tests and previews: a phone on an open home network. */
         val Unrestricted: NetworkEnvironment = object : NetworkEnvironment {
@@ -107,6 +129,19 @@ object EndpointPlan {
         }
         remoteHost?.takeIf { it.isNotBlank() }?.let { add(Endpoint.Tunnel(it)) }
     }.distinct()
+
+    /**
+     * How a connection on [endpoint] reaches the host: the tunnel is the
+     * internet, a loopback address is a USB port forward, and any other LAN
+     * address goes over the network the phone is on ([transport]).
+     */
+    fun linkOf(endpoint: Endpoint, transport: LocalTransport?): RemoteLink = when {
+        endpoint is Endpoint.Tunnel -> RemoteLink.Internet
+        endpoint is Endpoint.Lan && isLoopback(endpoint.host) -> RemoteLink.Usb
+        transport == LocalTransport.WiFi -> RemoteLink.WiFi
+        transport == LocalTransport.Ethernet -> RemoteLink.Ethernet
+        else -> RemoteLink.LocalNetwork
+    }
 
     /** `127.x.x.x`, `::1` or `localhost`: an address on this phone itself. */
     fun isLoopback(address: String): Boolean {

@@ -92,7 +92,6 @@ import to.eyed.spettro.mobile.core.remote.EndpointPlan
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.PairPayload
 import to.eyed.spettro.mobile.core.remote.RemotePairing
-import to.eyed.spettro.mobile.core.remote.RemoteRoute
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.remote.RemoteFeature
 import to.eyed.spettro.mobile.model.ChatSession
@@ -116,6 +115,7 @@ import to.eyed.spettro.mobile.ui.screens.home.PairingScreen
 import to.eyed.spettro.mobile.ui.screens.home.ProjectPickerSheet
 import to.eyed.spettro.mobile.ui.screens.settings.ProvidersScreen
 import to.eyed.spettro.mobile.ui.screens.settings.SettingsScreen
+import to.eyed.spettro.mobile.ui.screens.settings.connectionLabel
 import to.eyed.spettro.mobile.ui.screens.sheets.PermissionSheet
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheet
 import to.eyed.spettro.mobile.ui.theme.Dimens
@@ -739,10 +739,10 @@ private fun SettingsHost(
     SettingsScreen(
         hostName = connected.host.hostName,
         hostKind = connected.host.hostKind,
-        connectionLabel = when {
-            reconnecting -> "Reconnecting…"
-            connected.via == RemoteRoute.Internet -> "Connected over the internet"
-            else -> "Connected via Wi-Fi"
+        connectionLabel = if (reconnecting) {
+            "Reconnecting…"
+        } else {
+            connectionLabel(connected.link, credential?.remoteHost)
         },
         isConnected = !reconnecting,
         remoteHost = credential?.remoteHost,

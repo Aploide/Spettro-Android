@@ -40,6 +40,18 @@ class EndpointTest {
 class EndpointPlanTest {
 
     @Test
+    fun `the link names what actually carries the connection`() {
+        val lan = Endpoint.Lan("192.168.1.30", 7879)
+        assertEquals(RemoteLink.WiFi, EndpointPlan.linkOf(lan, LocalTransport.WiFi))
+        assertEquals(RemoteLink.Ethernet, EndpointPlan.linkOf(lan, LocalTransport.Ethernet))
+        assertEquals(RemoteLink.LocalNetwork, EndpointPlan.linkOf(lan, null))
+        // A loopback address is a USB port forward, whatever network the phone is on.
+        assertEquals(RemoteLink.Usb, EndpointPlan.linkOf(Endpoint.Lan("127.0.0.1", 7879), LocalTransport.WiFi))
+        assertEquals(RemoteLink.Usb, EndpointPlan.linkOf(Endpoint.Lan("::1", 7879), null))
+        assertEquals(RemoteLink.Internet, EndpointPlan.linkOf(Endpoint.Tunnel("spettro.example.com"), LocalTransport.WiFi))
+    }
+
+    @Test
     fun `orders Bonjour, then the last address, then the tunnel`() {
         val plan = EndpointPlan.candidates(bonjour, "192.168.1.20", 7879, "spettro.example.com", environment())
         assertEquals(
