@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -32,10 +35,18 @@ val KeyboardSqueezeHeight: Dp = 300.dp
 @Composable
 fun keyboardSqueezed(): Boolean {
     val density = LocalDensity.current
-    val window = LocalWindowInfo.current.containerSize.height
-    val ime = WindowInsets.ime.getBottom(density)
-    if (ime <= 0 || window <= 0) return false
-    return with(density) { (window - ime).toDp() } < KeyboardSqueezeHeight
+    val window = LocalWindowInfo.current
+    val ime = WindowInsets.ime
+    // The inset changes on every frame of the keyboard's slide; only the
+    // answer matters, so callers recompose when it flips and not before.
+    val squeezed by remember(density, window, ime) {
+        derivedStateOf {
+            val height = window.containerSize.height
+            val bottom = ime.getBottom(density)
+            bottom > 0 && height > 0 && with(density) { (height - bottom).toDp() } < KeyboardSqueezeHeight
+        }
+    }
+    return squeezed
 }
 
 /**
