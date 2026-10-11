@@ -183,7 +183,12 @@ internal fun PlainToolRow(tool: ToolCallItem, modifier: Modifier = Modifier) {
     val command = tool.shellCommand
     val hasDetail = tool.output.isNotBlank() || tool.diffs.isNotEmpty() || tool.images.isNotEmpty() ||
         command != null || tool.locations.isNotEmpty()
-    val stat = tool.diffStat
+    // The stat comes from the real diff, which is an LCS: worked out off the
+    // main thread, as DiffView does, so a big rewrite scrolling into view
+    // doesn't stall a frame. The note appears once it is ready.
+    val stat by produceState<ToolCallItem.DiffStat?>(initialValue = null, tool.diffs) {
+        value = if (tool.diffs.isEmpty()) null else withContext(Dispatchers.Default) { tool.diffStat }
+    }
     val meta = tool.rowMeta
     val argument = tool.rowArgument
     val verb = tool.displayName
@@ -512,7 +517,8 @@ fun DiffView(
                 style = MonoSmall.copy(fontWeight = FontWeight.Medium),
                 color = colors.textSecondary,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                // Cut in the middle, as the desktop does: the file's name stays.
+                overflow = TextOverflow.MiddleEllipsis,
                 modifier = Modifier.weight(1f),
             )
             if (diff.oldText == null) Pill("New file")
