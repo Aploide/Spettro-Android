@@ -206,18 +206,20 @@ internal fun PlainToolRow(tool: ToolCallItem, modifier: Modifier = Modifier) {
         animationSpec = SpettroMotion.chevron(),
         label = "toolChevron",
     )
+    val statusWord = when {
+        awaiting -> "needs approval"
+        denied -> "denied"
+        tool.status == AcpToolStatus.PENDING -> "not started"
+        tool.status == AcpToolStatus.IN_PROGRESS -> "running"
+        tool.status == AcpToolStatus.FAILED -> "failed"
+        else -> null
+    }
     val spoken = listOfNotNull(
         "$verb $argument".trim(),
-        when {
-            awaiting -> "needs approval"
-            denied -> "denied"
-            tool.status == AcpToolStatus.PENDING -> "not started"
-            tool.status == AcpToolStatus.IN_PROGRESS -> "running"
-            tool.status == AcpToolStatus.FAILED -> "failed"
-            else -> null
-        },
+        statusWord,
         stat?.takeIf { it.added > 0 || it.removed > 0 }?.let { "${it.added} added, ${it.removed} removed" },
-        meta,
+        // A failed row's meta is "failed" too: TalkBack says it once.
+        meta?.takeUnless { it.equals(statusWord, ignoreCase = true) },
     ).joinToString(", ")
 
     Column(
