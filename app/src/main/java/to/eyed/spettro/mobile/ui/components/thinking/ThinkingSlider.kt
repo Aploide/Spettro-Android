@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -100,7 +101,6 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import to.eyed.spettro.mobile.core.acp.AcpConfigOption
@@ -108,6 +108,8 @@ import to.eyed.spettro.mobile.model.Embers
 import to.eyed.spettro.mobile.model.Meteor
 import to.eyed.spettro.mobile.model.MeteorGeometry
 import to.eyed.spettro.mobile.model.MeteorTrigger
+import to.eyed.spettro.mobile.model.SliderKey
+import to.eyed.spettro.mobile.model.SliderMoves
 import to.eyed.spettro.mobile.model.Thinking
 import to.eyed.spettro.mobile.model.ThinkingStop
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
@@ -173,36 +175,12 @@ private const val BREATH_S = 2.8
 private const val SMOULDER_WAIT_MS = 1000L / 30 - 4
 
 /**
- * A press on the bar, and where it has been dragged. [at] is the stop under
- * the finger — the one a release selects, and what the words name. [rest] is
- * where the thumb is drawn meanwhile: the same, except over Ultra while Ultra
- * isn't on. Ultra is reached by the meteor, on release, from where the thumb
- * stands.
- */
-private data class Press(
-    val at: Int,
-    val rest: Int,
-    /** The finger has crossed into another stop: from then the thumb is under it, with no slide behind. */
-    val moved: Boolean,
-)
-
-/** A held key's move, waiting for the repeats to stop. */
-private class HeldMove(val job: Job, val send: () -> Unit)
-
-private class HeldSlot {
-    var move: HeldMove? = null
-}
-
-/** What the gesture handler needs from the latest frame. */
-private class Latest(val index: Int, val last: Int, val ultraIndex: Int, val disabled: Boolean)
-
-/**
  * The slider over a chat's [options]. Draws nothing when the CLI offers no
  * thinking option.
  *
  * @param reasons whether the session's model reasons; false disables it.
- * @param onCommit sends a move (ThinkingCommitter); completes true once the
- *   queue has drained.
+ * @param onCommit sends a move (ThinkingCommitter); completes true for the
+ *   move the queue drains on.
  * @param onPreview told the stop a move is previewing in the same frame, and
  *   null once the options have it or the slider goes away: the chip that
  *   opened it names what the slider names.
@@ -231,29 +209,24 @@ fun ThinkingSlider(
     val previewTo by rememberUpdatedState(onPreview)
     val commitTo by rememberUpdatedState(onCommit)
 
-    var pending by remember { mutableStateOf<ThinkingStop?>(null) }
-    // The chip's words change in the same frame as the slider's.
-    fun setPending(stop: ThinkingStop?) {
-        pending = stop
-        previewTo?.invoke(stop)
+    val disabled = reasons == false
+    // The moves, and the preview standing in for the options meanwhile.
+    val moves = remember {
+        SliderMoves(
+            scope = scope,
+            commit = { commitTo(it) },
+            onPreview = { previewTo?.invoke(it) },
+            base = base,
+            disabled = disabled,
+        )
     }
-    // The move's calls have all returned; the preview waits for the options.
-    var sent by remember { mutableStateOf(false) }
-    var drag by remember { mutableStateOf<Press?>(null) }
+    SideEffect { moves.update(base, disabled) }
+    // Closed mid-hold: where the key had got to still goes.
+    DisposableEffect(moves) { onDispose { moves.dispose() } }
+    val drag = moves.press
     var dismissed by remember { mutableStateOf(false) }
-    val held = remember { HeldSlot() }
-    DisposableEffect(Unit) {
-        onDispose {
-            // Closed mid-hold: where the key had got to still goes.
-            held.move?.let {
-                it.job.cancel()
-                it.send()
-            }
-            previewTo?.invoke(null)
-        }
-    }
 
-    val state = pending?.let { Thinking.previewState(base, it) } ?: base
+    val state = moves.state(base)
     val stops = state.stops
     val last = stops.size - 1
     val lit = state.lit
@@ -269,23 +242,9 @@ fun ThinkingSlider(
     val meteor = trigger.observe(lit, meteorShown, stops.size, reduced)
     if (meteor !== trigger) trigger = meteor
 
-    // The preview gives way once the options say what it says — and only
-    // once the calls are all through: a burst that comes back to where it
-    // began matches the options before its first call's update has landed.
-    // If the options never come round (a refusal rolls them back), it lets
-    // go shortly after the calls.
-    val caughtUp = Thinking.caughtUp(base, pending)
-    LaunchedEffect(pending, sent, caughtUp) {
-        if (pending == null || !sent) return@LaunchedEffect
-        if (!caughtUp) delay(Thinking.SETTLE_MS)
-        setPending(null)
-        sent = false
-    }
-
     // "Keep Ask first" dismisses the prompt until Ultra next pauses.
     LaunchedEffect(state.paused) { if (!state.paused) dismissed = false }
 
-    val disabled = reasons == false
     val ultraIndex = state.ultraIndex
     // Where the thumb is drawn, and the stop the words name: apart only while
     // a press is over an Ultra that isn't on yet (see Press).
@@ -315,30 +274,8 @@ fun ThinkingSlider(
     val smoulder = lit && !disabled && shown == ultraIndex && !inFlight &&
         (idleTime != null || (!reduced && visible))
 
-    fun select(i: Int, heldKey: Boolean = false, tick: Boolean = true) {
-        if (disabled || i < 0 || i > last || i == state.index) return
-        if (tick) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-        val stop = stops[i]
-        setPending(stop)
-        sent = false
-        val send = {
-            held.move = null
-            val result = commitTo(stop)
-            scope.launch {
-                // Only the last move in a burst lets the preview go, so the
-                // thumb never steps back through a stale value between two.
-                if (result.await()) sent = true
-            }
-            Unit
-        }
-        held.move?.job?.cancel()
-        // A key held down repeats some 30 times a second: the thumb follows
-        // each repeat, and the CLI hears where it stops.
-        held.move = if (heldKey) HeldMove(scope.launch { delay(Thinking.HELD_KEY_MS); send() }, send) else null
-        if (!heldKey) send()
-    }
-    val selectLatest = rememberUpdatedState<(Int, Boolean) -> Unit> { i, tick -> select(i, tick = tick) }
-    val latest = rememberUpdatedState(Latest(state.index, last, ultraIndex, disabled))
+    fun tick() = haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+    val latestMoves = rememberUpdatedState(moves)
 
     // The thumb and the fill slide 180ms to a new stop — or are simply there:
     // in a meteor's run, under a finger that has crossed a stop, under
@@ -499,12 +436,13 @@ fun ThinkingSlider(
                         disabled()
                     } else {
                         setProgress { target ->
-                            selectLatest.value(target.roundToInt().coerceIn(0, last), true)
-                            true
+                            val moved = moves.setProgress(target)
+                            if (moved) tick()
+                            moved
                         }
                         customActions = stops.mapIndexed { i, stop ->
                             CustomAccessibilityAction(stop.label) {
-                                selectLatest.value(i, true)
+                                if (moves.select(i)) tick()
                                 true
                             }
                         }
@@ -514,23 +452,18 @@ fun ThinkingSlider(
                     if (disabled) return@onPreviewKeyEvent false
                     when (event.type) {
                         KeyEventType.KeyDown -> {
-                            val from = state.index
-                            val next = when (event.key) {
-                                Key.DirectionRight, Key.DirectionUp -> minOf(last, from + 1)
-                                // From Off there is nothing further left.
-                                Key.DirectionLeft, Key.DirectionDown -> if (from < 0) null else max(0, from - 1)
-                                Key.MoveHome -> 0
-                                Key.MoveEnd -> last
+                            val key = when (event.key) {
+                                Key.DirectionRight, Key.DirectionUp -> SliderKey.Forward
+                                Key.DirectionLeft, Key.DirectionDown -> SliderKey.Back
+                                Key.MoveHome -> SliderKey.Home
+                                Key.MoveEnd -> SliderKey.End
                                 else -> return@onPreviewKeyEvent false
                             }
-                            if (next != null) select(next, heldKey = event.nativeKeyEvent.repeatCount > 0)
+                            if (moves.key(key, repeat = event.nativeKeyEvent.repeatCount > 0)) tick()
                             true
                         }
                         KeyEventType.KeyUp -> {
-                            held.move?.let {
-                                it.job.cancel()
-                                it.send()
-                            }
+                            moves.keyUp()
                             false
                         }
                         else -> false
@@ -545,22 +478,19 @@ fun ThinkingSlider(
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        val now = latest.value
-                        if (now.disabled) return@awaitEachGesture
-                        // Every change is consumed, so the sheet under the
-                        // slider never takes the drag for its own.
-                        down.consume()
+                        val moves = latestMoves.value
                         // The rail, measured once per press.
                         val railLeft = CAP.toPx()
                         val railWidth = size.width - 2 * railLeft
-                        fun indexAt(x: Float): Int? =
-                            if (railWidth <= 0) null else (((x - railLeft) / railWidth).coerceIn(0f, 1f) * now.last).roundToInt()
-                        // Over an Ultra that isn't on, the thumb stays where it last stood.
-                        fun pressAt(i: Int, rest: Int, moved: Boolean) =
-                            Press(i, if (i == now.ultraIndex && now.index != now.ultraIndex) rest else i, moved)
-                        var press = pressAt(indexAt(down.position.x) ?: now.index, now.index, false)
-                        if (press.at != now.index) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                        drag = press
+                        fun indexAt(x: Float): Int? {
+                            val last = moves.state().stops.lastIndex
+                            return if (railWidth <= 0) null else (((x - railLeft) / railWidth).coerceIn(0f, 1f) * last).roundToInt()
+                        }
+                        if (moves.pressAt(indexAt(down.position.x))) tick()
+                        if (moves.press == null) return@awaitEachGesture
+                        // Every change is consumed, so the sheet under the
+                        // slider never takes the drag for its own.
+                        down.consume()
                         var released = false
                         try {
                             while (true) {
@@ -572,18 +502,12 @@ fun ThinkingSlider(
                                     break
                                 }
                                 change.consume()
-                                val i = indexAt(change.position.x)
                                 // A new frame only when the finger crosses into another stop.
-                                if (i != null && i != press.at) {
-                                    press = pressAt(i, press.rest, true)
-                                    drag = press
-                                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                                }
+                                if (moves.dragTo(indexAt(change.position.x))) tick()
                             }
                         } finally {
-                            drag = null
+                            if (released) moves.release() else moves.cancelPress()
                         }
-                        if (released) selectLatest.value(press.at, false)
                     }
                 },
         ) {

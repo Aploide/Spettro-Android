@@ -1,5 +1,6 @@
 package to.eyed.spettro.mobile.model
 
+import kotlin.math.roundToInt
 import to.eyed.spettro.mobile.core.acp.AcpConfigOption
 import to.eyed.spettro.mobile.core.acp.AcpModelEntry
 
@@ -188,6 +189,19 @@ object Thinking {
             pending != null &&
             base.ultraOn == pending.ultra &&
             (pending.ultra || base.thinking == pending.id)
+
+    /**
+     * The stop TalkBack's set-progress [target] means, from the thumb at
+     * [index] with [last] the last stop. The slider reports Off as 0 — it is
+     * no stop of its own — so TalkBack's step up from Off asks for 1, which
+     * would skip Low. From Off any step up is Low, as the desktop's arrow is,
+     * and a step down is nothing further left (null).
+     */
+    fun a11yTarget(index: Int, target: Float, last: Int): Int? {
+        if (last < 0 || target.isNaN()) return null
+        if (index < 0) return if (target > 0f) 0 else null
+        return target.roundToInt().coerceIn(0, last)
+    }
 
     /**
      * Whether the session's model can think at all, from the
