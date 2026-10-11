@@ -19,6 +19,7 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("to.eyed.spettro.mobile", appContext.packageName)
+        // The debug build is to.eyed.spettro.mobile.dev.
+        assertTrue(appContext.packageName.startsWith("to.eyed.spettro.mobile"))
     }
 }
