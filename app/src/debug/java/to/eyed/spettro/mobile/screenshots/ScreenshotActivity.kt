@@ -1,5 +1,6 @@
 package to.eyed.spettro.mobile.screenshots
 
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -95,10 +96,20 @@ import java.util.TimeZone
  * The theme comes from the extras, not the phone: `theme` is dark or light,
  * `accent` is lilac (the default) or mono. Driven by
  * `tools/playstore-screenshots.sh`.
+ *
+ * `--es dpwidth 360` lays the scene out as if the screen were that many dp
+ * wide (raising the density to fit the real pixels), and `--es fontscale
+ * 1.3` scales the type as the system setting would, so a narrow phone or
+ * large text can be checked on any device without touching its display
+ * settings. Both apply to this activity's sheets and dialogs too.
  */
 class ScreenshotActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        resize(
+            dpWidth = intent.getStringExtra(EXTRA_DP_WIDTH)?.toFloatOrNull(),
+            fontScale = intent.getStringExtra(EXTRA_FONT_SCALE)?.toFloatOrNull(),
+        )
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val scene = intent.getStringExtra(EXTRA_SCENE) ?: SCENE_CHAT
@@ -123,7 +134,34 @@ class ScreenshotActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Overrides this activity's density and font scale before anything is
+     * laid out. Windows it opens (sheets, dialogs) share its resources, so
+     * they follow, which a LocalDensity override would not do.
+     */
+    private fun resize(dpWidth: Float?, fontScale: Float?) {
+        if (dpWidth == null && fontScale == null) return
+        val metrics = resources.displayMetrics
+        val config = Configuration(resources.configuration)
+        if (dpWidth != null) {
+            config.densityDpi = (metrics.widthPixels * DisplayMetricsBase / dpWidth).toInt()
+            config.screenWidthDp = (metrics.widthPixels * DisplayMetricsBase / config.densityDpi)
+            config.screenHeightDp = (metrics.heightPixels * DisplayMetricsBase / config.densityDpi)
+            config.smallestScreenWidthDp = minOf(config.screenWidthDp, config.screenHeightDp)
+            metrics.densityDpi = config.densityDpi
+            metrics.density = config.densityDpi / DisplayMetricsBase.toFloat()
+        }
+        if (fontScale != null) config.fontScale = fontScale
+        @Suppress("DEPRECATION")
+        metrics.scaledDensity = metrics.density * config.fontScale
+        @Suppress("DEPRECATION")
+        resources.updateConfiguration(config, metrics)
+    }
+
     companion object {
+        private const val DisplayMetricsBase = 160
+        const val EXTRA_DP_WIDTH = "dpwidth"
+        const val EXTRA_FONT_SCALE = "fontscale"
         const val EXTRA_SCENE = "scene"
         const val EXTRA_THEME = "theme"
         const val EXTRA_FORM = "form"

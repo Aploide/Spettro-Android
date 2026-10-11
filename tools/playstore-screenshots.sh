@@ -60,6 +60,9 @@
 #
 # Every scene takes the phone's accent too: add `--es accent mono` for
 # Monochrome (Lilac is the default).
+# And a size: `--es dpwidth 360` lays it out as a screen 360dp wide,
+# `--es fontscale 1.3` scales the type, without touching the device's own
+# display settings.
 #
 # Drive one directly rather than through this script:
 #
