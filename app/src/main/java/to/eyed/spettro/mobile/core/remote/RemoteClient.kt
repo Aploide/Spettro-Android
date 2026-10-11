@@ -173,6 +173,15 @@ class RemoteClient(
      */
     val refusals: StateFlow<Int> = _refusals.asStateFlow()
 
+    private val _hostQuit = MutableStateFlow(false)
+
+    /**
+     * Whether the last goodbye ([OfflineReason.HostStopped]) was the app
+     * quitting rather than sharing being switched off — see [isQuitGoodbye].
+     * Sharing stays on across a quit, so "turn it back on" would be wrong.
+     */
+    val hostQuit: StateFlow<Boolean> = _hostQuit.asStateFlow()
+
     private val _inbound = MutableSharedFlow<InboundNotification>(
         extraBufferCapacity = 256,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
@@ -837,6 +846,11 @@ class RemoteClient(
         val hostID = (_state.value as? RemoteState.Connected)?.host?.hostID
         if (hostID != null) note.remoteHost?.let { host -> persist { store.updateRemoteHost(hostID, host) } }
         if (note.shuttingDown) {
+            // The first goodbye says which it was: a quitting desktop follows
+            // its own with the sharing-off one as it takes the listener down.
+            if (_state.value != RemoteState.Offline(OfflineReason.HostStopped)) {
+                _hostQuit.value = isQuitGoodbye(note.message)
+            }
             // Deliberate, so don't dress it up as a network fault — and don't
             // retry into a host that just told us it left. Rediscovery says
             // when it's back, but only where Bonjour gets through: not over
@@ -968,6 +982,14 @@ class RemoteClient(
     }
 
     companion object {
+        /**
+         * A goodbye `host/state` (`shuttingDown`) with no message is the
+         * desktop app quitting; switching sharing off says why ("Remote
+         * access was turned off."). Sharing stays on across a quit and comes
+         * back with the next launch.
+         */
+        fun isQuitGoodbye(message: String?): Boolean = message.isNullOrBlank()
+
         private const val INITIAL_BACKOFF_MS = 1_000L
         private const val MAX_BACKOFF_MS = 30_000L
         private const val HELLO_TIMEOUT_MS = 10_000L

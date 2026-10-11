@@ -67,7 +67,8 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * thing to tell the user, mapped from `core.remote`'s state by [from]:
  * Searching (still looking / connecting), HostAsleep (not on this network),
  * Unreachable (not here, and its internet tunnel didn't answer either),
- * SharingOff (host said it stopped), NoLocalNetwork (Android withholds the
+ * SharingOff (host said it stopped), HostQuit (the desktop app quit, with
+ * sharing still on), NoLocalNetwork (Android withholds the
  * local network), TurnedAway (the host refused the handshake for now),
  * VersionMismatch (the two can't talk), Revoked (the host no longer knows
  * this phone), Transport (the socket dropped for an unnamed reason), and
@@ -81,6 +82,7 @@ enum class DisconnectReason {
     HostAsleep,
     Unreachable,
     SharingOff,
+    HostQuit,
     NoLocalNetwork,
     TurnedAway,
     VersionMismatch,
@@ -90,15 +92,18 @@ enum class DisconnectReason {
     ;
 
     companion object {
-        /** The reason to show for a non-connected [state]. */
-        fun from(state: RemoteState): DisconnectReason = when (state) {
+        /**
+         * The reason to show for a non-connected [state]; [hostQuit] tells a
+         * goodbye from a quitting app from sharing switched off.
+         */
+        fun from(state: RemoteState, hostQuit: Boolean = false): DisconnectReason = when (state) {
             is RemoteState.Offline -> when (state.reason) {
                 OfflineReason.HostNotFound -> HostAsleep
                 OfflineReason.TunnelUnreachable -> Unreachable
                 OfflineReason.Rejected -> TurnedAway
                 OfflineReason.VersionMismatch -> VersionMismatch
                 OfflineReason.NotRecognised -> Revoked
-                OfflineReason.HostStopped -> SharingOff
+                OfflineReason.HostStopped -> if (hostQuit) HostQuit else SharingOff
                 OfflineReason.NoLocalNetwork -> NoLocalNetwork
                 OfflineReason.Transport -> Transport
             }
@@ -154,7 +159,7 @@ fun DisconnectedScreen(
 
     val icon: ImageVector = if (offNetwork) Icons.Outlined.WifiOff else when (reason) {
         DisconnectReason.Searching -> Icons.Outlined.Wifi
-        DisconnectReason.HostAsleep, DisconnectReason.Transport -> Icons.Outlined.Computer
+        DisconnectReason.HostAsleep, DisconnectReason.Transport, DisconnectReason.HostQuit -> Icons.Outlined.Computer
         DisconnectReason.Unreachable -> Icons.Outlined.CloudOff
         DisconnectReason.SharingOff -> Icons.Outlined.Block
         DisconnectReason.NoLocalNetwork -> Icons.Outlined.WarningAmber
@@ -168,6 +173,7 @@ fun DisconnectedScreen(
         DisconnectReason.HostAsleep, DisconnectReason.Unreachable -> "Can’t reach $host"
         DisconnectReason.Transport -> "Lost the connection to $host"
         DisconnectReason.SharingOff -> "Sharing is off"
+        DisconnectReason.HostQuit -> "Spettro isn’t open on $host"
         DisconnectReason.NoLocalNetwork -> "Allow local network access"
         DisconnectReason.TurnedAway -> "$host turned the connection down"
         DisconnectReason.VersionMismatch -> "Update Spettro"
@@ -190,6 +196,8 @@ fun DisconnectedScreen(
             "Spettro keeps trying, and this screen updates by itself the moment it’s back."
         DisconnectReason.SharingOff ->
             "Turn it back on in Settings › Remote on your computer. This screen updates by itself once it’s on."
+        DisconnectReason.HostQuit ->
+            "Sharing is still on. Open Spettro on $host and this screen updates by itself once it’s back."
         // Only shown with no tunnel to try: one that was tried and failed
         // reads as Unreachable, with the permission offered alongside.
         DisconnectReason.NoLocalNetwork ->
@@ -297,6 +305,7 @@ fun DisconnectedScreen(
         if (reason == DisconnectReason.HostAsleep ||
             reason == DisconnectReason.Unreachable ||
             reason == DisconnectReason.SharingOff ||
+            reason == DisconnectReason.HostQuit ||
             reason == DisconnectReason.Transport
         ) {
             SpettroCard(modifier = Modifier.fillMaxWidth()) {
@@ -307,7 +316,8 @@ fun DisconnectedScreen(
                 ) {
                     SectionHeader("On your computer")
                     Text(
-                        "Open Spettro, then go to Settings › Remote and turn on sharing.",
+                        if (reason == DisconnectReason.HostQuit) "Open Spettro. Sharing comes back on by itself."
+                        else "Open Spettro, then go to Settings › Remote and turn on sharing.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = colors.textSecondary,
                         textAlign = TextAlign.Center,
@@ -374,6 +384,10 @@ private fun HostAsleepPreview() = DisconnectedPreview(DisconnectReason.HostAslee
 @Preview(name = "Sharing off — light", showBackground = true, backgroundColor = 0xFFFAFAFA)
 @Composable
 private fun SharingOffPreview() = DisconnectedPreview(DisconnectReason.SharingOff, darkTheme = false)
+
+@Preview(name = "Desktop quit", showBackground = true, backgroundColor = 0xFF1C1C1E)
+@Composable
+private fun HostQuitPreview() = DisconnectedPreview(DisconnectReason.HostQuit)
 
 @Preview(name = "No local network", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable

@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.RemoteAuthError
+import to.eyed.spettro.mobile.core.remote.RemoteClient
 import to.eyed.spettro.mobile.core.remote.RemoteState
 
 class DisconnectReasonTest {
@@ -73,5 +74,19 @@ class DisconnectReasonTest {
         assertFalse(offNetworkHint(DisconnectReason.Disconnected, hasRemoteHost = false, onLocalNetwork = false))
         assertFalse(offNetworkHint(DisconnectReason.SharingOff, hasRemoteHost = false, onLocalNetwork = false))
         assertFalse(offNetworkHint(DisconnectReason.Revoked, hasRemoteHost = false, onLocalNetwork = false))
+    }
+
+    @Test
+    fun `a quitting desktop is not sharing switched off`() {
+        // Quitting says goodbye with no message, and sharing comes back on
+        // with the next launch: "turn it back on in Settings" would be wrong.
+        assertTrue(RemoteClient.isQuitGoodbye(null))
+        assertTrue(RemoteClient.isQuitGoodbye(""))
+        assertFalse(RemoteClient.isQuitGoodbye("Remote access was turned off."))
+        val stopped = RemoteState.Offline(OfflineReason.HostStopped)
+        assertEquals(DisconnectReason.HostQuit, DisconnectReason.from(stopped, hostQuit = true))
+        assertEquals(DisconnectReason.SharingOff, DisconnectReason.from(stopped, hostQuit = false))
+        // Only a goodbye is read that way.
+        assertEquals(DisconnectReason.HostAsleep, DisconnectReason.from(RemoteState.Offline(OfflineReason.HostNotFound), hostQuit = true))
     }
 }
