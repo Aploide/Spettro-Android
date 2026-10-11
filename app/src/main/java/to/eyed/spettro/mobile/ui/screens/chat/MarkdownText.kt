@@ -47,6 +47,7 @@ import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.markdownDimens
+import com.mikepenz.markdown.model.rememberMarkdownState
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
@@ -88,13 +89,21 @@ fun MarkdownText(
  * One markdown chunk. A separate skippable composable so Compose can skip
  * every chunk whose text didn't change this update — the renderer then never
  * re-parses or re-lays-out finished chunks.
+ *
+ * The renderer parses off the main thread by default and draws nothing
+ * until it's done, so a row coming back into view (a scroll, the keyboard
+ * going away) measured zero high for a frame and then grew — pushing the
+ * transcript's end out of view — and the streaming chunk blinked out on
+ * every token. A chunk is a paragraph or so: it is parsed in place the first
+ * time, and while it grows the last parse stays up until the next is ready.
  */
 @Composable
 private fun MarkdownChunkView(chunk: String) {
     val colors = LocalSpettroColors.current
     val body = MaterialTheme.typography.bodyLarge
+    val state = rememberMarkdownState(chunk, retainState = true, immediate = true)
     Markdown(
-        content = chunk,
+        markdownState = state,
         colors = markdownColor(
             text = colors.textPrimary,
             codeBackground = colors.surfaceSunken,
