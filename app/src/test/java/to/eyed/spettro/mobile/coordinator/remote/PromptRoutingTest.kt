@@ -49,4 +49,21 @@ class PromptRoutingTest {
         val (p, _) = promptsShownWith(null, listOf("c1"), permissions, questions)
         assertEquals(listOf("other", "loose"), p.map { it.promptID })
     }
+
+    @Test
+    fun theOpenChatsOwnPromptsAreDockedAndTheRestGetASheet() {
+        val routes = promptRoutes("c1", chats, permissions, questions)
+        assertEquals(listOf("mine"), routes.dockPermissions.map { it.promptID })
+        assertEquals(listOf("q-mine"), routes.dockQuestions.map { it.promptID })
+        assertEquals(listOf("loose"), routes.sheetPermissions.map { it.promptID })
+        assertEquals(emptyList<String>(), routes.sheetQuestions.map { it.promptID })
+    }
+
+    @Test
+    fun withNoChatOpenNothingIsDocked() {
+        val routes = promptRoutes(null, listOf("c1"), permissions, questions)
+        assertEquals(emptyList<String>(), routes.dockPermissions.map { it.promptID })
+        assertEquals(listOf("other", "loose"), routes.sheetPermissions.map { it.promptID })
+        assertEquals(listOf("q-other"), routes.sheetQuestions.map { it.promptID })
+    }
 }

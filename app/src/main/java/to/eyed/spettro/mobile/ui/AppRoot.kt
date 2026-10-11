@@ -79,7 +79,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.spettro.mobile.coordinator.AppContainer
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
-import to.eyed.spettro.mobile.coordinator.remote.promptsShownWith
+import to.eyed.spettro.mobile.coordinator.remote.promptRoutes
+import to.eyed.spettro.mobile.ui.screens.chat.DockPrompt
+import to.eyed.spettro.mobile.ui.screens.chat.DockReply
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.PairPayload
 import to.eyed.spettro.mobile.core.remote.RemotePairing
@@ -844,12 +846,13 @@ internal fun DesktopModal(onDismiss: () -> Unit, content: @Composable () -> Unit
 }
 
 /**
- * Permission and question sheets, first answer wins (any paired device, or
- * the computer, may answer). Only the prompts of the chat on screen pop up,
- * and those that name no chat; another chat's prompt waits in the list as
- * "Needs you" until that chat is opened. Swiping a sheet away answers
- * nothing: the prompt stays pending, set aside, and the chat offers it
- * again ([PromptWaitingBar]).
+ * The sheets for prompts no open chat can dock, first answer wins (any
+ * paired device, or the computer, may answer): one that names no chat, or a
+ * chat the list doesn't know. The open chat's own prompts sit in its dock,
+ * above the composer; another chat's prompt waits in the list as "Needs
+ * you" until that chat is opened. Swiping a sheet away answers nothing: the
+ * prompt stays pending, set aside, and the chat offers it again
+ * ([PromptWaitingBar]).
  */
 @Composable
 private fun RemotePromptOverlays(model: MobileModel) {
@@ -858,8 +861,10 @@ private fun RemotePromptOverlays(model: MobileModel) {
     val chats by model.chats.collectAsState()
     val openChat by model.openChat.collectAsState()
     val setAside by model.promptsSetAside.collectAsState()
-    val (shownPermissions, shownQuestions) =
-        promptsShownWith(openChat?.chatId, chats.map { it.id }, permissions, questions)
+    // The open chat's own prompts are in its dock; the rest get a sheet.
+    val routes = promptRoutes(openChat?.chatId, chats.map { it.id }, permissions, questions)
+    val shownPermissions = routes.sheetPermissions
+    val shownQuestions = routes.sheetQuestions
     val chatTitle = { chatID: String? ->
         chats.firstOrNull { it.id.equals(chatID, ignoreCase = true) }?.title
             ?.takeIf { chatID?.equals(openChat?.chatId, ignoreCase = true) != true }
@@ -988,15 +993,17 @@ private fun RemoteChatHost(
     val questions by model.pendingQuestions.collectAsState()
     val chats by model.chats.collectAsState()
     val setAside by model.promptsSetAside.collectAsState()
-    val (shownPermissions, shownQuestions) =
-        promptsShownWith(session.chatId, chats.map { it.id }, permissions, questions)
+    val routes = promptRoutes(session.chatId, chats.map { it.id }, permissions, questions)
     // Opening the chat a prompt waits in is asking to see it.
     LaunchedEffect(session.chatId) { model.bringBackPrompts(session.chatId) }
+    // Only a sheet can be swiped aside; the dock's prompts stay in view.
     val waitingFor = when {
-        shownPermissions.any { it.promptID in setAside } -> "Spettro is waiting for your approval"
-        shownQuestions.any { it.promptID in setAside } -> "Spettro is waiting for your answer"
+        routes.sheetPermissions.any { it.promptID in setAside } -> "Spettro is waiting for your approval"
+        routes.sheetQuestions.any { it.promptID in setAside } -> "Spettro is waiting for your answer"
         else -> null
     }
+    val dockPrompts = routes.dockPermissions.map { DockPrompt.Permission(it.promptID, it.request, it.questionForm) } +
+        routes.dockQuestions.map { DockPrompt.Question(it.promptID, it.request) }
 
     var composerText by rememberSaveable(session.chatId) { mutableStateOf("") }
     var attachments by remember(session.chatId) { mutableStateOf(listOf<ImageAttachment>()) }
@@ -1073,10 +1080,27 @@ private fun RemoteChatHost(
         workflowGate = workflowGate(configOptions),
         onSwitchPermission = { model.setConfigValue("permission", "restricted") },
         thinking = thinking,
-        awaitingApproval = shownPermissions.any { it.chatID.equals(session.chatId, ignoreCase = true) },
-        awaitingAnswer = shownQuestions.any { it.chatID.equals(session.chatId, ignoreCase = true) },
+        awaitingApproval = routes.dockPermissions.any { it.questionForm == null },
+        awaitingAnswer = routes.dockQuestions.isNotEmpty() || routes.dockPermissions.any { it.questionForm != null },
         projectPath = session.projectPath.ifEmpty { null },
-        awaitingToolIds = shownPermissions.mapNotNull { it.card?.toolCallId }.toSet(),
+        awaitingToolIds = routes.dockPermissions.mapNotNull { it.card?.toolCallId }.toSet(),
+        prompts = dockPrompts,
+        onPromptReply = { reply ->
+            when (reply) {
+                is DockReply.Option -> model.replyToPermission(reply.promptId, reply.optionId)
+                is DockReply.Answers -> {
+                    val form = routes.dockPermissions.firstOrNull { it.promptID == reply.promptId }
+                    if (form != null) {
+                        model.replyToPermissionQuestion(form, reply.answers)
+                    } else {
+                        model.replyToQuestion(reply.promptId, reply.answers)
+                    }
+                }
+            }
+        },
+        // "What should Spettro do instead?" goes as the next message, or as
+        // guidance to the turn still running.
+        onDeniedFeedback = { model.sendPrompt(it) },
         onDelete = {
             model.deleteChat(session.chatId)
             onBack()

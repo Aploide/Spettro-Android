@@ -75,6 +75,8 @@ import to.eyed.spettro.mobile.model.DisplayRow
 import to.eyed.spettro.mobile.model.ToolGroups
 import androidx.compose.runtime.CompositionLocalProvider
 import to.eyed.spettro.mobile.model.TranscriptItem
+import to.eyed.spettro.mobile.model.ChatMessage
+import androidx.compose.foundation.layout.BoxWithConstraints
 import to.eyed.spettro.mobile.ui.components.RunTicker
 import to.eyed.spettro.mobile.model.TranscriptRow
 import to.eyed.spettro.mobile.model.groupTranscript
@@ -141,6 +143,9 @@ fun ChatScreen(
     awaitingAnswer: Boolean = false,
     projectPath: String? = null,
     awaitingToolIds: Set<String> = emptySet(),
+    prompts: List<DockPrompt> = emptyList(),
+    onPromptReply: (DockReply) -> Unit = {},
+    onDeniedFeedback: (String) -> Unit = {},
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -159,6 +164,10 @@ fun ChatScreen(
     // Then runs of finished reads and searches fold to one line ("Read 5
     // files, searched 2 patterns"); the live strip keeps the unfolded rows.
     val display = remember(rows) { ToolGroups.fold(rows) }
+    val lastUserMessageId = remember(items) {
+        items.lastOrNull { it is TranscriptItem.Message && it.message.role == ChatMessage.Role.User }
+            ?.let { (it as TranscriptItem.Message).message.id }
+    }
 
     CompositionLocalProvider(
         LocalProjectPath provides projectPath,
@@ -213,13 +222,17 @@ fun ChatScreen(
             )
         },
     ) { padding ->
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .consumeWindowInsets(padding)
                 .imePadding(),
         ) {
+        // The prompt card's cap: the desktop's min(56vh, 520px), of what is
+        // left once the keyboard is up, so the composer always stays in view.
+        val dockMax = minOf(maxHeight * 0.56f, 520.dp)
+        Column(modifier = Modifier.fillMaxSize()) {
             if (usage != null || modeName != null) {
                 ReadableColumn {
                     ChatStatusStrip(
@@ -277,6 +290,18 @@ fun ChatScreen(
                 }
             }
 
+            // The open chat's approvals and questions, inline above the
+            // composer — never dismissed by a swipe.
+            ReadableColumn {
+                PromptDock(
+                    prompts = prompts,
+                    onReply = onPromptReply,
+                    onDeniedFeedback = onDeniedFeedback,
+                    maxHeight = dockMax,
+                    lastUserMessageId = lastUserMessageId,
+                )
+            }
+
             ReadableColumn {
                 ChatComposer(
                     text = composerText,
@@ -297,9 +322,10 @@ fun ChatScreen(
                     thinking = thinking,
                     thinkingFrame = thinkingFrame,
                     plan = plan,
-                    planFolded = awaitingApproval || awaitingAnswer,
+                    planFolded = awaitingApproval || awaitingAnswer || prompts.isNotEmpty(),
                 )
             }
+        }
         }
     }
 

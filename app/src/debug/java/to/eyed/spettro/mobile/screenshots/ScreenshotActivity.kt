@@ -40,6 +40,7 @@ import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ConfigSummary
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
+import to.eyed.spettro.mobile.ui.screens.chat.DockPrompt
 import to.eyed.spettro.mobile.ui.screens.chat.NewSessionScreen
 import to.eyed.spettro.mobile.ui.screens.chat.OrchestrationPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.WorkflowGate
@@ -250,7 +251,24 @@ private fun Scene(scene: String, tablet: Boolean) {
                 onDismiss = {},
             )
         }
-        "permission" -> {
+        // Approvals and questions sit inline above the composer of the chat
+        // that asked (the dock); a prompt that names no chat gets the sheet.
+        "permission" -> Shell(
+            tablet,
+            items = ChatPreviewData.transcript,
+            busy = true,
+            prompts = listOf(
+                DockPrompt.Permission("p1", permissionRequest),
+                DockPrompt.Permission("p2", editPermissionRequest),
+            ),
+        )
+        "permission_edit" -> Shell(
+            tablet,
+            items = ChatPreviewData.transcript,
+            busy = true,
+            prompts = listOf(DockPrompt.Permission("p2", editPermissionRequest)),
+        )
+        "permission_sheet" -> {
             Shell(tablet, items = ChatPreviewData.transcript, busy = true)
             PermissionSheet(
                 request = permissionRequest,
@@ -259,16 +277,13 @@ private fun Scene(scene: String, tablet: Boolean) {
                 onDismiss = {},
             )
         }
-        "permission_edit" -> {
-            Shell(tablet, items = ChatPreviewData.transcript, busy = true)
-            PermissionSheet(
-                request = editPermissionRequest,
-                chatTitle = null,
-                onSelect = {},
-                onDismiss = {},
-            )
-        }
-        "question" -> {
+        "question" -> Shell(
+            tablet,
+            items = ChatPreviewData.transcript,
+            busy = true,
+            prompts = listOf(DockPrompt.Question("q1", questionRequest)),
+        )
+        "question_sheet" -> {
             Shell(tablet, items = ChatPreviewData.transcript, busy = true)
             QuestionSheet(
                 request = questionRequest,
@@ -345,12 +360,14 @@ private fun Shell(
     thinking: ThinkingControl? = previewThinking(ChatPreviewData.configOptions),
     thinkingFrame: ThinkingFrame? = null,
     awaitingToolIds: Set<String> = emptySet(),
+    prompts: List<DockPrompt> = emptyList(),
 ) {
     if (tablet) {
         SplitShell(
             items = items,
             busy = busy,
             awaitingToolIds = awaitingToolIds,
+            prompts = prompts,
             composerText = composerText,
             workflowGate = workflowGate,
             thinking = thinking,
@@ -361,6 +378,7 @@ private fun Shell(
             items = items,
             busy = busy,
             awaitingToolIds = awaitingToolIds,
+            prompts = prompts,
             composerText = composerText,
             workflowGate = workflowGate,
             thinking = thinking,
@@ -443,6 +461,7 @@ private fun SplitShell(
     thinking: ThinkingControl? = previewThinking(ChatPreviewData.configOptions),
     thinkingFrame: ThinkingFrame? = null,
     awaitingToolIds: Set<String> = emptySet(),
+    prompts: List<DockPrompt> = emptyList(),
 ) {
     val colors = LocalSpettroColors.current
     Row(Modifier.fillMaxSize()) {
@@ -456,6 +475,7 @@ private fun SplitShell(
                     items = items,
                     busy = busy,
                     awaitingToolIds = awaitingToolIds,
+                    prompts = prompts,
                     showBack = false,
                     composerText = composerText,
                     workflowGate = workflowGate,
@@ -479,6 +499,7 @@ private fun Chat(
     thinking: ThinkingControl? = null,
     thinkingFrame: ThinkingFrame? = null,
     awaitingToolIds: Set<String> = emptySet(),
+    prompts: List<DockPrompt> = emptyList(),
 ) {
     var text by remember { mutableStateOf(composerText) }
     ChatScreen(
@@ -521,7 +542,9 @@ private fun Chat(
         thinkingFrame = thinkingFrame,
         projectPath = "/Users/dev/spettro",
         awaitingToolIds = awaitingToolIds,
-        awaitingApproval = awaitingToolIds.isNotEmpty(),
+        awaitingApproval = awaitingToolIds.isNotEmpty() || prompts.any { it is DockPrompt.Permission },
+        awaitingAnswer = prompts.any { it is DockPrompt.Question },
+        prompts = prompts,
     )
 }
 

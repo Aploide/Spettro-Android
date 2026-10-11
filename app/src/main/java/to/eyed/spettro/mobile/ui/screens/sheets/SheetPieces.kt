@@ -119,6 +119,21 @@ internal fun PromptIconTile(icon: androidx.compose.ui.graphics.vector.ImageVecto
     }
 }
 
+/** "1 of 3": where a prompt stands in its chat's queue (the desktop's `.prompt-queue`). */
+@Composable
+internal fun PromptQueuePill(text: String) {
+    val colors = LocalSpettroColors.current
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+        color = colors.textSecondary,
+        maxLines = 1,
+        modifier = Modifier
+            .background(colors.hoverFill, CircleShape)
+            .padding(horizontal = 7.dp, vertical = 1.dp),
+    )
+}
+
 /** Swallows taps, for an answer that isn't armed yet. */
 internal fun Modifier.consumeTaps(): Modifier = pointerInput(Unit) {
     awaitPointerEventScope {

@@ -93,6 +93,35 @@ fun promptsShownWith(
 }
 
 /**
+ * Where each prompt [promptsShownWith] gives the chat on screen is shown:
+ * the open chat's own go in the dock above its composer, inline, the way
+ * the desktop asks; the rest — one that names no chat, or a chat the list
+ * doesn't know — still need answering somewhere, so they get a sheet.
+ */
+data class PromptRoutes(
+    val dockPermissions: List<PendingPermission>,
+    val dockQuestions: List<PendingQuestion>,
+    val sheetPermissions: List<PendingPermission>,
+    val sheetQuestions: List<PendingQuestion>,
+)
+
+fun promptRoutes(
+    openChatID: String?,
+    knownChatIDs: Collection<String>,
+    permissions: List<PendingPermission>,
+    questions: List<PendingQuestion>,
+): PromptRoutes {
+    val (shownPermissions, shownQuestions) = promptsShownWith(openChatID, knownChatIDs, permissions, questions)
+    fun docked(chatID: String?) = openChatID != null && chatID.equals(openChatID, ignoreCase = true)
+    return PromptRoutes(
+        dockPermissions = shownPermissions.filter { docked(it.chatID) },
+        dockQuestions = shownQuestions.filter { docked(it.chatID) },
+        sheetPermissions = shownPermissions.filterNot { docked(it.chatID) },
+        sheetQuestions = shownQuestions.filterNot { docked(it.chatID) },
+    )
+}
+
+/**
  * A transient, dismissible message shown above the chat UI, as the desktop's
  * toast: a short [text] title and, for errors, a [detail] sentence saying
  * what to do, at most one [action], and the [raw] error behind "Show

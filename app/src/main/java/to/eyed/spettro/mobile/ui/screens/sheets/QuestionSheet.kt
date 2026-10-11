@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -100,6 +101,12 @@ internal fun QuestionSheetContent(
     onSubmit: (answers: List<AcpQuestionAnswer>) -> Unit,
     onDecline: () -> Unit,
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(
+        start = Dimens.spacingLg,
+        end = Dimens.spacingLg,
+        bottom = Dimens.spacingLg,
+    ),
+    queue: String? = null,
 ) {
     val colors = LocalSpettroColors.current
     val questions = request.questions
@@ -192,7 +199,7 @@ internal fun QuestionSheetContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = Dimens.spacingLg, end = Dimens.spacingLg, bottom = Dimens.spacingLg),
+            .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
     ) {
         // Header.
@@ -210,7 +217,9 @@ internal fun QuestionSheetContent(
                     },
                     style = MaterialTheme.typography.titleSmall,
                     color = colors.textPrimary,
+                    modifier = Modifier.weight(1f),
                 )
+                if (queue != null) PromptQueuePill(queue)
             }
             if (request.context != null) {
                 Text(

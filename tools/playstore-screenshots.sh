@@ -26,7 +26,9 @@
 #   orchestration            (two runs mixed into a conversation)
 #   activation               (the "ultracode" and "+500k" highlight, and the budget line)
 #   activation_askfirst      (the same under Ask first: muted, with the way out)
-#   permission_edit          (an approval with a diff, beside the listed command one)
+#   permission_edit          (an approval with a diff, docked above the composer)
+#   permission_sheet  question_sheet   (the sheet a prompt naming no chat gets)
+#   tools                    (tool rows: reads folded, a two-hunk diff, exit status, Needs approval)
 #   providers  archived  new_chat  new_session  tunnel  disconnected_<reason>
 #   thinking  thinking_meteor  thinking_smoulder  thinking_paused  thinking_off
 #   thinking_inert  thinking_inert_off  thinking_live
