@@ -276,7 +276,7 @@ fun DisconnectedScreen(
         ) {
             SpettroCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
-                    modifier = Modifier.padding(Dimens.spacingMd),
+                    modifier = Modifier.fillMaxWidth().padding(Dimens.spacingMd),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
                 ) {
