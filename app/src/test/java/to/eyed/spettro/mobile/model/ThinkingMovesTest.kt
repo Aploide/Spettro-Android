@@ -2,6 +2,7 @@ package to.eyed.spettro.mobile.model
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
@@ -84,11 +85,11 @@ class ThinkingMovesTest {
         settle()
         val second = queue.commit(high) // queued
         val third = queue.commit(xHigh) // replaces it
-        // Only the run's own deferred lets the preview go.
-        assertFalse(second.await())
-        assertFalse(third.await())
         cli.release()
-        assertTrue(first.await())
+        // Only the move the queue drained on lets its preview go.
+        assertFalse(first.await())
+        assertFalse(second.await())
+        assertTrue(third.await())
         assertEquals(listOf(thinking("medium"), thinking("x-high")), cli.calls)
     }
 
@@ -98,9 +99,10 @@ class ThinkingMovesTest {
         val queue = committer(cli)
         val run = queue.commit(Thinking.ULTRA)
         settle()
-        queue.commit(max) // queued behind Ultra's two calls
+        val leave = queue.commit(max) // queued behind Ultra's two calls
         cli.release()
-        assertTrue(run.await())
+        assertFalse(run.await())
+        assertTrue(leave.await())
         // Ultra went on in this run, so leaving it turns it off first.
         assertEquals(listOf(thinking("high"), ultra(true), ultra(false), thinking("max")), cli.calls)
 
@@ -109,6 +111,37 @@ class ThinkingMovesTest {
         cli.ultraOn = true
         assertTrue(queue.commit(low).await())
         assertEquals(listOf(ultra(false), thinking("low")), cli.calls)
+    }
+
+    @Test
+    fun `a slider opened again mid-run joins the run, and its move lets go`() = runBlocking {
+        // Ultra picked on a slow link, the chat left and reopened, Low picked
+        // there: one queue for the chat, so Low goes after Ultra's pair, never
+        // between or beside it, and the new slider's move is the one that
+        // drains it — its preview isn't left waiting on the old slider.
+        val cli = FakeCli().apply { holding = true }
+        val queue = committer(cli)
+        val fromClosedSheet = queue.commit(Thinking.ULTRA)
+        settle()
+        val fromNewSheet = queue.commit(low)
+        cli.release()
+        assertTrue(fromNewSheet.await())
+        assertFalse(fromClosedSheet.await())
+        assertEquals(listOf(thinking("high"), ultra(true), ultra(false), thinking("low")), cli.calls)
+        assertFalse(cli.ultraOn)
+    }
+
+    @Test
+    fun `lets every waiter go, unsettled, if the run is cancelled`() = runBlocking {
+        val cli = FakeCli().apply { holding = true }
+        val scope = CoroutineScope(coroutineContext + Job())
+        val queue = ThinkingCommitter(scope, { cli.ultraOn }, cli::send)
+        val first = queue.commit(medium)
+        settle()
+        val second = queue.commit(high)
+        scope.coroutineContext[Job]!!.cancel()
+        assertFalse(first.await())
+        assertFalse(second.await())
     }
 
     @Test

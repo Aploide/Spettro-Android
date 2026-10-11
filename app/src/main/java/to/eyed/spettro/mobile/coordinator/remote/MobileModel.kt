@@ -42,6 +42,7 @@ import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.rpc.RpcException
 import to.eyed.spettro.mobile.model.ChatMessage
 import to.eyed.spettro.mobile.model.ChatSession
+import to.eyed.spettro.mobile.model.ConfigCall
 import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.model.Thinking
@@ -270,6 +271,7 @@ class MobileModel(
     private fun forgetHostState() {
         deletes.cancelAll()
         openBuffer.cancel()
+        thinkingQueues.clear()
         _openChat.value = null
         _chats.value = emptyList()
         _projects.value = emptyList()
@@ -614,33 +616,62 @@ class MobileModel(
         scope.launch { applyConfig(session, configID, ConfigValue.Bool(value)) }
     }
 
-    /** One move queue per chat, for the session it was made with. */
-    private val thinkingQueues = mutableMapOf<String, Pair<ChatSession, ThinkingCommitter>>()
+    /** One move queue per chat, whichever session of it is open when a call goes. */
+    private val thinkingQueues = mutableMapOf<String, ThinkingCommitter>()
 
     /**
      * Moves the open chat's thinking slider to [stop]: the level, Ultra (two
      * calls, thinking high and then ultracode on), or away from Ultra
      * (ultracode off first). The calls go one at a time, each after the
      * last is answered, and moves made meanwhile collapse into the latest
-     * (ThinkingCommitter). The queue belongs to the chat, not the sheet, so
-     * a slider closed mid-move still sends where it had got to. Completes
-     * true once the queue has drained.
+     * (ThinkingCommitter). The queue belongs to the chat, not the sheet or
+     * the session: a slider closed mid-move still sends where it had got
+     * to, and one opened again — after leaving the chat and coming back,
+     * which builds a new session — joins the run already going rather than
+     * racing it. Completes true for the move the queue drains on.
      */
     fun commitThinking(stop: ThinkingStop): Deferred<Boolean> {
-        val session = _openChat.value ?: return CompletableDeferred(false)
-        val queue = thinkingQueues[session.chatId]?.takeIf { it.first === session }?.second
-            ?: ThinkingCommitter(
+        val chatID = _openChat.value?.chatId ?: return CompletableDeferred(false)
+        val queue = thinkingQueues.getOrPut(chatID) {
+            ThinkingCommitter(
                 scope = scope,
-                ultraOnNow = { Thinking.state(session.configOptions.value)?.ultraOn == true },
-                send = { call -> applyConfig(session, call.configId, call.value) },
+                ultraOnNow = {
+                    val options = openSession(chatID)?.configOptions?.value.orEmpty()
+                    Thinking.state(options)?.ultraOn == true
+                },
+                send = { call -> sendThinkingCall(chatID, call) },
                 // A host that answers before the set is done can't be
                 // waited on; it gets the pair a beat apart instead.
                 spacingMs = {
                     val connected = client.state.value as? RemoteState.Connected
                     if (connected?.has(RemoteFeature.CONFIG_RESULT) == true) 0L else OLD_HOST_CONFIG_SPACING_MS
                 },
-            ).also { thinkingQueues[session.chatId] = session to it }
+            )
+        }
         return queue.commit(stop)
+    }
+
+    private fun openSession(chatID: String): ChatSession? = _openChat.value?.takeIf { it.chatId == chatID }
+
+    /**
+     * One of a slider move's calls, against the session of [chatID] open as
+     * it goes. With the chat closed meanwhile it still goes; there is just
+     * no screen to show it on.
+     */
+    private suspend fun sendThinkingCall(chatID: String, call: ConfigCall) {
+        val session = openSession(chatID)
+        if (session != null) {
+            applyConfig(session, call.configId, call.value)
+            return
+        }
+        runCatching {
+            api.config(
+                chatID,
+                call.configId,
+                stringValue = (call.value as? ConfigValue.Str)?.value,
+                boolValue = (call.value as? ConfigValue.Bool)?.value,
+            )
+        }
     }
 
     /**

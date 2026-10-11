@@ -4,8 +4,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Sends the thinking slider's moves to the CLI, one call at a time. Port of
@@ -18,9 +18,12 @@ import kotlinx.coroutines.delay
  * host has answered): Ultra is two calls, and two replies racing each other
  * would each carry the other option's old value.
  *
- * It lives with the chat rather than the slider, so a sheet closed mid-move
- * still sends where the move had got to. Single-threaded: [commit] is called
- * on the main thread and [scope] runs there.
+ * It lives with the chat rather than the slider, one per chat for as long as
+ * the app runs: a sheet closed mid-move still sends where the move had got
+ * to, and a sheet opened again — or the chat left and reopened — while a
+ * run is still going joins that run instead of starting a second one beside
+ * it on the same CLI session. Single-threaded: [commit] is called on the
+ * main thread and [scope] runs there.
  */
 class ThinkingCommitter(
     private val scope: CoroutineScope,
@@ -42,6 +45,9 @@ class ThinkingCommitter(
     private var target: ThinkingStop? = null
     private var running = false
 
+    /** Everyone waiting on the run in progress, oldest first: the last is the move it drains on. */
+    private val waiting = mutableListOf<CompletableDeferred<Boolean>>()
+
     /**
      * What the CLI's Ultra is, as far as this queue knows: the options while
      * idle, its own last call while running (the options lag a round trip).
@@ -49,16 +55,24 @@ class ThinkingCommitter(
     private var ultraOn = false
 
     /**
-     * Queues a move to [stop]. Completes true once the queue has drained —
-     * false at once when a run is already in progress and will pick this
-     * move up, so only the last move of a burst lets its preview go.
+     * Queues a move to [stop]. Completes once the queue has drained: true
+     * for the move it drained on, false for the moves overtaken on the way,
+     * so only the last move of a burst lets its preview go — whichever
+     * slider made it, a sheet opened again mid-run included.
      */
     fun commit(stop: ThinkingStop): Deferred<Boolean> {
         target = stop
-        if (running) return CompletableDeferred(false)
+        val done = CompletableDeferred<Boolean>()
+        waiting += done
+        if (!running) run()
+        return done
+    }
+
+    private fun run() {
         running = true
         ultraOn = ultraOnNow()
-        return scope.async {
+        scope.launch {
+            var drained = false
             try {
                 var first = true
                 while (true) {
@@ -79,10 +93,14 @@ class ThinkingCommitter(
                         }
                     }
                 }
+                drained = true
             } finally {
                 running = false
+                target = null
+                val all = waiting.toList()
+                waiting.clear()
+                all.forEachIndexed { i, done -> done.complete(drained && i == all.lastIndex) }
             }
-            true
         }
     }
 }
