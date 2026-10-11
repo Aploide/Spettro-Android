@@ -3,6 +3,21 @@ package to.eyed.spettro.mobile.ui.screens.chat
 import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
 import to.eyed.spettro.mobile.ui.components.thinking.ThinkingFrame
 import androidx.compose.foundation.layout.height
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import to.eyed.spettro.mobile.ui.theme.Elevation
+import to.eyed.spettro.mobile.ui.theme.floatingShadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.foundation.border
@@ -466,7 +481,7 @@ private fun Transcript(
         val info = listState.layoutInfo
         val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
         if (lastVisible >= count - 3) {
-            listState.animateScrollToItem(count - 1)
+            listState.animateToEnd()
         }
     }
 
@@ -477,7 +492,7 @@ private fun Transcript(
     var seenUser by remember { mutableStateOf(newestUser) }
     LaunchedEffect(newestUser) {
         if (newestUser != null && newestUser != seenUser && count > 0) {
-            listState.animateScrollToItem(count - 1)
+            listState.animateToEnd()
         }
         seenUser = newestUser
     }
@@ -515,25 +530,87 @@ private fun Transcript(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(Dimens.spacingLg),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-    ) {
-        items(rows, key = { it.id }) { row ->
-            ReadableColumn {
-                when (row) {
-                    is DisplayRow.Row -> TranscriptRowView(row = row.row)
-                    is DisplayRow.Tools -> ToolGroupRow(group = row)
+    // Away from the end, the desktop's "Latest message" pill takes the
+    // reader back. Shown a beat after the end leaves the view, so the
+    // follow rule catching up with a growing reply never flashes it.
+    val awayPx = with(LocalDensity.current) { JumpThreshold.roundToPx() }
+    var away by remember { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        snapshotFlow { awayFromEnd(EndScroll.of(listState.layoutInfo), awayPx) }
+            .distinctUntilChanged()
+            .collectLatest { isAway ->
+                if (isAway) delay(JUMP_DELAY_MS)
+                away = isAway
+            }
+    }
+    val scope = rememberCoroutineScope()
+
+    Box(modifier) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(Dimens.spacingLg),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        ) {
+            items(rows, key = { it.id }) { row ->
+                ReadableColumn {
+                    when (row) {
+                        is DisplayRow.Row -> TranscriptRowView(row = row.row)
+                        is DisplayRow.Tools -> ToolGroupRow(group = row)
+                    }
+                }
+            }
+            if (ticker != null) {
+                item(key = "run-ticker") {
+                    ReadableColumn { ticker() }
                 }
             }
         }
-        if (ticker != null) {
-            item(key = "run-ticker") {
-                ReadableColumn { ticker() }
-            }
+        AnimatedVisibility(
+            visible = away,
+            enter = fadeIn(tween(140)) + slideInVertically(tween(140)) { it / 3 },
+            exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 3 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = Dimens.spacingMd),
+        ) {
+            JumpToLatest(onClick = { scope.launch { listState.animateToEnd() } })
         }
+    }
+}
+
+/** How far below the view the end may be before the pill shows (the desktop's 64px). */
+private val JumpThreshold = 64.dp
+private const val JUMP_DELAY_MS = 180L
+
+/** The desktop's `.chat-jump-latest`: a raised pill, ⌄ Latest message. */
+@Composable
+private fun JumpToLatest(onClick: () -> Unit) {
+    val colors = LocalSpettroColors.current
+    Row(
+        modifier = Modifier
+            .floatingShadow(Elevation.Medium, CircleShape)
+            .clip(CircleShape)
+            .background(colors.surfaceRaised)
+            .border(Dimens.hairlineWidth, colors.accent.copy(alpha = 0.45f).compositeOver(colors.hairline), CircleShape)
+            .clickable(onClickLabel = "Jump to latest message", onClick = onClick)
+            .heightIn(min = 36.dp)
+            .padding(horizontal = 13.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Outlined.KeyboardArrowDown,
+            contentDescription = null,
+            tint = colors.textPrimary,
+            modifier = Modifier.size(15.dp),
+        )
+        Text(
+            "Latest message",
+            color = colors.textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
