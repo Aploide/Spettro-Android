@@ -32,13 +32,19 @@ import java.util.UUID
  * Create at most one instance per process: DataStore requires a single
  * active instance per file.
  */
-class RemoteCredentialStore(
-    context: Context,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+class RemoteCredentialStore internal constructor(
+    private val dataStore: DataStore<Preferences>,
+    scope: CoroutineScope,
 ) {
-    private val dataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(scope = scope) {
-        context.applicationContext.preferencesDataStoreFile("spettro_remote")
-    }
+    constructor(
+        context: Context,
+        scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    ) : this(
+        PreferenceDataStoreFactory.create(scope = scope) {
+            context.applicationContext.preferencesDataStoreFile("spettro_remote")
+        },
+        scope,
+    )
 
     private val _credential = MutableStateFlow<RemoteCredential?>(null)
 
@@ -51,10 +57,15 @@ class RemoteCredentialStore(
         }
     }
 
-    /** Reads the credential straight from disk and refreshes the cache. */
+    /**
+     * Reads the credential straight from disk and refreshes the cache. The
+     * read happens inside the same transaction that drops what older builds
+     * left, so a [save] or [updateEndpoint] can't land in between and be
+     * overwritten in the cache by an older copy. With nothing to drop,
+     * DataStore writes nothing.
+     */
     suspend fun load(): RemoteCredential? {
-        val prefs = dataStore.data.first()
-        if (CredentialPrefs.hasLegacy(prefs)) dataStore.edit(CredentialPrefs::dropLegacy)
+        val prefs = dataStore.edit(CredentialPrefs::dropLegacy)
         val value = CredentialPrefs.read(prefs)
         _credential.value = value
         return value
