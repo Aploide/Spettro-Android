@@ -576,11 +576,15 @@ private fun RemoteNavigator(
                 onUnarchive = { model.setArchived(it, false) },
                 onDelete = model::deleteChat,
                 onDismiss = { showArchived = false },
+                // The sheet is a window of its own over the app's: a delete's
+                // Undo has to be drawn in it, or it sits under the scrim
+                // where a tap only closes the sheet.
+                toast = { BannerOverlay(model, onOpenProviders = openProviders, underStatusBar = false) },
             )
         }
 
         RemotePromptOverlays(model)
-        BannerOverlay(model, onOpenProviders = openProviders)
+        if (!showArchived) BannerOverlay(model, onOpenProviders = openProviders)
         ReconnectingPill(visible = reconnecting)
     }
 }
@@ -965,9 +969,12 @@ private fun RemotePromptOverlays(model: MobileModel) {
  * desktop, and a tap on it dismisses unless it has details to read.
  */
 @Composable
-private fun BannerOverlay(model: MobileModel, onOpenProviders: () -> Unit) {
+private fun BannerOverlay(model: MobileModel, onOpenProviders: () -> Unit, underStatusBar: Boolean = true) {
     val banner by model.banner.collectAsState()
-    Box(Modifier.fillMaxWidth().statusBarsPadding(), contentAlignment = Alignment.TopCenter) {
+    Box(
+        Modifier.fillMaxWidth().then(if (underStatusBar) Modifier.statusBarsPadding() else Modifier),
+        contentAlignment = Alignment.TopCenter,
+    ) {
         AnimatedVisibility(
             visible = banner != null,
             enter = slideInVertically(SpettroMotion.toast()) { -it / 4 } + fadeIn(SpettroMotion.toast()),

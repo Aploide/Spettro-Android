@@ -2,6 +2,7 @@ package to.eyed.spettro.mobile.ui.screens.home
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,14 +52,19 @@ fun ArchivedChatsSheet(
     onUnarchive: (String) -> Unit,
     onDelete: (String) -> Unit,
     onDismiss: () -> Unit,
+    /** The app's toast, drawn over the sheet: a delete's Undo lands here. */
+    toast: @Composable () -> Unit = {},
 ) {
     SpettroSheet(onDismissRequest = onDismiss) {
-        ArchivedChatsContent(
-            chats = chats,
-            onOpen = onOpen,
-            onUnarchive = onUnarchive,
-            onDelete = onDelete,
-        )
+        Box {
+            ArchivedChatsContent(
+                chats = chats,
+                onOpen = onOpen,
+                onUnarchive = onUnarchive,
+                onDelete = onDelete,
+            )
+            toast()
+        }
     }
 }
 
