@@ -266,10 +266,11 @@ stay one APK.
 Each APK's versionCode is `versionCode × 10` plus an ABI digit: universal 0,
 armeabi-v7a 1, arm64-v8a 2, x86_64 3, so `versionCode = 18` gives 180, 181,
 182 and 183. Any APK of a newer release upgrades any APK of an older one,
-and within a release a split may replace the universal APK. The Play bundle
-(`bundleRelease`) ignores the splits and keeps the plain `versionCode`; the
-APKs are signed with the debug key, so they are a separate track from Play
-anyway.
+and within a release a split may replace the universal APK. The splits (and
+these versionCodes) only go on for `assembleRelease`/`installRelease`: the
+Play bundle (`bundleRelease`, which AGP won't build with ABI splits on) and
+any other build keep one APK and the plain `versionCode`. The sideloaded APKs
+are signed with the debug key, so they are a separate track from Play anyway.
 
 To actually use the app you need the Spettro desktop app running on a
 computer with sharing on (Settings › Remote). Pair on the same network as the

@@ -4,6 +4,17 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// True when this Gradle run builds or installs release APKs and no bundle:
+// AGP fails bundleRelease with ABI splits on ("Multiple shrunk-resources
+// files found"), so the splits, and the versionCodes that go with them,
+// stay off for any run that asks for a bundle.
+val releaseApkSplits: Boolean = gradle.startParameter.taskNames
+    .map { it.substringAfterLast(':') }
+    .let { tasks ->
+        tasks.none { it.startsWith("bundle") } &&
+            tasks.any { it == "assembleRelease" || it == "installRelease" }
+    }
+
 android {
     namespace = "to.eyed.spettro.mobile"
     compileSdk = 37
@@ -60,13 +71,13 @@ android {
 
     // One APK per ABI for sideloading: most of a universal APK is ML Kit's
     // bundled barcode model (libbarhopper_v3.so), once for every ABI. The
-    // splits only go on when a release task is asked for, so debug builds,
-    // unit tests and the screenshot harness stay one APK. The Play bundle
-    // (bundleRelease) ignores them and splits by itself. versionCodes per
-    // ABI: see androidComponents below.
+    // splits only go on for a build of release APKs (see releaseApkSplits),
+    // so debug builds, unit tests and the screenshot harness stay one APK,
+    // and bundleRelease, which AGP refuses to build with ABI splits on,
+    // splits by itself. versionCodes per ABI: see androidComponents below.
     splits {
         abi {
-            isEnable = gradle.startParameter.taskNames.any { it.contains("Release") }
+            isEnable = releaseApkSplits
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86_64")
             // Every ABI, x86 included: the APK there was before the splits.
@@ -75,12 +86,14 @@ android {
     }
 }
 
-// Each release APK's versionCode is versionCode × 10 + an ABI digit:
+// Each split release APK's versionCode is versionCode × 10 + an ABI digit:
 // universal 0, armeabi-v7a 1, arm64-v8a 2, x86_64 3 (18 -> 180..183). Any
 // APK of a newer release upgrades any APK of an older one, and within a
-// release a split may replace the universal APK.
+// release a split may replace the universal APK. Only with the splits on:
+// the bundle, and any build that leaves them off, keep the plain versionCode.
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
+        if (!releaseApkSplits) return@onVariants
         variant.outputs.forEach { output ->
             val abi = output.filters.firstOrNull {
                 it.filterType == com.android.build.api.variant.FilterConfiguration.FilterType.ABI
