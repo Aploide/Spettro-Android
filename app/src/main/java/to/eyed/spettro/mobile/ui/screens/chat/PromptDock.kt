@@ -1,5 +1,6 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import to.eyed.spettro.mobile.ui.components.fadeWhenMoreBelow
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -280,10 +281,12 @@ internal fun PermissionCard(
             if (queue != null) PromptQueuePill(queue)
         }
 
+        val bodyScroll = rememberScrollState()
         Column(
             modifier = Modifier
                 .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState()),
+                .fadeWhenMoreBelow(bodyScroll)
+                .verticalScroll(bodyScroll),
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
         ) {
             if (request.isCompact) {

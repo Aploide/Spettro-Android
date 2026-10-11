@@ -5,6 +5,7 @@ import to.eyed.spettro.mobile.ui.components.SpettroButton
 import to.eyed.spettro.mobile.ui.components.ButtonStyle
 import to.eyed.spettro.mobile.ui.components.SectionHeader
 import to.eyed.spettro.mobile.ui.components.SpettroTextField
+import to.eyed.spettro.mobile.ui.components.fadeWhenMoreBelow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -202,81 +203,90 @@ internal fun QuestionSheetContent(
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
     ) {
-        // Header.
-        Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs)) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PromptIconTile(icon = Icons.Outlined.QuestionAnswer, info = true)
-                Text(
-                    text = if (questions.size > 1) {
-                        "Spettro has ${questions.size} questions"
-                    } else {
-                        "Spettro has a question"
-                    },
-                    style = MaterialTheme.typography.titleSmall,
-                    color = colors.textPrimary,
-                    modifier = Modifier.weight(1f),
-                )
-                if (count > 1) {
-                    Text(
-                        text = "Question ${step + 1} of $count",
-                        color = colors.textTertiary,
-                        style = TextStyle(fontSize = 12.sp),
-                    )
-                }
-                if (queue != null) PromptQueuePill(queue)
-            }
-            if (request.context != null && step == 0) {
-                Text(
-                    text = request.context!!,
-                    color = colors.textSecondary,
-                    style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
-                )
-            }
-        }
-
-        // The current page.
+        // The header and the page scroll together above the pinned footer:
+        // on a phone on its side the card is little taller than the footer,
+        // and a fixed header left the options no room at all.
+        val pageScroll = rememberScrollState()
         Column(
             modifier = Modifier
                 .weight(1f, fill = false)
-                .then(armedModifier)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
+                .fadeWhenMoreBelow(pageScroll)
+                .verticalScroll(pageScroll),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
         ) {
-            run {
-                val question = questions[step]
-                if (question.header.isNotBlank()) {
+            // Header.
+            Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PromptIconTile(icon = Icons.Outlined.QuestionAnswer, info = true)
                     Text(
-                        text = question.header,
-                        color = colors.textTertiary,
-                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                        text = if (questions.size > 1) {
+                            "Spettro has ${questions.size} questions"
+                        } else {
+                            "Spettro has a question"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = colors.textPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (count > 1) {
+                        Text(
+                            text = "Question ${step + 1} of $count",
+                            color = colors.textTertiary,
+                            style = TextStyle(fontSize = 12.sp),
+                        )
+                    }
+                    if (queue != null) PromptQueuePill(queue)
+                }
+                if (request.context != null && step == 0) {
+                    Text(
+                        text = request.context!!,
+                        color = colors.textSecondary,
+                        style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
                     )
                 }
-                QuestionPage(
-                    question = question,
-                    selected = selectedIds(question).toSet(),
-                    customText = custom(question),
-                    note = notes[question.id].orEmpty(),
-                    otherOpen = question.id in otherOpen || custom(question).isNotEmpty(),
-                    expandedPreviews = expandedPreviews,
-                    onChoose = { choose(question, it) },
-                    onCustomChange = { setCustom(question, it) },
-                    onNoteChange = { text ->
-                        notes = HashMap(notes).apply { put(question.id, text) }
-                    },
-                    onToggleOther = {
-                        otherOpen = HashSet(otherOpen).apply {
-                            if (!add(question.id)) remove(question.id)
-                        }
-                    },
-                    onTogglePreview = { optionId ->
-                        val key = "${question.id}:$optionId"
-                        expandedPreviews =
-                            if (key in expandedPreviews) expandedPreviews - key else expandedPreviews + key
-                    },
-                )
+            }
+
+            // The current page.
+            Column(
+                modifier = Modifier.then(armedModifier),
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
+            ) {
+                run {
+                    val question = questions[step]
+                    if (question.header.isNotBlank()) {
+                        Text(
+                            text = question.header,
+                            color = colors.textTertiary,
+                            style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                        )
+                    }
+                    QuestionPage(
+                        question = question,
+                        selected = selectedIds(question).toSet(),
+                        customText = custom(question),
+                        note = notes[question.id].orEmpty(),
+                        otherOpen = question.id in otherOpen || custom(question).isNotEmpty(),
+                        expandedPreviews = expandedPreviews,
+                        onChoose = { choose(question, it) },
+                        onCustomChange = { setCustom(question, it) },
+                        onNoteChange = { text ->
+                            notes = HashMap(notes).apply { put(question.id, text) }
+                        },
+                        onToggleOther = {
+                            otherOpen = HashSet(otherOpen).apply {
+                                if (!add(question.id)) remove(question.id)
+                            }
+                        },
+                        onTogglePreview = { optionId ->
+                            val key = "${question.id}:$optionId"
+                            expandedPreviews =
+                                if (key in expandedPreviews) expandedPreviews - key else expandedPreviews + key
+                        },
+                    )
+                }
             }
         }
 
