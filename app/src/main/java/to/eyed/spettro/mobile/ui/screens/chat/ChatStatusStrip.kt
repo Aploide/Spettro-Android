@@ -36,7 +36,6 @@ import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpUsage
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
 import to.eyed.spettro.mobile.ui.components.ModeChip
-import to.eyed.spettro.mobile.ui.components.RunTicker
 import to.eyed.spettro.mobile.ui.components.SpettroSpinner
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
@@ -44,16 +43,12 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.TabularNums
 
 /**
- * The thin strip under the chat's top bar: the live run ticker (or the mode
- * chip when idle) on the left, plan progress in the middle — tappable to
+ * The thin strip under the chat's top bar: the mode chip on the left, plan progress in the middle — tappable to
  * unfold the agent's task list — and context-window occupancy on the right,
  * tinted red past 90%.
  */
 @Composable
 fun ChatStatusStrip(
-    isBusy: Boolean,
-    runStartedAt: Long?,
-    liveTokens: Long?,
     plan: List<AcpPlanEntry>,
     usage: AcpUsage?,
     modeName: String?,
@@ -76,13 +71,9 @@ fun ChatStatusStrip(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (isBusy) {
-                RunTicker(
-                    startedAt = runStartedAt,
-                    tokens = liveTokens,
-                    color = colors.modeColor(modeColorName ?: modeName),
-                )
-            } else if (modeName != null) {
+            // The run's live readout is the transcript's tail now (the
+            // desktop's RunTicker), where the eye already is.
+            if (modeName != null) {
                 ModeChip(label = modeName, colorName = modeColorName ?: modeName)
             }
 
@@ -238,9 +229,6 @@ private fun formatTokens(count: Int): String = when {
 private fun ChatStatusStripPreviewBusy() {
     SpettroTheme(darkTheme = true) {
         ChatStatusStrip(
-            isBusy = true,
-            runStartedAt = System.currentTimeMillis() - 42_000,
-            liveTokens = 12_800,
             plan = ChatPreviewData.plan,
             usage = ChatPreviewData.usage,
             modeName = "Coding",
@@ -254,9 +242,6 @@ private fun ChatStatusStripPreviewBusy() {
 private fun ChatStatusStripPreviewIdle() {
     SpettroTheme(darkTheme = false) {
         ChatStatusStrip(
-            isBusy = false,
-            runStartedAt = null,
-            liveTokens = null,
             plan = ChatPreviewData.plan,
             usage = ChatPreviewData.usageHot,
             modeName = "plan",

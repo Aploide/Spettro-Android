@@ -1073,6 +1073,8 @@ private fun RemoteChatHost(
         workflowGate = workflowGate(configOptions),
         onSwitchPermission = { model.setConfigValue("permission", "restricted") },
         thinking = thinking,
+        awaitingApproval = shownPermissions.any { it.chatID.equals(session.chatId, ignoreCase = true) },
+        awaitingAnswer = shownQuestions.any { it.chatID.equals(session.chatId, ignoreCase = true) },
         onDelete = {
             model.deleteChat(session.chatId)
             onBack()

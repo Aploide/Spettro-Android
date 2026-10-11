@@ -70,7 +70,9 @@ import to.eyed.spettro.mobile.core.acp.AcpCommand
 import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpUsage
 import to.eyed.spettro.mobile.model.ImageAttachment
+import to.eyed.spettro.mobile.model.RunPhase
 import to.eyed.spettro.mobile.model.TranscriptItem
+import to.eyed.spettro.mobile.ui.components.RunTicker
 import to.eyed.spettro.mobile.model.TranscriptRow
 import to.eyed.spettro.mobile.model.groupTranscript
 import to.eyed.spettro.mobile.ui.components.AppIconImage
@@ -87,6 +89,9 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * @param waitingFor what a prompt the user swiped away is waiting for
  *   ("Spettro is waiting for your approval"), shown above the composer with
  *   a way back to it; null when nothing is set aside.
+ * @param awaitingApproval a permission of this chat's is waiting, and
+ *   [awaitingAnswer] a question: the run ticker at the transcript's tail
+ *   says the turn is waiting on the user.
  * @param workflowGate what the chat's options say about workflows, so the
  *   composer can light a "+500k" budget and say when Ask first holds a
  *   workflow back; [onSwitchPermission] is that hint's way out.
@@ -129,6 +134,8 @@ fun ChatScreen(
     onSwitchPermission: (() -> Unit)? = null,
     thinking: ThinkingControl? = null,
     thinkingFrame: ThinkingFrame? = null,
+    awaitingApproval: Boolean = false,
+    awaitingAnswer: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -201,12 +208,9 @@ fun ChatScreen(
                 .consumeWindowInsets(padding)
                 .imePadding(),
         ) {
-            if (isBusy || plan.isNotEmpty() || usage != null || modeName != null) {
+            if (plan.isNotEmpty() || usage != null || modeName != null) {
                 ReadableColumn {
                     ChatStatusStrip(
-                        isBusy = isBusy,
-                        runStartedAt = runStartedAt,
-                        liveTokens = liveTokens,
                         plan = plan,
                         usage = usage,
                         modeName = modeName,
@@ -219,7 +223,23 @@ fun ChatScreen(
                 EmptyTranscript(onPrompt = onComposerTextChange, modifier = Modifier.weight(1f))
             } else {
                 Box(Modifier.weight(1f)) {
-                    Transcript(rows = rows, modifier = Modifier.fillMaxSize())
+                    Transcript(
+                        rows = rows,
+                        modifier = Modifier.fillMaxSize(),
+                        ticker = if (isBusy && runStartedAt != null) {
+                            {
+                                RunTicker(
+                                    startedAt = runStartedAt,
+                                    tokens = liveTokens,
+                                    phase = RunPhase.of(items, awaitingApproval, awaitingAnswer),
+                                    color = colors.modeColor(modeColorName ?: modeName),
+                                    modifier = Modifier.padding(horizontal = 2.dp),
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                    )
                     // The transcript fades out above the composer rather than
                     // meeting a hard edge (the desktop's 28px fade above
                     // .composer-wrap).
@@ -314,11 +334,17 @@ private fun ReadableColumn(content: @Composable () -> Unit) {
  * makes a long session crawl.
  */
 @Composable
-private fun Transcript(rows: List<TranscriptRow>, modifier: Modifier) {
+private fun Transcript(
+    rows: List<TranscriptRow>,
+    modifier: Modifier,
+    ticker: (@Composable () -> Unit)? = null,
+) {
+    // The run ticker, while a turn runs, is the list's last item.
+    val count = rows.size + if (ticker != null) 1 else 0
     // A chat opens at its newest message: seed the list state at the end so
     // the first frame is already at the bottom — no visible jump.
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = (rows.size - 1).coerceAtLeast(0),
+        initialFirstVisibleItemIndex = (count - 1).coerceAtLeast(0),
     )
 
     // Auto-scroll: follow the conversation only while the reader is already
@@ -326,12 +352,12 @@ private fun Transcript(rows: List<TranscriptRow>, modifier: Modifier) {
     // Keyed on the rows themselves rather than their count: a workflow absorbing
     // twenty members leaves the count flat while the run is very much moving,
     // and the view would stop following it.
-    LaunchedEffect(rows) {
-        if (rows.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(rows, ticker != null) {
+        if (count == 0) return@LaunchedEffect
         val info = listState.layoutInfo
         val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (lastVisible >= rows.size - 2) {
-            listState.animateScrollToItem(rows.size - 1)
+        if (lastVisible >= count - 3) {
+            listState.animateScrollToItem(count - 1)
         }
     }
 
@@ -344,6 +370,11 @@ private fun Transcript(rows: List<TranscriptRow>, modifier: Modifier) {
         items(rows, key = { it.id }) { row ->
             ReadableColumn {
                 TranscriptRowView(row = row)
+            }
+        }
+        if (ticker != null) {
+            item(key = "run-ticker") {
+                ReadableColumn { ticker() }
             }
         }
     }
