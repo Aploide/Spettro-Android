@@ -301,12 +301,15 @@ fun DisconnectedScreen(
         Spacer(Modifier.weight(1f))
 
         // The instruction that actually resolves these states lives on the
-        // other device, so say it here.
-        if (reason == DisconnectReason.HostAsleep ||
-            reason == DisconnectReason.Unreachable ||
-            reason == DisconnectReason.SharingOff ||
-            reason == DisconnectReason.HostQuit ||
-            reason == DisconnectReason.Transport
+        // other device, so say it here — unless it's this phone that has no
+        // network, where the computer isn't the thing to fix.
+        if (!offNetwork && (
+                reason == DisconnectReason.HostAsleep ||
+                    reason == DisconnectReason.Unreachable ||
+                    reason == DisconnectReason.SharingOff ||
+                    reason == DisconnectReason.HostQuit ||
+                    reason == DisconnectReason.Transport
+                )
         ) {
             SpettroCard(modifier = Modifier.fillMaxWidth()) {
                 Column(
