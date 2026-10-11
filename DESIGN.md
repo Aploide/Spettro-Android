@@ -208,10 +208,11 @@ Restricted instead. It opens from the composer's thinking chip as a sheet.
    pairing-link prompt (a `spettro-pair://` link while already paired) and the sheets for
    prompts that name no chat.
 2. **PairingScreen** — three steps, QR scan (CameraX + ML Kit), paste a pairing link; the
-   local-network permission is asked before pairing with a LAN address.
+   local-network permission is asked before pairing whenever it hasn't been granted.
 3. **DisconnectedScreen** — one calm screen per reason (looking, can't reach, lost the
-   connection, sharing off, desktop app quit, local network access, turned away, update needed, removed), with Try again / Pair again / Allow access
-   and always "Forget this computer…".
+   connection, sharing off, desktop app quit, local network access, turned away, update
+   needed, removed), with Try again / Pair again / Allow access and always "Forget this
+   computer…".
 4. **ChatListScreen** — the desktop sidebar: sections by project folder (collapsible), pinned
    first, search (titles and folders), long-press actions (pin, rename, archive, delete with
    Undo), pull-refresh, archived sheet, "Needs you" on a chat waiting for an answer.

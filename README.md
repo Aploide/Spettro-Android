@@ -81,8 +81,8 @@ this network.
 ### Local network permission (Android 17)
 
 Android 17 (API 37) guards the LAN behind `ACCESS_LOCAL_NETWORK`. The app
-declares it, asks with a rationale before pairing with a LAN address
-(`rememberLocalNetworkPermission`), and offers it again from the
+declares it, asks with a rationale before pairing whenever it hasn't been
+granted (`rememberLocalNetworkPermission`), and offers it again from the
 disconnected screen. Without it the LAN routes are dropped from the plan —
 the system would refuse the sockets anyway — so nothing is tried until it is
 granted. Older Android ignores the permission.

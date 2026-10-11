@@ -111,11 +111,12 @@ class RemotePairingException(message: String) : Exception(message)
 
 /**
  * When a host that said goodbye ([OfflineReason.HostStopped]) is checked
- * on again. Every route, Bonjour included, is checked every
- * [RemoteClient.HOST_STOPPED_POLL_MS]. In between, its LAN address gets
- * quick checks — 3 s, then twice as long each time up to 15 s — so sharing
- * coming back on is noticed in seconds: Android's NSD often misses the
- * host's goodbye and so never reports it coming back.
+ * on again. A full check runs every [RemoteClient.HOST_STOPPED_POLL_MS]; in
+ * between, quiet quick checks of the same routes run at 3 s, then twice as
+ * long each time up to 15 s, so sharing coming back on is noticed in
+ * seconds: Android's NSD often misses the host's goodbye and so never
+ * reports it coming back. A quick check differs from a full one only in
+ * its cadence and in not logging its failures.
  *
  * Not thread-safe; the connect loop is its only user.
  */
@@ -124,8 +125,8 @@ internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
     private var nextFullAt = if (fullFirst) now else now + RemoteClient.HOST_STOPPED_POLL_MS
 
     /**
-     * Starts the check due at [now]: true when it covers every route (and
-     * the next such check is scheduled), false for a LAN-only one.
+     * Starts the check due at [now]: true for a full check (and the next
+     * one is scheduled), false for a quiet quick one.
      */
     fun takeCheck(now: Long): Boolean {
         if (now < nextFullAt) return false
@@ -134,9 +135,9 @@ internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
     }
 
     /**
-     * How long to wait from [now] before the next check: the next quick LAN
-     * check when there is a LAN route to check ([lanToCheck]), never past
-     * the next check of every route.
+     * How long to wait from [now] before the next check: the next quick
+     * check when there is a route to check ([lanToCheck]), never past the
+     * next full check.
      */
     fun nextWait(now: Long, lanToCheck: Boolean): Long {
         val untilFull = (nextFullAt - now).coerceAtLeast(0L)
@@ -155,8 +156,8 @@ internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
  *  - The stored credential is the source of truth for "paired", never the
  *    socket. Losing the connection never unpairs anything; only [forget] does.
  *  - Every route to the host is tried at once with a head start each
- *    (Bonjour, then the last LAN address — see [EndpointPlan]); the first `hello` wins and the rest are closed before
- *    `auth` goes out.
+ *    (Bonjour, then the last LAN address — see [EndpointPlan]); the first
+ *    `hello` wins and the rest are closed before `auth` goes out.
  *  - Reconnection is driven by discovery as well as a backoff timer: the host
  *    reappearing on Bonjour resets the backoff and retries immediately.
  *  - Auth verdicts -33001/-33004/-33005 are permanent: retrying cannot fix
@@ -164,7 +165,7 @@ internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
  *  - `host/state` with `shuttingDown: true` is a deliberate goodbye, shown as
  *    [OfflineReason.HostStopped]. Bonjour may never say when it's back, so
  *    with an address to try the host is checked on instead of given up on:
- *    every route slowly, its LAN address quickly ([GoodbyeChecks]).
+ *    slowly, with quiet quick checks in between ([GoodbyeChecks]).
  */
 class RemoteClient(
     private val store: RemoteCredentialStore,
@@ -177,6 +178,7 @@ class RemoteClient(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     okHttpClient: OkHttpClient? = null,
 ) {
+    /** The shared connection pool and settings [lanHttp] is built from; not used on its own. */
     private val http: OkHttpClient = okHttpClient ?: OkHttpClient.Builder()
         .pingInterval(15, TimeUnit.SECONDS)
         .connectTimeout(10, TimeUnit.SECONDS)
