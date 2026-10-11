@@ -18,23 +18,46 @@
 #   SERIAL=emulator-5558 ./tools/playstore-screenshots.sh tablet
 #   SKIP_INSTALL=1 ./tools/playstore-screenshots.sh  # reuse the installed APK
 #
-# ScreenshotActivity also serves the orchestration scenes, which are for
-# eyeballing changes to the workflow cards rather than for the listing:
+# ScreenshotActivity serves more scenes than the listing uses, for eyeballing
+# a surface after changing it:
 #
+#   chat  chat_busy  list  split  config  projects  pairing  settings
+#                            (the listing's own; split is the tablet shell)
+#   error                    (a turn that ended on an error, with Try again)
+#   mention                  (the @-mention menu over a project's files)
+#   tools                    (tool rows: reads folded, a two-hunk diff, exit status, Needs approval)
+#   tools_diff               (the folded reads and the edit open, as a unified diff)
+#   todo                     (a seven-task list open above the composer while a turn runs)
+#   permission | prompt_dock (two approvals docked above the composer, "1 of 2")
+#   permission_edit          (an approval with a diff, docked above the composer)
+#   question                 (two questions in the dock, one at a time)
+#   permission_sheet  question_sheet   (the sheet a prompt naming no chat gets)
 #   workflow  workflow_done  workflow_paused  workflow_continued
 #   workflow_stopped  workflow_failed
 #   orchestration            (two runs mixed into a conversation)
 #   activation               (the "ultracode" and "+500k" highlight, and the budget line)
 #   activation_askfirst      (the same under Ask first: muted, with the way out)
-#   permission_edit          (an approval with a diff, docked above the composer)
-#   permission_sheet  question_sheet   (the sheet a prompt naming no chat gets)
-#   tools                    (tool rows: reads folded, a two-hunk diff, exit status, Needs approval)
-#   providers  archived  new_chat  new_session  tunnel  disconnected_<reason>
 #   thinking  thinking_meteor  thinking_smoulder  thinking_paused  thinking_off
 #   thinking_inert  thinking_inert_off  thinking_live
-#                                   (the slider open over the chat; a meteor's
-#                                    instant via --es progress 0.35 [--es from 4],
-#                                    the smoulder's via --es idle 1.5)
+#                            (the slider open over the chat; a meteor's
+#                             instant via --es progress 0.35 [--es from 4],
+#                             the smoulder's via --es idle 1.5)
+#   new_session              (what "+" opens: greeting, "Working in", starter prompts)
+#   new_chat                 (an empty chat: the greeting over starter prompts)
+#   reconnecting | disconnected_reconnecting
+#                            (a dropped link ridden out in place: the pill, the
+#                             composer's reconnecting placeholder)
+#   disconnected_<reason>[_lan][_nolan][_repeated]
+#                            (searching hostasleep unreachable sharingoff
+#                             nolocalnetwork turnedaway versionmismatch revoked
+#                             transport; for a computer with an internet tunnel
+#                             unless _lan, _nolan without the local-network
+#                             permission, _repeated after a run of refusals)
+#   tunnel                   (Settings connected over the internet: the route and the address)
+#   pairing_link  pairing_link_bad
+#                            (a spettro-pair:// link opened while paired elsewhere,
+#                             and one that isn't a pairing link)
+#   providers  archived
 #
 # Every scene takes the phone's accent too: add `--es accent mono` for
 # Monochrome (Lilac is the default).

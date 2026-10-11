@@ -28,6 +28,11 @@ import to.eyed.spettro.mobile.core.acp.AcpQuestionItem
 import to.eyed.spettro.mobile.core.acp.AcpQuestionOption
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
 import to.eyed.spettro.mobile.core.acp.AcpConfigOption
+import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
+import to.eyed.spettro.mobile.core.acp.AcpUsage
+import to.eyed.spettro.mobile.core.remote.HostInfo
+import to.eyed.spettro.mobile.core.remote.RemoteRoute
+import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.remote.ChatSummary
 import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.model.Thinking
@@ -36,6 +41,9 @@ import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
 import to.eyed.spettro.mobile.ui.components.thinking.ThinkingFrame
 import to.eyed.spettro.mobile.ui.screens.chat.workflowGate
 import to.eyed.spettro.mobile.ui.DesktopModal
+import to.eyed.spettro.mobile.ui.PairingLinkPrompt
+import to.eyed.spettro.mobile.ui.ReconnectingPill
+import to.eyed.spettro.mobile.ui.screens.chat.LocalOpenTools
 import to.eyed.spettro.mobile.ui.screens.chat.ChatConfigSheet
 import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ConfigSummary
@@ -75,7 +83,7 @@ import java.util.TimeZone
  * Debug-only harness for the Play Store listing: renders exactly one screen,
  * fully populated from the preview fixtures, with no client and no network.
  *
- *     adb shell am start -n to.eyed.spettro.mobile/.screenshots.ScreenshotActivity \
+ *     adb shell am start -n to.eyed.spettro.mobile.dev/to.eyed.spettro.mobile.screenshots.ScreenshotActivity \
  *         --es scene chat --es theme dark --es form phone [--es accent mono]
  *
  * With `--es form tablet` the scenes render inside the split shell (sidebar +
@@ -146,10 +154,13 @@ private val LocalSliderExtras = staticCompositionLocalOf { SliderExtras() }
 
 @Composable
 private fun Scene(scene: String, tablet: Boolean) {
-    // disconnected_<reason>[_nolan][_repeated], e.g. disconnected_turnedaway
-    // — one per DisconnectReason; "nolan" without the local-network
-    // permission, "repeated" after a run of refusals.
-    if (scene.startsWith("disconnected")) {
+    // disconnected_<reason>[_lan][_nolan][_repeated], e.g.
+    // disconnected_turnedaway — one per DisconnectReason, for a computer
+    // with an internet tunnel; "lan" for one without, "nolan" without the
+    // local-network permission, "repeated" after a run of refusals.
+    // disconnected_reconnecting is the drop the app rides out in place
+    // instead (the "reconnecting" scene).
+    if (scene.startsWith("disconnected") && scene != "disconnected_reconnecting") {
         val parts = scene.split('_')
         val reason = DisconnectReason.entries.firstOrNull {
             it.name.equals(parts.getOrNull(1), ignoreCase = true)
@@ -160,7 +171,7 @@ private fun Scene(scene: String, tablet: Boolean) {
             onRetry = {},
             onPairAgain = {},
             onForget = {},
-            hasRemoteHost = true,
+            hasRemoteHost = "lan" !in parts,
             onAllowLocalNetwork = {},
             localNetworkMissing = "nolan" in parts,
             refusedRepeatedly = "repeated" in parts,
@@ -170,15 +181,32 @@ private fun Scene(scene: String, tablet: Boolean) {
     when (scene) {
         "chat" -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
         "chat_busy" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true)
-        // The composer while the link comes back: the field stays usable,
-        // Send waits. Then the @-mention menu over a project's files.
-        "reconnecting" -> Chat(items = ChatPreviewData.transcript, busy = false, composerText = "and add a test", reconnecting = true)
-        "mention" -> Chat(items = ChatPreviewData.transcript, busy = false, composerText = "compare @save", mentions = true)
+        // A dropped link, ridden out in place: the chat stays, the pill
+        // says so, the field stays usable and Send waits. Then the
+        // @-mention menu over a project's files.
+        "reconnecting", "disconnected_reconnecting" -> {
+            Shell(tablet, items = ChatPreviewData.transcript, busy = false, reconnecting = true)
+            ReconnectingPill(visible = true)
+        }
+        "mention" -> Chat(
+            items = ChatPreviewData.transcript,
+            busy = false,
+            composerText = "compare @save",
+            thinking = previewThinking(ChatPreviewData.configOptions),
+            mentions = true,
+        )
         // A turn that ended on an error, with Try again on its card.
         "error" -> Shell(tablet, items = ChatPreviewData.failedTurnTranscript, busy = false)
         // Tool rows: reads folded into one line, a two-hunk edit, a failed
         // command, and one waiting on approval (amber, "Needs approval").
         "tools" -> Shell(tablet, items = ChatPreviewData.toolsTranscript, busy = true, awaitingToolIds = setOf("tool-await"))
+        // The same with the folded reads and the edit open: the rows they
+        // stand for, and the edit as a real unified diff.
+        "tools_diff" -> CompositionLocalProvider(LocalOpenTools provides setOf("tools-tool-read", "tool-edit-2")) {
+            Shell(tablet, items = ChatPreviewData.toolsTranscript.dropLast(2), busy = false)
+        }
+        // The agent's task list, open above the composer while a turn runs.
+        "todo" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true, plan = longPlan)
         // Orchestration: a workflow live and settled, waiting at a checkpoint,
         // continued in a later turn and stopped, a workflow that never
         // started, and a transcript with two runs mixed into ordinary
@@ -261,7 +289,7 @@ private fun Scene(scene: String, tablet: Boolean) {
         }
         // Approvals and questions sit inline above the composer of the chat
         // that asked (the dock); a prompt that names no chat gets the sheet.
-        "permission" -> Shell(
+        "permission", "prompt_dock" -> Shell(
             tablet,
             items = ChatPreviewData.transcript,
             busy = true,
@@ -315,6 +343,24 @@ private fun Scene(scene: String, tablet: Boolean) {
             onScanned = {},
             onManualEntry = {},
         )
+        // A spettro-pair:// link opened on a phone already paired with
+        // another computer: asked first, since pairing replaces it. Then a
+        // link that isn't a pairing link at all.
+        "pairing_link", "pairing_link_bad" -> {
+            if (tablet) SplitShell(items = null) else ChatList()
+            PairingLinkPrompt(
+                link = if (scene == "pairing_link") pairingLink else "spettro-pair://pair?v=1&h=studio",
+                state = RemoteState.Connected(
+                    host = HostInfo("host-1", "Carlo's MacBook Pro", "mac"),
+                    agentReady = true,
+                    via = RemoteRoute.Lan,
+                ),
+                pairedHostID = "host-1",
+                pairedHostName = "Carlo's MacBook Pro",
+                onPair = {},
+                onDismiss = {},
+            )
+        }
         "settings" -> if (tablet) {
             SplitShell(items = null)
             DesktopModal(onDismiss = {}) { Settings() }
@@ -349,7 +395,7 @@ private fun Scene(scene: String, tablet: Boolean) {
             )
         }
         // A chat with nothing in it yet: the greeting over starter prompts.
-        "new_chat" -> Shell(tablet, items = emptyList(), busy = false)
+        "new_chat" -> Shell(tablet, items = emptyList(), busy = false, plan = emptyList(), usage = null, title = "New chat")
         // What "+" opens: greeting, composer, "Working in" chip, starters —
         // the split shell's empty pane on a tablet.
         "new_session" -> if (tablet) SplitShell(items = null) else NewSession(onBack = {})
@@ -369,6 +415,10 @@ private fun Shell(
     thinkingFrame: ThinkingFrame? = null,
     awaitingToolIds: Set<String> = emptySet(),
     prompts: List<DockPrompt> = emptyList(),
+    plan: List<AcpPlanEntry> = ChatPreviewData.plan,
+    usage: AcpUsage? = ChatPreviewData.usage,
+    reconnecting: Boolean = false,
+    title: String = CHAT_TITLE,
 ) {
     if (tablet) {
         SplitShell(
@@ -380,6 +430,10 @@ private fun Shell(
             workflowGate = workflowGate,
             thinking = thinking,
             thinkingFrame = thinkingFrame,
+            plan = plan,
+            usage = usage,
+            reconnecting = reconnecting,
+            title = title,
         )
     } else {
         Chat(
@@ -391,6 +445,10 @@ private fun Shell(
             workflowGate = workflowGate,
             thinking = thinking,
             thinkingFrame = thinkingFrame,
+            plan = plan,
+            usage = usage,
+            reconnecting = reconnecting,
+            title = title,
         )
     }
 }
@@ -470,6 +528,10 @@ private fun SplitShell(
     thinkingFrame: ThinkingFrame? = null,
     awaitingToolIds: Set<String> = emptySet(),
     prompts: List<DockPrompt> = emptyList(),
+    plan: List<AcpPlanEntry> = ChatPreviewData.plan,
+    usage: AcpUsage? = ChatPreviewData.usage,
+    reconnecting: Boolean = false,
+    title: String = CHAT_TITLE,
 ) {
     val colors = LocalSpettroColors.current
     Row(Modifier.fillMaxSize()) {
@@ -489,6 +551,10 @@ private fun SplitShell(
                     workflowGate = workflowGate,
                     thinking = thinking,
                     thinkingFrame = thinkingFrame,
+                    plan = plan,
+                    usage = usage,
+                    reconnecting = reconnecting,
+                    title = title,
                 )
             } else {
                 NewSession(onBack = null)
@@ -510,16 +576,19 @@ private fun Chat(
     prompts: List<DockPrompt> = emptyList(),
     reconnecting: Boolean = false,
     mentions: Boolean = false,
+    plan: List<AcpPlanEntry> = ChatPreviewData.plan,
+    usage: AcpUsage? = ChatPreviewData.usage,
+    title: String = CHAT_TITLE,
 ) {
     var text by remember { mutableStateOf(composerText) }
     ChatScreen(
-        title = "Fix the resume crash",
+        title = title,
         items = items,
         isBusy = busy,
         runStartedAt = if (busy) System.currentTimeMillis() - 74_000 else null,
         liveTokens = if (busy) 9_400L else null,
-        plan = ChatPreviewData.plan,
-        usage = ChatPreviewData.usage,
+        plan = plan,
+        usage = usage,
         modeName = "Coding",
         // The mode's id, as the app passes it: grey under Monochrome.
         modeColorName = "coding",
@@ -644,6 +713,9 @@ private fun Settings(overInternet: Boolean = false) {
 
 // MARK: - Fixtures
 
+/** The open chat's title, as the list's first row names it. */
+private const val CHAT_TITLE = "Fix the resume crash"
+
 /** ISO-8601 UTC, [minutesAgo] before now — so the list reads "2m", "1h", … */
 private fun ago(minutesAgo: Long): String {
     val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
@@ -704,6 +776,22 @@ private fun listChats(): List<ChatSummary> = listOf(
         preview = "Three headline items: pairing, offline resume, the new config sheet.",
     ),
 )
+
+/** A longer task list, most of it still ahead. */
+private val longPlan = listOf(
+    AcpPlanEntry("Reproduce the resume crash", status = "completed"),
+    AcpPlanEntry("Guard navigation on agentReady", status = "completed"),
+    AcpPlanEntry("Re-emit transcript on reconnect", status = "completed"),
+    AcpPlanEntry("Keep the draft while the link comes back", status = "in_progress"),
+    AcpPlanEntry("Add a regression test", status = "pending"),
+    AcpPlanEntry("Run the whole suite", status = "pending"),
+    AcpPlanEntry("Write the release note", status = "pending"),
+)
+
+/** A pairing link from a second computer, with its internet address. */
+private const val pairingLink =
+    "spettro-pair://pair?v=1&h=host-2&n=Studio%20iMac&k=mac&s=BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSY" +
+        "&a=192.168.1.30&p=51820&r=spettro.example.com"
 
 /** A project's files, for the @-mention menu. */
 private val mentionFixture = listOf(

@@ -590,7 +590,7 @@ private fun RemoteNavigator(
  * the transcript and the draft stay put, and sending waits for the socket.
  */
 @Composable
-private fun ReconnectingPill(visible: Boolean) {
+internal fun ReconnectingPill(visible: Boolean) {
     val colors = LocalSpettroColors.current
     Box(Modifier.fillMaxSize().statusBarsPadding(), contentAlignment = Alignment.TopCenter) {
         AnimatedVisibility(
@@ -631,7 +631,7 @@ private fun ReconnectingPill(visible: Boolean) {
  * pairing still works (a cold start is "looking" for a moment first).
  */
 @Composable
-private fun PairingLinkPrompt(
+internal fun PairingLinkPrompt(
     link: String,
     state: RemoteState,
     pairedHostID: String?,

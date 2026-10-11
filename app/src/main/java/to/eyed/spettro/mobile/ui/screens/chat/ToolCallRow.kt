@@ -161,6 +161,13 @@ val LocalProjectPath = staticCompositionLocalOf<String?> { null }
  */
 val LocalAwaitingTools = compositionLocalOf<Set<String>> { emptySet() }
 
+/**
+ * Tool rows (and folded groups, by group id) that start open. Nothing in the
+ * app sets it — every row starts closed — but the screenshot harness opens
+ * an edit to show its diff without a tap.
+ */
+val LocalOpenTools = staticCompositionLocalOf<Set<String>> { emptySet() }
+
 /** Output lines shown before "Show more". */
 private const val OUTPUT_LINES = 30
 
@@ -178,7 +185,8 @@ private const val MAX_DIFF_LINES = 400
 @Composable
 internal fun PlainToolRow(tool: ToolCallItem, modifier: Modifier = Modifier) {
     val colors = LocalSpettroColors.current
-    var expanded by rememberSaveable(tool.id) { mutableStateOf(false) }
+    val startsOpen = tool.id in LocalOpenTools.current
+    var expanded by rememberSaveable(tool.id) { mutableStateOf(startsOpen) }
     val awaiting = tool.id in LocalAwaitingTools.current
     val command = tool.shellCommand
     val hasDetail = tool.output.isNotBlank() || tool.diffs.isNotEmpty() || tool.images.isNotEmpty() ||
@@ -280,7 +288,8 @@ internal fun PlainToolRow(tool: ToolCallItem, modifier: Modifier = Modifier) {
 @Composable
 fun ToolGroupRow(group: DisplayRow.Tools, modifier: Modifier = Modifier) {
     val colors = LocalSpettroColors.current
-    var expanded by rememberSaveable(group.id) { mutableStateOf(false) }
+    val startsOpen = group.id in LocalOpenTools.current
+    var expanded by rememberSaveable(group.id) { mutableStateOf(startsOpen) }
     val chevronAngle by animateFloatAsState(
         targetValue = if (expanded) 90f else 0f,
         animationSpec = SpettroMotion.chevron(),
