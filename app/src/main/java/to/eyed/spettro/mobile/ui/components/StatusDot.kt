@@ -21,12 +21,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
+import to.eyed.spettro.mobile.ui.theme.rememberReducedMotion
 
 /**
  * A small status indicator dot — connection state, tool status, unread and
  * busy markers. While [pulsing] it breathes the way the desktop's running
  * tool glyph does: 1.4s, down to 45% opacity at 80% scale. With [halo] it
  * wears a 3dp ring of its own colour at 22% (a tool awaiting approval).
+ * With animations off ([rememberReducedMotion]) a pulsing dot holds still
+ * at full strength, as the desktop's does under `prefers-reduced-motion`.
  */
 @Composable
 fun StatusDot(
@@ -38,7 +41,7 @@ fun StatusDot(
 ) {
     var alpha = 1f
     var scale = 1f
-    if (pulsing) {
+    if (pulsing && !rememberReducedMotion()) {
         val transition = rememberInfiniteTransition(label = "statusDot")
         val pulse by transition.animateFloat(
             initialValue = 0f,

@@ -144,6 +144,8 @@ fun ChatListScreen(
     needsYou: Set<String> = emptySet(),
     inSidebar: Boolean = false,
     onRename: ((String, String) -> Unit)? = null,
+    /** The socket dropped and is being got back ("Reconnecting…"). */
+    reconnecting: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     val ground = if (inSidebar) colors.sidebar else colors.canvas
@@ -167,6 +169,7 @@ fun ChatListScreen(
         ListHeader(
             hostName = hostName,
             agentReady = agentReady,
+            reconnecting = reconnecting,
             compact = inSidebar,
             onOpenSettings = onOpenSettings,
             onNewChat = onNewChat,
@@ -333,6 +336,28 @@ fun ChatListScreen(
     }
 }
 
+/** What the dot by the computer's name in the list's head says. */
+internal enum class HeaderDot {
+    /** Attached, and the agent is up: green. */
+    Connected,
+
+    /** The socket dropped and is being got back: amber, pulsing, like the desktop's reconnecting dot. */
+    Reconnecting,
+
+    /** Attached, but the agent isn't up yet: amber, still. */
+    AgentDown,
+}
+
+/**
+ * The header dot for the connection's state. Reconnecting wins: while the
+ * socket is down the agent flag is only what it was before the drop.
+ */
+internal fun headerDot(reconnecting: Boolean, agentReady: Boolean): HeaderDot = when {
+    reconnecting -> HeaderDot.Reconnecting
+    !agentReady -> HeaderDot.AgentDown
+    else -> HeaderDot.Connected
+}
+
 /**
  * The list's head: "Chats", the computer it mirrors with a status dot, and
  * the two actions. In the sidebar it is the desktop's compact top row.
@@ -341,6 +366,7 @@ fun ChatListScreen(
 private fun ListHeader(
     hostName: String?,
     agentReady: Boolean,
+    reconnecting: Boolean,
     compact: Boolean,
     onOpenSettings: () -> Unit,
     onNewChat: () -> Unit,
@@ -364,7 +390,12 @@ private fun ListHeader(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    StatusDot(color = if (agentReady) colors.success else colors.warning, size = 6.dp)
+                    val dot = headerDot(reconnecting, agentReady)
+                    StatusDot(
+                        color = if (dot == HeaderDot.Connected) colors.success else colors.warning,
+                        pulsing = dot == HeaderDot.Reconnecting,
+                        size = 6.dp,
+                    )
                     Text(
                         hostName,
                         style = MaterialTheme.typography.bodySmall,

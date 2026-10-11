@@ -425,6 +425,7 @@ private fun RemoteNavigator(
                         needsYou = needsYou,
                         inSidebar = true,
                         onRename = model::renameChat.takeIf { connected.has(RemoteFeature.RENAME) },
+                        reconnecting = reconnecting,
                     )
                 }
                 VerticalDivider(color = colors.hairline)
@@ -502,6 +503,7 @@ private fun RemoteNavigator(
                         onOpenArchived = { showArchived = true },
                         needsYou = needsYou,
                         onRename = model::renameChat.takeIf { connected.has(RemoteFeature.RENAME) },
+                        reconnecting = reconnecting,
                     )
                 }
 

@@ -334,6 +334,12 @@ private fun Scene(scene: String, tablet: Boolean) {
             thinking = previewThinking(ChatPreviewData.configOptionsWith("off", ultra = false)),
         )
         "list" -> if (tablet) SplitShell(items = null) else ChatList()
+        // The list while the link is got back: the dot by the computer's
+        // name goes amber and pulses, as the desktop's does.
+        "list_reconnecting" -> {
+            if (tablet) SplitShell(items = null, reconnecting = true) else ChatList(reconnecting = true)
+            ReconnectingPill(visible = true)
+        }
         "split" -> SplitShell(items = ChatPreviewData.transcript, busy = false)
         "config" -> {
             Shell(tablet, items = ChatPreviewData.transcript, busy = false)
@@ -591,7 +597,7 @@ private fun SplitShell(
     val colors = LocalSpettroColors.current
     Row(Modifier.fillMaxSize()) {
         Box(Modifier.width(320.dp).fillMaxHeight()) {
-            ChatList(selectedChatId = if (items != null) "1" else null, inSidebar = true)
+            ChatList(selectedChatId = if (items != null) "1" else null, inSidebar = true, reconnecting = reconnecting)
         }
         VerticalDivider(color = colors.hairline)
         Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -707,7 +713,7 @@ private fun NewSession(onBack: (() -> Unit)?) {
 }
 
 @Composable
-private fun ChatList(selectedChatId: String? = null, inSidebar: Boolean = false) {
+private fun ChatList(selectedChatId: String? = null, inSidebar: Boolean = false, reconnecting: Boolean = false) {
     ChatListScreen(
         chats = listChats(),
         selectedChatId = selectedChatId,
@@ -726,6 +732,7 @@ private fun ChatList(selectedChatId: String? = null, inSidebar: Boolean = false)
         inSidebar = inSidebar,
         needsYou = setOf("4"),
         onRename = { _, _ -> },
+        reconnecting = reconnecting,
     )
 }
 

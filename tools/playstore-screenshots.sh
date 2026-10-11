@@ -48,6 +48,8 @@
 #   reconnecting | disconnected_reconnecting
 #                            (a dropped link ridden out in place: the pill, the
 #                             composer's reconnecting placeholder)
+#   list_reconnecting        (the list then: the dot by the computer's name amber
+#                             and pulsing)
 #   disconnected_<reason>[_repeated]
 #                            (searching hostasleep sharingoff hostquit
 #                             nolocalnetwork turnedaway versionmismatch revoked
