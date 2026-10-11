@@ -121,6 +121,8 @@ fun SettingsScreen(
     accent: Accent = Accent.Lilac,
     onAppearanceChange: (Appearance) -> Unit = {},
     onAccentChange: (Accent) -> Unit = {},
+    /** Forget also takes this phone off the computer's paired devices (`devices/unpair`). */
+    forgetRemovesFromComputer: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     var confirmForget by remember { mutableStateOf(false) }
@@ -186,7 +188,11 @@ fun SettingsScreen(
     if (confirmForget) {
         ConfirmDialog(
             title = "Forget “${hostName ?: "this computer"}”?",
-            message = "This phone won’t connect to it again until you pair it again.",
+            message = if (forgetRemovesFromComputer) {
+                "This phone won’t connect to it again until you pair it again. It’s also removed from “${hostName ?: "the computer"}”’s paired devices."
+            } else {
+                "This phone won’t connect to it again until you pair it again."
+            },
             confirmLabel = "Forget",
             onConfirm = {
                 confirmForget = false

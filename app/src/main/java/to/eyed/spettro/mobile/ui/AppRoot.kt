@@ -760,6 +760,7 @@ private fun SettingsHost(
         accent = theme.accent,
         onAppearanceChange = themeStore::setAppearance,
         onAccentChange = themeStore::setAccent,
+        forgetRemovesFromComputer = connected.has(RemoteFeature.UNPAIR) && !reconnecting,
     )
 }
 

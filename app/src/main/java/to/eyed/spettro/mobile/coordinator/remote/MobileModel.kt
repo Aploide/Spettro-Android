@@ -600,12 +600,13 @@ class MobileModel(
 
     /**
      * Forgets this computer, once any delete still in its Undo window has
-     * gone: the socket it would go on closes with the pairing.
+     * gone: the socket it would go on closes with the pairing. A computer
+     * that can is asked to take this phone off its paired devices first.
      */
     fun forgetComputer() {
         scope.launch {
             flushDeletesAndWait()
-            client.forget()
+            client.unpairAndForget()
         }
     }
 

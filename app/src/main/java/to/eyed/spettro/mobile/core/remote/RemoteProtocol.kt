@@ -70,6 +70,10 @@ object RemoteMethod {
     // Projects.
     const val PROJECTS_LIST = "_spettro/remote/projects/list"
     const val PROJECT_FILES = "_spettro/remote/projects/files"
+
+    // This device.
+    /** `{}` -> null: the host removes this (the signed-in) device and closes its socket ([RemoteFeature.UNPAIR]). */
+    const val DEVICES_UNPAIR = "_spettro/remote/devices/unpair"
 }
 
 /**
@@ -99,6 +103,9 @@ object RemoteFeature {
 
     /** `chats/open` snapshots carry the extra message and tool fields. */
     const val SNAPSHOT_V2 = "snapshotV2"
+
+    /** `devices/unpair` exists: a phone that forgets the host can take itself off its list. */
+    const val UNPAIR = "unpair"
 }
 
 /**

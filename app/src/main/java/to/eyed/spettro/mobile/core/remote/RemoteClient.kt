@@ -375,6 +375,35 @@ class RemoteClient(
         }
     }
 
+    /**
+     * [forget], after asking the host to take this phone off its paired
+     * devices ([RemoteMethod.DEVICES_UNPAIR]) when it is connected and can
+     * ([unpairsOnHost]). Not connected, or an older host, it forgets here
+     * only and the host keeps its row until it is removed there. Waits at
+     * most [UNPAIR_TIMEOUT_MS] for the host; forgets whatever it says.
+     */
+    suspend fun unpairAndForget() {
+        val current = active
+        val hostName = (_state.value as? RemoteState.Connected)?.host?.hostName
+        if (current != null && unpairsOnHost(_state.value)) {
+            // The host closes the socket once it has answered: that close
+            // is the end of the pairing, not a drop to reconnect from.
+            current.peer.onClose = null
+            val removed = withTimeoutOrNull(UNPAIR_TIMEOUT_MS) {
+                try {
+                    current.peer.request(RemoteMethod.DEVICES_UNPAIR)
+                    true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    false
+                }
+            } == true
+            log(if (removed) "removed from $hostName" else "couldn't tell $hostName; forgetting here only")
+        }
+        forget()
+    }
+
     /** Forgets the host entirely. The only path that unpairs. */
     fun forget() {
         pendingStop?.cancel()
@@ -1005,6 +1034,16 @@ class RemoteClient(
          * back with the next launch.
          */
         fun isQuitGoodbye(message: String?): Boolean = message.isNullOrBlank()
+
+        /**
+         * Whether Forget can take this phone off the host's paired devices
+         * too: only while connected to a host that serves `devices/unpair`.
+         */
+        internal fun unpairsOnHost(state: RemoteState): Boolean =
+            (state as? RemoteState.Connected)?.has(RemoteFeature.UNPAIR) == true
+
+        /** How long Forget waits for the host to take this phone off its list. */
+        internal const val UNPAIR_TIMEOUT_MS = 3_000L
 
         private const val INITIAL_BACKOFF_MS = 1_000L
         private const val MAX_BACKOFF_MS = 30_000L
