@@ -155,11 +155,29 @@ class ChatSession(
         _title.value = title
     }
 
-    /** Marks the start of a prompt turn for the live ticker. */
-    fun beginRun() {
+    /**
+     * Marks the start of a prompt turn for the live ticker: now, or
+     * [startedAt] for a turn that was already running (never later than now,
+     * whatever the two clocks say).
+     */
+    fun beginRun(startedAt: Long? = null) {
+        val now = System.currentTimeMillis()
         tokensAtRunStart = _usage.value?.tokensUsed ?: 0
-        _runStartedAt.value = System.currentTimeMillis()
+        _runStartedAt.value = startedAt?.coerceAtMost(now) ?: now
         _isBusy.value = true
+    }
+
+    /**
+     * When the turn at the end of the transcript began: the time on its
+     * prompt, the last message the user sent that didn't steer a turn
+     * already running. Null when there is none, or it has no usable time.
+     */
+    fun turnStartedAt(): Long? {
+        val prompt = _items.value.asReversed().firstNotNullOfOrNull { item ->
+            (item as? TranscriptItem.Message)?.message
+                ?.takeIf { it.role == ChatMessage.Role.User && it.steering == null }
+        } ?: return null
+        return epochMillisOrNull(prompt.timestamp)
     }
 
     /**

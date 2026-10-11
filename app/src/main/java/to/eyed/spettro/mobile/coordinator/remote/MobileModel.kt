@@ -510,7 +510,9 @@ class MobileModel(
             (result.commands as? JsonArray)?.let { session.setCommands(AcpParser.parseCommands(it)) }
             (result.plan as? JsonArray)?.let { session.setPlan(AcpParser.parsePlan(it)) }
             session.setUsage(AcpParser.parseUsage(result.usage))
-            if (result.isBusy) session.beginRun()
+            // A turn already under way keeps its clock: opening the chat, or
+            // coming back after a dropped connection, isn't a new start.
+            if (result.isBusy) session.beginRun(startedAt = session.turnStartedAt())
             // What streamed in after the snapshot was taken, before the
             // session is visible — so it never shows a half-applied state.
             openBuffer.finish(chatID, mark).forEach { applyToSession(session, it) }

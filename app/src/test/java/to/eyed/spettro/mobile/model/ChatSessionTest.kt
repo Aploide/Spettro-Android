@@ -439,9 +439,41 @@ class ChatSessionTest {
         ).jsonObject
     )
 
-    private fun userItem(id: String, steering: String? = null) =
+    private fun userItem(id: String, steering: String? = null, timestamp: String = "ts") =
         """{"message":{"_0":{"id":"$id","role":"user","noticeIsError":false,"text":"$id",
-            "timestamp":"ts"${if (steering != null) ",\"steering\":\"$steering\"" else ""}}}}"""
+            "timestamp":"$timestamp"${if (steering != null) ",\"steering\":\"$steering\"" else ""}}}}"""
+
+    @Test
+    fun aTurnAlreadyRunningKeepsItsClockFromItsPrompt() {
+        val s = session()
+        s.restoreFrom(
+            snapshot(
+                listOf(
+                    userItem("u1", timestamp = "2026-10-11T16:00:00Z"),
+                    userItem("u2", timestamp = "2026-10-11T16:21:10Z"),
+                    toolItem("call-1", "pending"),
+                    // A steer sent later doesn't restart the turn.
+                    userItem("u3", "queued", timestamp = "2026-10-11T16:21:40Z"),
+                ).joinToString(","),
+            ),
+            isBusy = true,
+        )
+        val started = s.turnStartedAt()
+        assertEquals(epochMillisOrNull("2026-10-11T16:21:10Z"), started)
+        s.beginRun(startedAt = started)
+        assertEquals(started, s.runStartedAt.value)
+    }
+
+    @Test
+    fun aClockAheadOfThePhoneNeverStartsTheTickerInTheFuture() {
+        val s = session()
+        val before = System.currentTimeMillis()
+        s.beginRun(startedAt = before + 60_000)
+        assertTrue(s.runStartedAt.value!! <= System.currentTimeMillis())
+        // No usable time on the prompt: the ticker starts now.
+        s.restoreFrom(snapshot(userItem("u1")), isBusy = true)
+        assertNull(s.turnStartedAt())
+    }
 
     private fun toolItem(id: String, status: String = "completed") =
         """{"tool":{"_0":{"id":"$id","title":"$id","status":"$status","output":"","diffs":[],
