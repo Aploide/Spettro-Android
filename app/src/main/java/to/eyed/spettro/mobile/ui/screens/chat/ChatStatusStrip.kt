@@ -85,8 +85,7 @@ fun ChatStatusStrip(
 @Composable
 private fun UsageReadout(usage: AcpUsage) {
     val colors = LocalSpettroColors.current
-    val fraction = usage.used.toFloat() / usage.size
-    val percent = (fraction * 100).toInt()
+    val fraction = if (usage.size > 0) usage.used.toFloat() / usage.size else 0f
     Row(
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
         verticalAlignment = Alignment.CenterVertically,
@@ -100,11 +99,23 @@ private fun UsageReadout(usage: AcpUsage) {
             )
         }
         Text(
-            text = "$percent%",
+            text = contextPercentLabel(usage.used, usage.size),
             style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
             color = if (fraction > 0.9f) colors.danger else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * The context meter's figure as the desktop's percentLabel words it: whole
+ * percents rounded (20.5% reads 21%, as on the computer, not 20), and a
+ * context that has anything in it never reads 0% — "<1%".
+ */
+internal fun contextPercentLabel(used: Int, size: Int): String {
+    // In doubles, as JavaScript reckons it: 41k of 200k is 20.5, not 20.49….
+    val fraction = if (size > 0) used.toDouble() / size else 0.0
+    val percent = Math.round(fraction * 100)
+    return if (percent == 0L && fraction > 0.0) "<1%" else "$percent%"
 }
 
 private fun formatTokens(count: Int): String = when {
