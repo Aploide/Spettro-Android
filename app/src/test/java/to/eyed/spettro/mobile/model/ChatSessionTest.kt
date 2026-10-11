@@ -299,18 +299,85 @@ class ChatSessionTest {
 
     // MARK: Run ticker
 
+    private fun usage(tokens: Int?) =
+        to.eyed.spettro.mobile.core.acp.AcpUsage(used = 10, size = 100, tokensUsed = tokens)
+
+    private fun ChatSession.usageUpdate(tokens: Int?) = apply(AcpSessionUpdate.Usage(usage(tokens)))
+
     @Test
     fun runLifecycleTracksLiveTokens() {
+        // spettro's tokensUsed is the current run's own count, so the
+        // figure is the latest in-run update's, with nothing subtracted.
         val s = session()
         assertNull(s.runStartedAt.value)
-        s.setUsage(to.eyed.spettro.mobile.core.acp.AcpUsage(used = 10, size = 100, tokensUsed = 500))
+        s.usageUpdate(500) // the turn before
         s.beginRun()
         assertTrue(s.isBusy.value)
-        s.setUsage(to.eyed.spettro.mobile.core.acp.AcpUsage(used = 20, size = 100, tokensUsed = 800))
-        assertEquals(300, s.liveRunTokens)
+        s.usageUpdate(800)
+        assertEquals(800, s.liveRunTokens)
         s.endRun("end_turn")
         assertNull(s.runStartedAt.value)
         assertFalse(s.isBusy.value)
+        assertEquals(0, s.liveRunTokens)
+    }
+
+    @Test
+    fun usageKnownBeforeTheRunShowsNothingAtItsStart() {
+        val s = session()
+        s.usageUpdate(9_800)
+        s.beginRun()
+        assertEquals(0, s.liveRunTokens)
+    }
+
+    @Test
+    fun everyTurnCountsItsOwnTokens() {
+        // A fresh attach: no usage seen. The first turn's first request
+        // carries the transcript and system prompt, so 9.8k is right.
+        val s = session()
+        s.beginRun()
+        s.usageUpdate(9_800)
+        assertEquals(9_800, s.liveRunTokens)
+        s.endRun("end_turn")
+        // The next turn starts its own count; it isn't 1,200 − 9,800.
+        s.beginRun()
+        s.usageUpdate(1_200)
+        assertEquals(1_200, s.liveRunTokens)
+        s.usageUpdate(2_500)
+        assertEquals(2_500, s.liveRunTokens)
+    }
+
+    @Test
+    fun aSnapshotsUsageIsNotTheTurnsCount() {
+        // A busy chat reopened mid-turn: the snapshot's usage may be from
+        // an earlier turn, so nothing shows until an update arrives.
+        val s = session()
+        s.setUsage(usage(40_000))
+        s.beginRun(startedAt = System.currentTimeMillis() - 5_000)
+        s.setUsage(usage(41_000))
+        assertEquals(0, s.liveRunTokens)
+        s.usageUpdate(3_000)
+        assertEquals(3_000, s.liveRunTokens)
+    }
+
+    @Test
+    fun anUpdateWithoutACountKeepsTheLastOne() {
+        val s = session()
+        s.beginRun()
+        s.usageUpdate(700)
+        s.usageUpdate(null)
+        assertEquals(700, s.liveRunTokens)
+    }
+
+    @Test
+    fun endRunResetsTheCount() {
+        val s = session()
+        s.beginRun()
+        s.usageUpdate(4_000)
+        s.endRun()
+        assertEquals(0, s.liveRunTokens)
+        // An update after the turn (none should come) doesn't start a count.
+        s.usageUpdate(4_100)
+        s.beginRun()
         assertEquals(0, s.liveRunTokens)
     }
 

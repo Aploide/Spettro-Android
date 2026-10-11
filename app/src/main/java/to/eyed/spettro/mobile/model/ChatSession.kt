@@ -80,8 +80,13 @@ class ChatSession(
     private val _runStartedAt = MutableStateFlow<Long?>(null)
     val runStartedAt: StateFlow<Long?> = _runStartedAt.asStateFlow()
 
-    /** Cumulative token count at the moment the turn started. */
-    private var tokensAtRunStart: Int = 0
+    /**
+     * The in-flight turn's token count, from the last usage update received
+     * since it began; null until the first one. spettro's `tokensUsed`
+     * counts the current run only ("cumulative run cost so far"), so it is
+     * the turn's own figure as it stands, with nothing to subtract.
+     */
+    private var runTokens: Int? = null
 
     /** True until the first prompt is sent, so the UI can show a welcome state. */
     private var isEmptyFlag = true
@@ -125,13 +130,13 @@ class ChatSession(
      */
     private var turnSeq = 0
 
-    /** Tokens streamed during the in-flight turn. */
+    /**
+     * Tokens the in-flight turn has cost so far; 0 when idle, and until its
+     * first usage update. A snapshot's usage never counts: it may be an
+     * earlier turn's.
+     */
     val liveRunTokens: Int
-        get() {
-            if (_runStartedAt.value == null) return 0
-            val total = _usage.value?.tokensUsed ?: return 0
-            return maxOf(0, total - tokensAtRunStart)
-        }
+        get() = if (_runStartedAt.value == null) 0 else runTokens ?: 0
 
     // MARK: Lifecycle
 
@@ -162,7 +167,7 @@ class ChatSession(
      */
     fun beginRun(startedAt: Long? = null) {
         val now = System.currentTimeMillis()
-        tokensAtRunStart = _usage.value?.tokensUsed ?: 0
+        runTokens = null
         _runStartedAt.value = startedAt?.coerceAtMost(now) ?: now
         _isBusy.value = true
     }
@@ -218,6 +223,7 @@ class ChatSession(
     fun endRun(stopReason: String? = null) {
         endStreaming()
         clearPendingSteering()
+        runTokens = null
         _runStartedAt.value = null
         _isBusy.value = false
     }
@@ -408,7 +414,10 @@ class ChatSession(
                 applyLocalConfigValue("mode", update.modeId)
             }
             is AcpSessionUpdate.Plan -> _plan.value = update.entries
-            is AcpSessionUpdate.Usage -> _usage.value = update.usage
+            is AcpSessionUpdate.Usage -> {
+                _usage.value = update.usage
+                if (_runStartedAt.value != null) update.usage.tokensUsed?.let { runTokens = it }
+            }
         }
     }
 
