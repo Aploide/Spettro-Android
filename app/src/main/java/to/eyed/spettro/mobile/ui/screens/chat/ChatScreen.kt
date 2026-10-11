@@ -60,6 +60,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -451,6 +453,36 @@ private fun Transcript(
         }
     }
 
+    // Stay at the end when the layout, not the reader, moves it away. The
+    // space above the composer shrinks when the prompt dock slides in, the
+    // todo tab opens or the keyboard comes up; the last item grows as it
+    // fills in; and a chat just opened settles as its rows measure. The list
+    // keeps its first item where it was through all of that, which would
+    // leave the conversation's end (and the ticker saying what it waits for)
+    // under the dock. A reader who was at the end and isn't scrolling is
+    // taken back to it; one who scrolled away, or opened a row higher up,
+    // is left alone.
+    val endSlackPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    LaunchedEffect(listState) {
+        val openedAt = System.currentTimeMillis()
+        var last = FollowFrame(height = -1, atEnd = true, tailSize = -1)
+        snapshotFlow { FollowFrame.of(listState.layoutInfo, endSlackPx) }.collect { frame ->
+            val shrank = last.height > 0 && frame.height in 1 until last.height
+            val tailChanged = last.tailSize > 0 && frame.tailSize > 0 && frame.tailSize != last.tailSize
+            val settling = System.currentTimeMillis() - openedAt < SETTLE_MS
+            val drifted = last.atEnd && !frame.atEnd && !listState.isScrollInProgress &&
+                (shrank || tailChanged || settling)
+            if (drifted && frame.total > 0) {
+                // Past the last item's top by its own height: the list
+                // clamps that to the very end of the content.
+                listState.scrollToItem(frame.total - 1, frame.tailSize.coerceAtLeast(0))
+                last = frame.copy(atEnd = true)
+            } else {
+                last = frame
+            }
+        }
+    }
+
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxWidth(),
@@ -469,6 +501,31 @@ private fun Transcript(
             item(key = "run-ticker") {
                 ReadableColumn { ticker() }
             }
+        }
+    }
+}
+
+/** How long a chat just opened keeps landing at its end as its rows measure. */
+private const val SETTLE_MS = 1_500L
+
+/** What the transcript's follow-the-end rule reads from one layout. */
+private data class FollowFrame(
+    val height: Int,
+    val atEnd: Boolean,
+    /** The last item's height while it is on screen, else -1. */
+    val tailSize: Int,
+    val total: Int = 0,
+) {
+    companion object {
+        fun of(info: androidx.compose.foundation.lazy.LazyListLayoutInfo, slackPx: Int): FollowFrame {
+            val lastVisible = info.visibleItemsInfo.lastOrNull()
+            val tail = lastVisible?.takeIf { it.index == info.totalItemsCount - 1 }
+            val atEnd = when {
+                info.totalItemsCount == 0 -> true
+                tail == null -> false
+                else -> tail.offset + tail.size - (info.viewportEndOffset - info.afterContentPadding) <= slackPx
+            }
+            return FollowFrame(info.viewportSize.height, atEnd, tail?.size ?: -1, info.totalItemsCount)
         }
     }
 }
