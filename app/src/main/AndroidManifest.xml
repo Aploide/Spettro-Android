@@ -16,9 +16,10 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
-    <!-- Both Spettro protocols are deliberately plaintext on the trusted LAN
-         (auth is HMAC proof-of-key, hosts are raw IPs — TLS certs can't work
-         here), so cleartext must be allowed app-wide. -->
+    <!-- The LAN route is deliberately plaintext ws:// (auth is HMAC
+         proof-of-key, hosts are raw IPs — TLS certs can't work there), so
+         cleartext must be allowed app-wide. The internet route is wss://
+         through the computer's Cloudflare tunnel, which owns the cert. -->
     <application
         android:usesCleartextTraffic="true"
         android:allowBackup="false"
