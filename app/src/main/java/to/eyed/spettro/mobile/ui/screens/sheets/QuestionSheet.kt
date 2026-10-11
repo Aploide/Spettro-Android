@@ -10,6 +10,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -93,6 +97,20 @@ fun QuestionSheet(
     }
 }
 
+/**
+ * A window only a few rows tall — a phone on its side. The question card
+ * then gives its options every spare dp: no icon tile, tighter gaps and
+ * cards, and on a wide window the options two by two.
+ */
+@Composable
+internal fun isCompactHeight(): Boolean = LocalConfiguration.current.screenHeightDp < COMPACT_HEIGHT_DP
+
+/** Below this many dp of window height the question card goes compact; a tablet on its side stays above it. */
+private const val COMPACT_HEIGHT_DP = 480
+
+/** From this many dp of window width a compact card shows its options in two columns. */
+private const val TWO_COLUMN_WIDTH_DP = 600
+
 @Composable
 internal fun QuestionSheetContent(
     request: AcpQuestionRequest,
@@ -109,6 +127,9 @@ internal fun QuestionSheetContent(
     val colors = LocalSpettroColors.current
     val questions = request.questions
     val count = questions.size
+    val compact = isCompactHeight()
+    val twoColumns = compact && LocalConfiguration.current.screenWidthDp >= TWO_COLUMN_WIDTH_DP
+    val gap = if (compact) Dimens.spacingSm else Dimens.spacingLg
 
     // The user's working answers, keyed by question id. Plain Serializable
     // maps in saveable state, copied on write: moving between tabs changes an
@@ -201,7 +222,7 @@ internal fun QuestionSheetContent(
         modifier = modifier
             .fillMaxWidth()
             .padding(contentPadding),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
+        verticalArrangement = Arrangement.spacedBy(gap),
     ) {
         // The header and the page scroll together above the pinned footer:
         // on a phone on its side the card is little taller than the footer,
@@ -216,7 +237,7 @@ internal fun QuestionSheetContent(
                 .weight(1f, fill = false)
                 .fadeWhenMoreBelow(pageScroll)
                 .verticalScroll(pageScroll),
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
+            verticalArrangement = Arrangement.spacedBy(gap),
         ) {
             // Header.
             Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs)) {
@@ -224,7 +245,7 @@ internal fun QuestionSheetContent(
                     horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    PromptIconTile(icon = Icons.Outlined.QuestionAnswer, info = true)
+                    if (!compact) PromptIconTile(icon = Icons.Outlined.QuestionAnswer, info = true)
                     Text(
                         text = if (questions.size > 1) {
                             "Spettro has ${questions.size} questions"
@@ -256,7 +277,7 @@ internal fun QuestionSheetContent(
             // The current page.
             Column(
                 modifier = Modifier.then(armedModifier),
-                verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
+                verticalArrangement = Arrangement.spacedBy(if (compact) Dimens.spacingSm else Dimens.spacingMd),
             ) {
                 run {
                     val question = questions[step]
@@ -274,6 +295,8 @@ internal fun QuestionSheetContent(
                         note = notes[question.id].orEmpty(),
                         otherOpen = question.id in otherOpen || custom(question).isNotEmpty(),
                         expandedPreviews = expandedPreviews,
+                        compact = compact,
+                        twoColumns = twoColumns,
                         onChoose = { choose(question, it) },
                         onCustomChange = { setCustom(question, it) },
                         onNoteChange = { text ->
@@ -379,6 +402,8 @@ private fun QuestionPage(
     note: String,
     otherOpen: Boolean,
     expandedPreviews: Set<String>,
+    compact: Boolean,
+    twoColumns: Boolean,
     onChoose: (AcpQuestionOption) -> Unit,
     onCustomChange: (String) -> Unit,
     onNoteChange: (String) -> Unit,
@@ -403,15 +428,30 @@ private fun QuestionPage(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
-        for (option in question.options) {
-            OptionCard(
-                option = option,
-                isSelected = option.id in selected,
-                multiSelect = question.multiSelect,
-                previewExpanded = "${question.id}:${option.id}" in expandedPreviews,
-                onClick = { onChoose(option) },
-                onTogglePreview = { onTogglePreview(option.id) },
-            )
+        @Composable
+        fun card(option: AcpQuestionOption, modifier: Modifier) = OptionCard(
+            option = option,
+            isSelected = option.id in selected,
+            multiSelect = question.multiSelect,
+            previewExpanded = "${question.id}:${option.id}" in expandedPreviews,
+            compact = compact,
+            onClick = { onChoose(option) },
+            onTogglePreview = { onTogglePreview(option.id) },
+            modifier = modifier,
+        )
+        if (twoColumns) {
+            // Side by side, each pair as tall as the taller of the two.
+            for (pair in question.options.chunked(2)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                ) {
+                    for (option in pair) card(option, Modifier.weight(1f).fillMaxHeight())
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        } else {
+            for (option in question.options) card(option, Modifier.fillMaxWidth())
         }
 
         if (question.allowCustomInput) {
@@ -458,13 +498,18 @@ private fun OptionCard(
     isSelected: Boolean,
     multiSelect: Boolean,
     previewExpanded: Boolean,
+    compact: Boolean,
     onClick: () -> Unit,
     onTogglePreview: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    SelectableCard(selected = isSelected, onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    SelectableCard(selected = isSelected, onClick = onClick, modifier = modifier) {
         Row(
-            modifier = Modifier.padding(Dimens.spacingMd),
+            modifier = Modifier.padding(
+                horizontal = Dimens.spacingMd,
+                vertical = if (compact) Dimens.spacingSm else Dimens.spacingMd,
+            ),
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.Top,
         ) {

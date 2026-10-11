@@ -75,6 +75,7 @@ import to.eyed.spettro.mobile.ui.screens.sheets.PROMPT_ARM_DELAY_MS
 import to.eyed.spettro.mobile.ui.screens.sheets.PromptIconTile
 import to.eyed.spettro.mobile.ui.screens.sheets.PromptQueuePill
 import to.eyed.spettro.mobile.ui.screens.sheets.QuestionSheetContent
+import to.eyed.spettro.mobile.ui.screens.sheets.isCompactHeight
 import to.eyed.spettro.mobile.ui.screens.sheets.RecommendedTag
 import to.eyed.spettro.mobile.ui.screens.sheets.SHELL_LANGS
 import to.eyed.spettro.mobile.ui.screens.sheets.consumeTaps
@@ -409,7 +410,11 @@ private fun QuestionCard(
                 onAnswer(null)
             }
         },
-        contentPadding = PaddingValues(start = Dimens.spacingMd, end = Dimens.spacingMd, top = Dimens.spacingMd, bottom = 10.dp),
+        contentPadding = if (isCompactHeight()) {
+            PaddingValues(start = Dimens.spacingMd, end = Dimens.spacingMd, top = Dimens.spacingSm, bottom = 6.dp)
+        } else {
+            PaddingValues(start = Dimens.spacingMd, end = Dimens.spacingMd, top = Dimens.spacingMd, bottom = 10.dp)
+        },
         queue = queue,
     )
 }
