@@ -477,18 +477,19 @@ private fun Transcript(
         initialFirstVisibleItemIndex = (count - 1).coerceAtLeast(0),
     )
 
-    // Auto-scroll: follow the conversation only while the reader is already
-    // near the bottom, so scrolling back through history isn't hijacked.
-    // Keyed on the rows themselves rather than their count: a workflow absorbing
-    // twenty members leaves the count flat while the run is very much moving,
-    // and the view would stop following it.
+    // Who is reading at the end, layout by layout (see [EndFollower]).
+    val follower = remember { EndFollower(openedAt = System.currentTimeMillis()) }
+
+    // Auto-scroll: follow the conversation only while the reader is at its
+    // end, so scrolling back — through history, or up a reply still being
+    // written — isn't hijacked. (It used to follow anyone within three rows
+    // of the end, and a streaming reply is one row: scrolling up to read its
+    // start was undone on the next token.) Keyed on the rows themselves
+    // rather than their count: a workflow absorbing twenty members leaves the
+    // count flat while the run is very much moving.
     LaunchedEffect(rows, ticker != null) {
         if (count == 0) return@LaunchedEffect
-        val info = listState.layoutInfo
-        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (lastVisible >= count - 3) {
-            listState.animateToEnd()
-        }
+        if (follower.following) listState.animateToEnd()
     }
 
     // The user's own message: whatever they were reading, they want to see
@@ -514,7 +515,6 @@ private fun Transcript(
     // scrolled away, or opened a row higher up, is left alone.
     val endSlackPx = with(LocalDensity.current) { 48.dp.roundToPx() }
     LaunchedEffect(listState) {
-        val follower = EndFollower(openedAt = System.currentTimeMillis())
         launch {
             listState.interactionSource.interactions.collect {
                 if (it is DragInteraction.Start) follower.onDrag()

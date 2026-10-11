@@ -85,3 +85,47 @@ class EndFollowerTest {
         assertTrue(f.onFrame(frame(1800, 90, tail = 210), later))
     }
 }
+
+class EndFollowerFollowingTest {
+    private val later = SETTLE_MS + 1
+
+    private fun frame(overflow: Int, scrolling: Boolean = false, tail: Int = 900, total: Int = 20) =
+        FollowFrame(height = 1800, atEnd = overflow <= 48, tailSize = if (overflow == Int.MAX_VALUE) -1 else tail, total = total, overflowPx = overflow, scrolling = scrolling)
+
+    @Test
+    fun scrollingUpAStreamingReplyStopsTheFollowing() {
+        val f = EndFollower(openedAt = 0)
+        f.onFrame(frame(0), later)
+        assertTrue(f.following)
+        f.onDrag()
+        assertFalse(f.following)
+        f.onFrame(frame(1000, scrolling = true), later)
+        f.onFrame(frame(1000, scrolling = false), later)
+        // The reply keeps growing under the reader, who is left reading.
+        assertFalse(f.onFrame(frame(1060, tail = 960), later))
+        assertFalse(f.following)
+    }
+
+    @Test
+    fun aRowAddedUnderTheEndIsFollowed() {
+        val f = EndFollower(openedAt = 0)
+        f.onFrame(frame(0, total = 20), later)
+        // A tool call lands below the view: the end is off screen.
+        assertTrue(f.onFrame(frame(Int.MAX_VALUE, total = 21), later))
+        assertTrue(f.following)
+    }
+}
+
+class EndFollowerStickyTest {
+    private val later = SETTLE_MS + 1
+
+    @Test
+    fun aReplyGrowingAboveTheTickerKeepsTheReaderFollowing() {
+        val f = EndFollower(openedAt = 0)
+        // The ticker is the last row and keeps its size; the reply above it
+        // grows and pushes it below the view.
+        f.onFrame(FollowFrame(height = 1800, atEnd = true, tailSize = 60, total = 20, overflowPx = 0), later)
+        assertFalse(f.onFrame(FollowFrame(height = 1800, atEnd = false, tailSize = 60, total = 20, overflowPx = 240), later))
+        assertTrue(f.following)
+    }
+}

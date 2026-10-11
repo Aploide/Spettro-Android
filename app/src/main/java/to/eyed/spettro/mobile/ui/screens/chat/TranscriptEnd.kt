@@ -108,23 +108,45 @@ internal class EndFollower(private val openedAt: Long) {
     private var pending = false
     private var dragged = false
 
+    /**
+     * Whether the reader is following the end. Only the reader changes it:
+     * their finger lets go of the end, and coming back to it (by hand or by
+     * the Latest message pill) takes it up again. The layout moving the end
+     * away — a reply growing above the ticker, a row added — doesn't.
+     */
+    private var sticky = true
+
+    /** The follow rule may animate to each change in the rows. */
+    val following: Boolean
+        get() = !dragged && sticky
+
     /** The reader put a finger on the list: their scroll, not ours. */
     fun onDrag() {
         dragged = true
         pending = false
+        sticky = false
     }
 
     /** Returns whether to scroll to the very end now. */
     fun onFrame(frame: FollowFrame, now: Long): Boolean {
-        // The reader's scroll is over once the list comes to rest.
-        if (last.scrolling && !frame.scrolling) dragged = false
+        // The reader's scroll is over once the list comes to rest; where it
+        // came to rest says whether they still follow.
+        if (last.scrolling && !frame.scrolling && dragged) {
+            dragged = false
+            sticky = frame.atEnd
+        }
+        if (!dragged && frame.atEnd) sticky = true
         val shrank = last.height > 0 && frame.height in 1 until last.height
         val tailChanged = last.tailSize > 0 && frame.tailSize > 0 && frame.tailSize != last.tailSize
+        // A row added under the last one (a tool call, the ticker) moves the
+        // end below the view without anything on screen changing size.
+        val grew = sticky && last.total > 0 && frame.total > last.total
         val settling = now - openedAt < SETTLE_MS
         // The slack says who was reading at the end; once the layout moves,
         // the end comes all the way back into view — a ticker half under the
         // prompt dock is still in the slack.
-        if (last.atEnd && frame.overflowPx > 0 && !dragged && (shrank || tailChanged || settling)) pending = true
+        val moved = last.atEnd && (shrank || tailChanged || settling)
+        if (frame.overflowPx > 0 && !dragged && (moved || grew)) pending = true
         if (pending && !frame.scrolling) {
             pending = false
             if (frame.overflowPx > 0 && frame.total > 0) {
