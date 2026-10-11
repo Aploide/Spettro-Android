@@ -488,23 +488,17 @@ class RemoteClient(
     suspend fun unpairAndForget() {
         val current = active
         val hostName = (_state.value as? RemoteState.Connected)?.host?.hostName
-        if (current != null && unpairsOnHost(_state.value)) {
+        val removed = unpairThenForget(
+            tellHost = current != null && unpairsOnHost(_state.value),
             // The host closes the socket once it has answered: that close
             // is the end of the pairing, not a drop to reconnect from.
-            current.peer.onClose = null
-            val removed = withTimeoutOrNull(UNPAIR_TIMEOUT_MS) {
-                try {
-                    current.peer.request(RemoteMethod.DEVICES_UNPAIR)
-                    true
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    false
-                }
-            } == true
+            detachClose = { current?.peer?.onClose = null },
+            request = { current?.peer?.request(RemoteMethod.DEVICES_UNPAIR) },
+            forget = ::forget,
+        )
+        if (removed != null) {
             log(if (removed) "removed from $hostName" else "couldn't tell $hostName; forgetting here only")
         }
-        forget()
     }
 
     /** Forgets the host entirely. The only path that unpairs. */
@@ -1183,6 +1177,39 @@ class RemoteClient(
             reason != null -> goodbyeOf(reason, message)
             alreadyStopped -> current
             else -> goodbyeOf(null, message)
+        }
+
+        /**
+         * Forget's order, for [unpairAndForget]: when [tellHost], first
+         * [detachClose] (so the host's close after its answer can't start a
+         * reconnect into a host that no longer knows this phone), then
+         * [request] for at most [timeoutMs]; and in every case [forget] last.
+         * Returns whether the host confirmed, or null when it wasn't asked.
+         */
+        internal suspend fun unpairThenForget(
+            tellHost: Boolean,
+            detachClose: () -> Unit,
+            request: suspend () -> Unit,
+            forget: () -> Unit,
+            timeoutMs: Long = UNPAIR_TIMEOUT_MS,
+        ): Boolean? {
+            val removed = if (tellHost) {
+                detachClose()
+                withTimeoutOrNull(timeoutMs) {
+                    try {
+                        request()
+                        true
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        false
+                    }
+                } == true
+            } else {
+                null
+            }
+            forget()
+            return removed
         }
 
         /**
