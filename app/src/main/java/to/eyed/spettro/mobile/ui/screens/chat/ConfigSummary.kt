@@ -32,6 +32,25 @@ data class ConfigSummary(val text: String, val warning: String? = null) {
         /** The permission level that warns: the CLI's "yolo", Don’t ask. */
         private const val UNASKED = "yolo"
 
+        /** What the model button says while no model is set, as the desktop's does. */
+        const val NO_MODEL = "Choose a model"
+
+        /**
+         * The model's name for [value] — its choice's name, else the raw id
+         * without its provider prefix — or null when no model is set: a
+         * fresh config reports ":" (the CLI joins two empty strings). Port
+         * of the desktop's `currentModelName` (ModelMenu.tsx).
+         */
+        fun modelName(kind: AcpConfigOption.Kind.Select, value: String? = kind.current): String? {
+            if (value.isNullOrEmpty()) return null
+            val name = kind.groups.asSequence()
+                .flatMap { it.options.asSequence() }
+                .firstOrNull { it.value == value }
+                ?.name
+                ?: value.substringAfter(':')
+            return name.takeIf { it.isNotBlank() }
+        }
+
         /**
          * The chip for a chat's [options]: the current mode, model and
          * permission level, the level in the desktop's words. Null when the
@@ -47,6 +66,8 @@ data class ConfigSummary(val text: String, val warning: String? = null) {
                     val name = PermissionCopy.name(value) ?: option.currentLabel.takeIf { it.isNotBlank() }
                     if (value == UNASKED) warning = name
                     name
+                } else if (id == "model") {
+                    (option.kind as? AcpConfigOption.Kind.Select)?.let(::modelName) ?: NO_MODEL
                 } else {
                     option.currentLabel.takeIf { it.isNotBlank() }
                 }

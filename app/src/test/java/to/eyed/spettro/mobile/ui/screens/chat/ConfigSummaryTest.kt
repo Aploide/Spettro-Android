@@ -50,6 +50,49 @@ class ConfigSummaryTest {
         assertNull(ConfigSummary.of(emptyList()))
     }
 
+    private fun withModel(current: String, choices: List<AcpConfigOption.Opt> = emptyList()) =
+        ChatPreviewData.configOptionsWith("high", ultra = false, permission = "restricted").map { option ->
+            if (option.id != "model") return@map option
+            option.copy(
+                kind = AcpConfigOption.Kind.Select(
+                    current = current,
+                    groups = listOf(AcpConfigOption.OptionGroup(null, choices)),
+                ),
+            )
+        }
+
+    @Test
+    fun `a fresh config's empty model reads as Choose a model, not a colon`() {
+        // The CLI joins an empty provider and an empty model: ":".
+        assertEquals("Coding · Choose a model · Restricted", ConfigSummary.of(withModel(":"))?.text)
+        assertEquals("Coding · Choose a model · Restricted", ConfigSummary.of(withModel(""))?.text)
+    }
+
+    @Test
+    fun `a model with no choice of its own drops its provider prefix`() {
+        assertEquals("Coding · claude-sonnet · Restricted", ConfigSummary.of(withModel("anthropic:claude-sonnet"))?.text)
+        assertEquals(
+            "Coding · Claude Sonnet · Restricted",
+            ConfigSummary.of(
+                withModel("anthropic:claude-sonnet", listOf(AcpConfigOption.Opt("Claude Sonnet", "anthropic:claude-sonnet"))),
+            )?.text,
+        )
+    }
+
+    @Test
+    fun `modelName follows the desktop's currentModelName`() {
+        val kind = AcpConfigOption.Kind.Select(
+            current = "openai:gpt-5",
+            groups = listOf(AcpConfigOption.OptionGroup("OpenAI", listOf(AcpConfigOption.Opt("GPT-5", "openai:gpt-5")))),
+        )
+        assertEquals("GPT-5", ConfigSummary.modelName(kind))
+        assertEquals("o3", ConfigSummary.modelName(kind, "openai:o3"))
+        assertEquals("local-model", ConfigSummary.modelName(kind, "local-model"))
+        assertNull(ConfigSummary.modelName(kind, ":"))
+        assertNull(ConfigSummary.modelName(kind, "openai: "))
+        assertNull(ConfigSummary.modelName(kind, null))
+    }
+
     @Test
     fun `a warning that isn't in the text marks nothing`() {
         assertNull(ConfigSummary("Coding · GPT-5", warning = "Don’t ask").warningRange)

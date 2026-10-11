@@ -344,7 +344,11 @@ private fun DrillEntrySection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = labelFor(kind, current) ?: current ?: "Choose…",
+                    text = if (option.id == "model") {
+                        ConfigSummary.modelName(kind, current) ?: ConfigSummary.NO_MODEL
+                    } else {
+                        labelFor(kind, current) ?: current ?: "Choose…"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
