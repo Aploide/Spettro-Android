@@ -202,8 +202,9 @@ private fun Scene(scene: String, tablet: Boolean) {
         // The thinking slider, open over the chat: at rest on High; frozen
         // mid-meteor (`--es progress 0.35 [--es from 4]`, seed 7); lit
         // Ultra smouldering (`--es idle 1.5`, seed 11); Ultra paused under
-        // Ask first; Off; a model that doesn't think; and a live one to
-        // drive by hand, its moves answered by a stand-in CLI.
+        // Ask first; Off; a model that doesn't think, with Ultra still on and
+        // with thinking Off; and a live one to drive by hand, its moves
+        // answered by a stand-in CLI.
         "thinking" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("high", ultra = false))
         "thinking_meteor" -> {
             val extras = LocalSliderExtras.current
@@ -226,6 +227,11 @@ private fun Scene(scene: String, tablet: Boolean) {
         "thinking_inert" -> ThinkingScene(
             tablet,
             options = ChatPreviewData.configOptionsWith("high", ultra = true),
+            reasons = false,
+        )
+        "thinking_inert_off" -> ThinkingScene(
+            tablet,
+            options = ChatPreviewData.configOptionsWith("off", ultra = false),
             reasons = false,
         )
         "thinking_live" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("max", ultra = false), live = true)

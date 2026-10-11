@@ -2,8 +2,6 @@ package to.eyed.spettro.mobile.ui.components.thinking
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -43,7 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -74,6 +72,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -91,6 +90,8 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -103,6 +104,7 @@ import kotlin.math.sqrt
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import to.eyed.spettro.mobile.core.acp.AcpConfigOption
 import to.eyed.spettro.mobile.model.Embers
 import to.eyed.spettro.mobile.model.Meteor
@@ -148,10 +150,25 @@ private val CAP = 8.dp
 /** Where the bar's centre line sits in the body, which is grown past the desktop's 32px to fit a finger. */
 private val BAR_CENTER = 22.dp
 
-/** The labels' top, under the bar (the desktop pulls them up into its hit area's lower edge). */
-private val LABELS_TOP = BAR_CENTER + 12.dp
+/**
+ * The labels' top: 18 under the bar's centre line, as on the desktop, whose
+ * 32px hit area (the bar at its middle), 6px gap and -4px margin put them
+ * there. The body ends with them; the caption's gap follows.
+ */
+private val LABELS_TOP = BAR_CENTER + 18.dp
 private val LABELS_HEIGHT = 15.dp
-private val BODY_HEIGHT = LABELS_TOP + LABELS_HEIGHT + 6.dp
+private val BODY_HEIGHT = LABELS_TOP + LABELS_HEIGHT
+
+/**
+ * How far the thumb's layer reaches past the body on every side: lit Ultra's
+ * widest glow (r + 4, blurred 14) at the drag's 1.08 scale, and the Off
+ * thumb short of Low. Dimmed, the body is drawn through a layer, and a
+ * layer only holds what lies inside it.
+ */
+private val THUMB_ROOM = 40.dp
+
+/** A disabled slider's opacity: the desktop's 0.45 on the body and labels. */
+private const val DISABLED_ALPHA = 0.45f
 
 /**
  * Where the thumb rests while thinking is off: left of the Low stop, just
@@ -302,22 +319,32 @@ fun ThinkingSlider(
         pausedLook -> 0.12f
         else -> 0.3f
     }
-    val fireAlpha = animateFloatAsState(
-        fireTarget,
-        if (frozen) snap() else tween(300, easing = EaseOut),
-        label = "ultraSegment",
-    )
+    // These fades, unlike the moves, are kept under reduced motion, as the
+    // desktop keeps them — and Android's reduced motion (an animator scale
+    // of 0) would otherwise finish every one of them in a frame.
+    val fireAlpha = remember { Animatable(fireTarget) }
+    LaunchedEffect(fireTarget, frozen) {
+        if (frozen) {
+            fireAlpha.snapTo(fireTarget)
+        } else {
+            keepPace(reduced) { fireAlpha.animateTo(fireTarget, tween(300, easing = EaseOut)) }
+        }
+    }
     // In flight the meteor is the thumb; it comes back as the head cools.
     val thumbAlpha = remember { Animatable(if (flying) 0f else 1f) }
     LaunchedEffect(flying, frozen) {
-        if (flying || frozen) thumbAlpha.snapTo(if (flying) 0f else 1f) else thumbAlpha.animateTo(1f, tween(260, easing = EaseOut))
+        if (flying || frozen) {
+            thumbAlpha.snapTo(if (flying) 0f else 1f)
+        } else {
+            keepPace(reduced) { thumbAlpha.animateTo(1f, tween(260, easing = EaseOut)) }
+        }
     }
     // Reduced motion gets no meteor: the lit thumb simply glows up.
     val glowIn = remember { Animatable(1f) }
     LaunchedEffect(meteor.glowIn) {
         if (meteor.glowIn) {
             glowIn.snapTo(0f)
-            glowIn.animateTo(1f, tween(500, easing = EaseOut))
+            keepPace(reduced) { glowIn.animateTo(1f, tween(500, easing = EaseOut)) }
         }
     }
 
@@ -423,7 +450,6 @@ fun ThinkingSlider(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(BODY_HEIGHT)
-                .alpha(if (disabled) 0.45f else 1f)
                 .clearAndSetSemantics {
                     contentDescription = "Thinking"
                     stateDescription = Thinking.valueText(state)
@@ -515,94 +541,106 @@ fun ThinkingSlider(
             val span = (width - CAP * 2).value.toDouble()
             val barWidth = width.value.toDouble()
             val dragging = drag != null
-            Canvas(Modifier.fillMaxSize()) {
-                inDp { w, _ ->
-                    drawBar(
-                        colors = colors,
-                        width = w,
-                        stops = stops.size,
-                        ultraIndex = ultraIndex,
-                        fillEnd = if (shown < 0) 0f else CAP.value + (w - 2 * CAP.value) * fracAnimValue(snapMoves, targetFrac, fracAnim.value),
-                        fillFrac = fillFrac,
-                        shown = shown,
-                        fireAlpha = fireAlpha.value,
-                        litLook = litLook && !flying,
-                        pausedLook = pausedLook,
-                        flying = flying,
-                        shadeTicks = litLook || pausedLook,
-                    )
+            // Dimmed as one, as the desktop's body is (the bar doesn't show
+            // through the knob), in a layer grown past the body so it holds
+            // the thumb and its glow where they reach beyond it.
+            val dim = if (disabled) DISABLED_ALPHA else 1f
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .bleed(THUMB_ROOM)
+                    .graphicsLayer { alpha = dim }
+                    .padding(THUMB_ROOM),
+            ) {
+                Canvas(Modifier.fillMaxSize()) {
+                    inDp { w, _ ->
+                        drawBar(
+                            colors = colors,
+                            width = w,
+                            stops = stops.size,
+                            ultraIndex = ultraIndex,
+                            fillEnd = if (shown < 0) 0f else CAP.value + (w - 2 * CAP.value) * fracAnimValue(snapMoves, targetFrac, fracAnim.value),
+                            fillFrac = fillFrac,
+                            shown = shown,
+                            fireAlpha = fireAlpha.value,
+                            litLook = litLook && !flying,
+                            pausedLook = pausedLook,
+                            flying = flying,
+                            shadeTicks = litLook || pausedLook,
+                        )
+                    }
                 }
-            }
-            if (smoulder) {
-                val field = remember(barWidth) { Embers.plan(fillEnd = CAP.value + span, height = BAR.value.toDouble()) }
-                val palette = colors.ultraPalette()
-                Canvas(
-                    Modifier
-                        .padding(top = BAR_CENTER - BAR / 2)
-                        .fillMaxWidth()
-                        .height(BAR)
-                        .graphicsLayer {
-                            shape = RoundedCornerShape(CAP)
-                            clip = true
-                            compositingStrategy = CompositingStrategy.Offscreen
-                            alpha = embersAlpha.value
-                        },
-                ) {
-                    val t = idleTime ?: max(0.0, clock.doubleValue - smoulderStart.doubleValue)
-                    inDp { _, _ -> drawEmbers(field, t, palette) }
+                if (smoulder) {
+                    val field = remember(barWidth) { Embers.plan(fillEnd = CAP.value + span, height = BAR.value.toDouble()) }
+                    val palette = colors.ultraPalette()
+                    Canvas(
+                        Modifier
+                            .padding(top = BAR_CENTER - BAR / 2)
+                            .fillMaxWidth()
+                            .height(BAR)
+                            .graphicsLayer {
+                                shape = RoundedCornerShape(CAP)
+                                clip = true
+                                compositingStrategy = CompositingStrategy.Offscreen
+                                alpha = embersAlpha.value
+                            },
+                    ) {
+                        val t = idleTime ?: max(0.0, clock.doubleValue - smoulderStart.doubleValue)
+                        inDp { _, _ -> drawEmbers(field, t, palette) }
+                    }
                 }
-            }
-            if (inFlight) {
-                val seed = if (frozen) 7 else meteor.key
-                val from = flightFrom!!
-                val run = remember(seed, from, barWidth, ultraIndex, last) {
-                    Meteor.plan(
-                        MeteorGeometry(
-                            railLeft = CAP.value.toDouble(),
-                            railWidth = span,
-                            y = BAR.value / 2.0,
-                            height = BAR.value.toDouble(),
-                            fromFrac = frac(from).toDouble(),
-                            toFrac = frac(ultraIndex).toDouble(),
-                        ),
-                        seed,
-                    )
+                if (inFlight) {
+                    val seed = if (frozen) 7 else meteor.key
+                    val from = flightFrom!!
+                    val run = remember(seed, from, barWidth, ultraIndex, last) {
+                        Meteor.plan(
+                            MeteorGeometry(
+                                railLeft = CAP.value.toDouble(),
+                                railWidth = span,
+                                y = BAR.value / 2.0,
+                                height = BAR.value.toDouble(),
+                                fromFrac = frac(from).toDouble(),
+                                toFrac = frac(ultraIndex).toDouble(),
+                            ),
+                            seed,
+                        )
+                    }
+                    val palette = colors.ultraPalette()
+                    Canvas(
+                        Modifier
+                            .padding(top = BAR_CENTER - BAR / 2)
+                            .fillMaxWidth()
+                            .height(BAR)
+                            .graphicsLayer {
+                                shape = RoundedCornerShape(CAP)
+                                clip = true
+                                compositingStrategy = CompositingStrategy.Offscreen
+                            },
+                    ) {
+                        inDp { _, _ -> drawMeteor(run, meteorProgress ?: meteorP.doubleValue, palette) }
+                    }
                 }
-                val palette = colors.ultraPalette()
-                Canvas(
-                    Modifier
-                        .padding(top = BAR_CENTER - BAR / 2)
-                        .fillMaxWidth()
-                        .height(BAR)
-                        .graphicsLayer {
-                            shape = RoundedCornerShape(CAP)
-                            clip = true
-                            compositingStrategy = CompositingStrategy.Offscreen
-                        },
-                ) {
-                    inDp { _, _ -> drawMeteor(run, meteorProgress ?: meteorP.doubleValue, palette) }
-                }
-            }
-            Canvas(Modifier.fillMaxSize()) {
-                inDp { w, _ ->
-                    val f = fracAnimValue(snapMoves, targetFrac, fracAnim.value)
-                    val off = if (snapMoves) targetOff else offAnim.value
-                    val breath = if (ambient) breathAt(clock.doubleValue) else 0f
-                    drawThumb(
-                        colors = colors,
-                        center = Offset(CAP.value + (w - 2 * CAP.value) * f + off, BAR_CENTER.value),
-                        look = when {
-                            at < 0 -> ThumbLook.Off
-                            pausedLook -> ThumbLook.Paused
-                            litLook -> ThumbLook.Lit
-                            else -> ThumbLook.Normal
-                        },
-                        alpha = if (flying) 0f else thumbAlpha.value,
-                        scale = if (dragging) 1.08f else 1f,
-                        breath = breath,
-                        glowIn = glowIn.value,
-                        focusRing = keyboardFocus,
-                    )
+                Canvas(Modifier.fillMaxSize()) {
+                    inDp { w, _ ->
+                        val f = fracAnimValue(snapMoves, targetFrac, fracAnim.value)
+                        val off = if (snapMoves) targetOff else offAnim.value
+                        val breath = if (ambient) breathAt(clock.doubleValue) else 0f
+                        drawThumb(
+                            colors = colors,
+                            center = Offset(CAP.value + (w - 2 * CAP.value) * f + off, BAR_CENTER.value),
+                            look = when {
+                                at < 0 -> ThumbLook.Off
+                                pausedLook -> ThumbLook.Paused
+                                litLook -> ThumbLook.Lit
+                                else -> ThumbLook.Normal
+                            },
+                            alpha = if (flying) 0f else thumbAlpha.value,
+                            scale = if (dragging) 1.08f else 1f,
+                            breath = breath,
+                            glowIn = glowIn.value,
+                            focusRing = keyboardFocus,
+                        )
+                    }
                 }
             }
             Labels(
@@ -613,7 +651,8 @@ fun ThinkingSlider(
                 modifier = Modifier
                     .padding(top = LABELS_TOP)
                     .fillMaxWidth()
-                    .height(LABELS_HEIGHT),
+                    .height(LABELS_HEIGHT)
+                    .graphicsLayer { alpha = dim },
             )
         }
 
@@ -667,6 +706,28 @@ private inline fun DrawScope.inDp(crossinline block: DrawScope.(width: Float, he
     val w = size.width / density
     val h = size.height / density
     scale(density, density, pivot = Offset.Zero) { block(w, h) }
+}
+
+/**
+ * Lays its content out [room] larger than its slot on every side, centred on
+ * it, so a layer on that content holds what it draws past the slot's edges.
+ */
+private fun Modifier.bleed(room: Dp): Modifier = layout { measurable, constraints ->
+    val r = room.roundToPx()
+    val width = constraints.maxWidth
+    val height = constraints.maxHeight
+    val placeable = measurable.measure(Constraints.fixed(width + 2 * r, height + 2 * r))
+    layout(width, height) { placeable.place(-r, -r) }
+}
+
+/** An animator scale that plays a fade at its own pace. */
+private object FullPace : MotionDurationScale {
+    override val scaleFactor: Float get() = 1f
+}
+
+/** Runs [block]'s animations at their own pace under reduced motion, when the system's scale is 0. */
+private suspend fun keepPace(reduced: Boolean, block: suspend () -> Unit) {
+    if (reduced) withContext(FullPace) { block() } else block()
 }
 
 /** The breath's drawn-in share at [t] seconds: 2.8s in, 2.8s out, eased. */
