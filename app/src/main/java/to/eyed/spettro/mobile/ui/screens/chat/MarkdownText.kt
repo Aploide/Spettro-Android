@@ -46,6 +46,7 @@ import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.markdownAnnotator
 import com.mikepenz.markdown.model.markdownDimens
 import com.mikepenz.markdown.model.rememberMarkdownState
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
@@ -136,6 +137,7 @@ private fun MarkdownChunkView(chunk: String) {
             table = body,
         ),
         dimens = markdownDimens(codeBackgroundCornerSize = Dimens.radiusSm),
+        annotator = remember { markdownAnnotator(annotate = keepEmphasisCharacters) },
         components = markdownComponents(
             codeFence = { model ->
                 MarkdownCodeFence(model.content, model.node) { code, language, _ ->
