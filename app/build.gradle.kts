@@ -12,8 +12,8 @@ android {
         applicationId = "to.eyed.spettro.mobile"
         minSdk = 33
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.1.7"
+        versionCode = 18
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
