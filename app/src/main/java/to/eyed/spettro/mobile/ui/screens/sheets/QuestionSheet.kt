@@ -5,10 +5,7 @@ import to.eyed.spettro.mobile.ui.components.SpettroButton
 import to.eyed.spettro.mobile.ui.components.ButtonStyle
 import to.eyed.spettro.mobile.ui.components.SectionHeader
 import to.eyed.spettro.mobile.ui.components.SpettroTextField
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
@@ -18,26 +15,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.QuestionAnswer
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +52,7 @@ import to.eyed.spettro.mobile.core.acp.AcpQuestionAnswer
 import to.eyed.spettro.mobile.core.acp.AcpQuestionItem
 import to.eyed.spettro.mobile.core.acp.AcpQuestionOption
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
+import to.eyed.spettro.mobile.model.QuestionForm
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
@@ -73,9 +66,13 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * the user. Questions left alone are simply absent from the submitted
  * answers — the CLI reports them to the model as unanswered, never defaulted.
  *
+ * One question at a time ("Question 2 of 3"), as the desktop's
+ * QuestionCard draws it, in the prompt dock and in this sheet alike.
+ *
  * Swiping the sheet away calls [onDismiss] only; the form stays pending —
  * the caller sets it aside, and never declines it for the user. [onDecline]
- * refuses the whole form — declining is all-or-nothing.
+ * is Skip all, which refuses the whole form; with anything picked or typed
+ * it asks "Discard your answers?" first.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,8 +107,7 @@ internal fun QuestionSheetContent(
 ) {
     val colors = LocalSpettroColors.current
     val questions = request.questions
-    val reviewIndex = questions.size
-    val hasReview = questions.size > 1
+    val count = questions.size
 
     // The user's working answers, keyed by question id. Plain Serializable
     // maps in saveable state, copied on write: moving between tabs changes an
@@ -122,6 +118,8 @@ internal fun QuestionSheetContent(
     var customText by rememberSaveable { mutableStateOf(HashMap<String, String>()) }
     var notes by rememberSaveable { mutableStateOf(HashMap<String, String>()) }
     var otherOpen by rememberSaveable { mutableStateOf(HashSet<String>()) }
+    // Skip all with answers in it swaps the footer for "Discard your answers?".
+    var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     // Which option previews are expanded ("questionId:optionId") — pure
     // presentation, not worth surviving process death.
     var expandedPreviews by remember { mutableStateOf(setOf<String>()) }
@@ -142,7 +140,9 @@ internal fun QuestionSheetContent(
         selectedIds(q).isNotEmpty() || custom(q).isNotBlank()
 
     val hasAnyAnswer = questions.any { answered(it) }
-    val allAnswered = questions.all { answered(it) }
+    val drafts = questions.map { q ->
+        QuestionForm.Draft(selectedIds(q), custom(q), notes[q.id].orEmpty())
+    }
 
     /**
      * One [AcpQuestionAnswer] per answered question. Selections come out in
@@ -192,9 +192,9 @@ internal fun QuestionSheetContent(
         }
     }
 
-    val isReviewing = hasReview && tab >= reviewIndex
-    // The last page's action is to send; every earlier one moves forward.
-    val isSubmitting = isReviewing || questions.size == 1
+    val step = tab.coerceIn(0, (count - 1).coerceAtLeast(0))
+    // The last question's action is to send; every earlier one moves forward.
+    val isLast = step >= count - 1
 
     Column(
         modifier = modifier
@@ -219,37 +219,20 @@ internal fun QuestionSheetContent(
                     color = colors.textPrimary,
                     modifier = Modifier.weight(1f),
                 )
+                if (count > 1) {
+                    Text(
+                        text = "Question ${step + 1} of $count",
+                        color = colors.textTertiary,
+                        style = TextStyle(fontSize = 12.sp),
+                    )
+                }
                 if (queue != null) PromptQueuePill(queue)
             }
-            if (request.context != null) {
+            if (request.context != null && step == 0) {
                 Text(
                     text = request.context!!,
                     color = colors.textSecondary,
                     style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
-                )
-            }
-        }
-
-        // Tab strip, only when the form has more than one question.
-        if (hasReview) {
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-            ) {
-                questions.forEachIndexed { index, question ->
-                    QuestionTabChip(
-                        title = question.header,
-                        isActive = tab == index,
-                        isDone = answered(question),
-                        onClick = { tab = index },
-                    )
-                }
-                QuestionTabChip(
-                    title = "Review",
-                    isActive = isReviewing,
-                    isDone = false,
-                    isReview = true,
-                    onClick = { tab = reviewIndex },
                 )
             }
         }
@@ -262,21 +245,15 @@ internal fun QuestionSheetContent(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
         ) {
-            if (isReviewing) {
-                ReviewPage(
-                    questions = questions,
-                    summaryOf = { q ->
-                        val picked = selectedIds(q).toSet()
-                        val parts = q.options.filter { it.id in picked }.map { it.label }.toMutableList()
-                        custom(q).trim().takeIf { it.isNotEmpty() }?.let { parts.add("“$it”") }
-                        parts.takeIf { it.isNotEmpty() }?.joinToString(", ")
-                    },
-                    noteOf = { q -> notes[q.id]?.trim().orEmpty() },
-                    allAnswered = allAnswered,
-                    onJump = { tab = it },
-                )
-            } else {
-                val question = questions[tab.coerceIn(0, questions.size - 1)]
+            run {
+                val question = questions[step]
+                if (question.header.isNotBlank()) {
+                    Text(
+                        text = question.header,
+                        color = colors.textTertiary,
+                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                    )
+                }
                 QuestionPage(
                     question = question,
                     selected = selectedIds(question).toSet(),
@@ -303,87 +280,77 @@ internal fun QuestionSheetContent(
             }
         }
 
-        // Footer: Decline | Back | Next / Review / Submit.
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().then(armedModifier),
-        ) {
-            SpettroButton("Decline", onClick = onDecline, style = ButtonStyle.Plain, shape = RoundedCornerShape(Dimens.radiusSm))
-
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
-
-            if (hasReview) {
+        // Footer: Skip all | Back | Next / Send answer(s) — or, after Skip
+        // all with answers in it, the desktop's inline confirmation.
+        if (confirmDiscard) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().then(armedModifier),
+            ) {
+                Text(
+                    text = "Discard your answers?",
+                    color = colors.textPrimary,
+                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                    modifier = Modifier.weight(1f),
+                )
+                SpettroButton("Keep editing", onClick = { confirmDiscard = false }, shape = RoundedCornerShape(Dimens.radiusSm))
                 SpettroButton(
-                    "Back",
-                    onClick = { tab = (tab - 1).coerceAtLeast(0) },
-                    enabled = tab > 0,
+                    "Discard",
+                    onClick = onDecline,
+                    style = ButtonStyle.Destructive,
                     shape = RoundedCornerShape(Dimens.radiusSm),
                 )
             }
+        } else {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
+                modifier = Modifier.fillMaxWidth().then(armedModifier),
+            ) {
+                QuestionForm.skippedHint(isLast, drafts)?.let { hint ->
+                    Text(
+                        text = hint,
+                        color = colors.textTertiary,
+                        style = TextStyle(fontSize = 12.sp),
+                        modifier = Modifier.align(Alignment.End),
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    SpettroButton(
+                        "Skip all",
+                        onClick = { if (QuestionForm.dirty(drafts)) confirmDiscard = true else onDecline() },
+                        style = ButtonStyle.Plain,
+                        shape = RoundedCornerShape(Dimens.radiusSm),
+                    )
 
-            SpettroButton(
-                text = when {
-                    isSubmitting -> if (questions.size > 1) "Send answers" else "Send answer"
-                    tab == questions.size - 1 -> "Review"
-                    else -> "Next"
-                },
-                onClick = {
-                    if (isSubmitting) onSubmit(buildAnswers()) else tab += 1
-                },
-                // An empty submission is a decline with extra steps.
-                enabled = !isSubmitting || hasAnyAnswer,
-                style = ButtonStyle.Ink,
-                shape = RoundedCornerShape(Dimens.radiusSm),
-            )
-        }
-    }
-}
+                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
 
-// MARK: - Tab strip
+                    if (step > 0) {
+                        SpettroButton(
+                            "Back",
+                            onClick = { tab = step - 1 },
+                            shape = RoundedCornerShape(Dimens.radiusSm),
+                        )
+                    }
 
-@Composable
-private fun QuestionTabChip(
-    title: String,
-    isActive: Boolean,
-    isDone: Boolean,
-    onClick: () -> Unit,
-    isReview: Boolean = false,
-) {
-    val colors = LocalSpettroColors.current
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = if (isActive) colors.selectedFill else androidx.compose.ui.graphics.Color.Transparent,
-        contentColor = colors.textPrimary,
-        border = BorderStroke(
-            Dimens.hairlineWidth,
-            colors.hairline,
-        ),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = Dimens.spacingMd, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = when {
-                    isReview -> Icons.AutoMirrored.Filled.Send
-                    isDone -> Icons.Filled.CheckCircle
-                    else -> Icons.Outlined.RadioButtonUnchecked
-                },
-                contentDescription = null,
-                tint = if (isDone) colors.success else colors.textSecondary,
-                modifier = Modifier.size(13.dp),
-            )
-            Text(
-                text = title,
-                maxLines = 1,
-                style = TextStyle(
-                    fontSize = 13.sp,
-                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                ),
-            )
+                    SpettroButton(
+                        text = when {
+                            !isLast -> "Next"
+                            count > 1 -> "Send answers"
+                            else -> "Send answer"
+                        },
+                        onClick = { if (isLast) onSubmit(buildAnswers()) else tab = step + 1 },
+                        // An empty submission is a skip with extra steps.
+                        enabled = !isLast || hasAnyAnswer,
+                        style = ButtonStyle.Ink,
+                        shape = RoundedCornerShape(Dimens.radiusSm),
+                    )
+                }
+            }
         }
     }
 }
@@ -597,91 +564,6 @@ private fun OtherCard(
                     )
                 }
             }
-        }
-    }
-}
-
-// MARK: - Review
-
-@Composable
-private fun ReviewPage(
-    questions: List<AcpQuestionItem>,
-    summaryOf: (AcpQuestionItem) -> String?,
-    noteOf: (AcpQuestionItem) -> String,
-    allAnswered: Boolean,
-    onJump: (index: Int) -> Unit,
-) {
-    val colors = LocalSpettroColors.current
-    val warn = colors.warning
-    Text(
-        text = "Review your answers",
-        style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Medium),
-    )
-    questions.forEachIndexed { index, question ->
-        SelectableCard(
-            selected = false,
-            onClick = { onJump(index) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(
-                modifier = Modifier.padding(Dimens.spacingMd),
-                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = question.header,
-                        color = colors.textSecondary,
-                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
-                    )
-                    val summary = summaryOf(question)
-                    if (summary != null) {
-                        Text(text = summary, style = TextStyle(fontSize = 13.sp, lineHeight = 18.sp))
-                    } else {
-                        Text(
-                            text = "Not answered",
-                            color = warn,
-                            style = TextStyle(fontSize = 13.sp),
-                        )
-                    }
-                    val note = noteOf(question)
-                    if (note.isNotEmpty()) {
-                        Text(
-                            text = "Note: $note",
-                            color = colors.textSecondary,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = colors.textSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-    }
-    if (!allAnswered) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.WarningAmber,
-                contentDescription = null,
-                tint = warn,
-                modifier = Modifier.size(16.dp),
-            )
-            Text(
-                text = "Questions you left alone are sent as unanswered — the agent is told " +
-                    "nobody answered them, not that you had no preference.",
-                color = warn,
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
     }
 }
