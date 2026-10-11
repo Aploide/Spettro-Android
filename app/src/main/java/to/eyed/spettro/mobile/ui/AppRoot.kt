@@ -81,6 +81,10 @@ import to.eyed.spettro.mobile.coordinator.AppContainer
 import to.eyed.spettro.mobile.coordinator.remote.MobileModel
 import to.eyed.spettro.mobile.coordinator.remote.promptRoutes
 import to.eyed.spettro.mobile.ui.screens.chat.DockPrompt
+import to.eyed.spettro.mobile.ui.screens.chat.CHAT_PLACEHOLDER
+import to.eyed.spettro.mobile.ui.screens.chat.RECONNECTING_PLACEHOLDER
+import to.eyed.spettro.mobile.ui.screens.chat.STARTING_PLACEHOLDER
+import to.eyed.spettro.mobile.model.Mentions
 import to.eyed.spettro.mobile.ui.screens.chat.DockReply
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.PairPayload
@@ -421,6 +425,8 @@ private fun RemoteNavigator(
                                 showBack = false,
                                 onBack = { model.closeChat() },
                                 onOpenProviders = openProviders,
+                                reconnecting = reconnecting,
+                                agentReady = agentReady,
                             )
                         }
                     } else {
@@ -492,6 +498,8 @@ private fun RemoteNavigator(
                                     screen = RemoteScreen.ChatList
                                 },
                                 onOpenProviders = openProviders,
+                                reconnecting = reconnecting,
+                                agentReady = agentReady,
                             )
                         }
                     }
@@ -993,6 +1001,8 @@ private fun RemoteChatHost(
     onBack: () -> Unit,
     showBack: Boolean = true,
     onOpenProviders: () -> Unit = {},
+    reconnecting: Boolean = false,
+    agentReady: Boolean = true,
 ) {
     BackHandler(onBack = onBack)
     val scope = rememberCoroutineScope()
@@ -1025,6 +1035,9 @@ private fun RemoteChatHost(
         routes.dockQuestions.map { DockPrompt.Question(it.promptID, it.request) }
 
     var composerText by rememberSaveable(session.chatId) { mutableStateOf("") }
+    // The files picked from the @-mention menu; only those still written in
+    // the text when it goes are sent.
+    var mentions by rememberSaveable(session.chatId) { mutableStateOf(listOf<String>()) }
     var attachments by remember(session.chatId) { mutableStateOf(listOf<ImageAttachment>()) }
     var showConfig by remember { mutableStateOf(false) }
 
@@ -1079,9 +1092,12 @@ private fun RemoteChatHost(
         onSend = {
             val text = composerText.trim()
             // While reconnecting the send waits: the draft stays in the field.
-            if ((text.isNotEmpty() || attachments.isNotEmpty()) && model.sendPrompt(text, attachments)) {
+            if ((text.isNotEmpty() || attachments.isNotEmpty()) &&
+                model.sendPrompt(text, attachments, Mentions.live(text, mentions))
+            ) {
                 composerText = ""
                 attachments = emptyList()
+                mentions = emptyList()
             }
         },
         onStop = model::cancelRun,
@@ -1121,7 +1137,24 @@ private fun RemoteChatHost(
         // guidance to the turn still running.
         onDeniedFeedback = { model.sendPrompt(it) },
         // Edit & resend fills the composer; it deletes nothing.
-        onEditMessage = { composerText = it },
+        onEditMessage = { text, mentioned ->
+            composerText = text
+            mentions = mentioned
+        },
+        // The field never locks: while the link comes back or Spettro starts
+        // on the computer, the draft stays editable and only Send waits.
+        sendReady = !reconnecting && agentReady,
+        composerPlaceholder = when {
+            reconnecting -> RECONNECTING_PLACEHOLDER
+            !agentReady -> STARTING_PLACEHOLDER
+            else -> CHAT_PLACEHOLDER
+        },
+        mentionFiles = if (model.canMentionFiles && session.projectPath.isNotEmpty()) {
+            { model.projectFiles(session.projectPath) }
+        } else {
+            null
+        },
+        onMention = { path -> mentions = mentions + path },
         onRetry = { model.retryLast() },
         onOpenProviders = onOpenProviders,
         onDelete = {

@@ -1,5 +1,12 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import to.eyed.spettro.mobile.model.Mentions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -118,8 +125,36 @@ fun ChatComposer(
     placeholder: String = CHAT_PLACEHOLDER,
     plan: List<AcpPlanEntry> = emptyList(),
     planFolded: Boolean = false,
+    canSend: Boolean = true,
+    mentionFiles: (suspend () -> List<String>)? = null,
+    onMention: (String) -> Unit = {},
 ) {
     val colors = LocalSpettroColors.current
+    // The field's own value, caret and all, so an "@query" can be found under
+    // the caret; the caller owns only the text.
+    var field by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
+    if (field.text != text) field = TextFieldValue(text, TextRange(text.length))
+    val mention = if (mentionFiles != null && field.selection.collapsed) {
+        Mentions.at(field.text, field.selection.end)
+    } else {
+        null
+    }
+    // The folder's files, fetched the first time an "@" asks for them.
+    var files by remember { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(mention != null) {
+        if (mention != null && files == null && mentionFiles != null) {
+            files = runCatching { mentionFiles() }.getOrDefault(emptyList())
+        }
+    }
+    val pick: (String) -> Unit = { path ->
+        val query = Mentions.at(field.text, field.selection.end)
+        if (query != null) {
+            val inserted = Mentions.insert(field.text, query.start, field.selection.end, path)
+            field = TextFieldValue(inserted.text, TextRange(inserted.caret))
+            onMention(path)
+            onTextChange(inserted.text)
+        }
+    }
     val workflow = remember(text, workflowGate) { workflowDraft(text, workflowGate) }
     var plusMenuOpen by remember { mutableStateOf(false) }
     var commandsOpen by rememberSaveable { mutableStateOf(false) }
@@ -137,12 +172,21 @@ fun ChatComposer(
         TuckedUnder(
             tuck = TodoTuck,
             tab = {
-                TodoList(
-                    plan = plan,
-                    isBusy = isBusy,
-                    folded = planFolded,
-                    modifier = Modifier.padding(horizontal = Dimens.spacingMd),
-                )
+                if (mention != null) {
+                    MentionMenu(
+                        files = files?.let { Mentions.rank(it, mention.query) },
+                        query = mention.query,
+                        onPick = pick,
+                        modifier = Modifier.padding(horizontal = Dimens.spacingSm),
+                    )
+                } else {
+                    TodoList(
+                        plan = plan,
+                        isBusy = isBusy,
+                        folded = planFolded,
+                        modifier = Modifier.padding(horizontal = Dimens.spacingMd),
+                    )
+                }
             },
             card = {
         Column(
@@ -178,8 +222,11 @@ fun ChatComposer(
                 AttachmentStrip(attachments = attachments, onRemove = onRemoveAttachment)
             }
             ComposerTextField(
-                text = text,
-                onTextChange = onTextChange,
+                value = field,
+                onValueChange = {
+                    field = it
+                    if (it.text != text) onTextChange(it.text)
+                },
                 enabled = enabled,
                 budgets = workflow.budgets,
                 muted = workflow.muted,
@@ -256,7 +303,7 @@ fun ChatComposer(
                 }
                 SendButton(
                     isBusy = isBusy,
-                    canSend = enabled && (text.isNotBlank() || attachments.isNotEmpty()),
+                    canSend = enabled && canSend && (text.isNotBlank() || attachments.isNotEmpty()),
                     onSend = onSend,
                     onStop = onStop,
                 )
@@ -372,8 +419,8 @@ private fun ConfigChip(
 
 @Composable
 private fun ComposerTextField(
-    text: String,
-    onTextChange: (String) -> Unit,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
     enabled: Boolean,
     budgets: Boolean,
     muted: Boolean,
@@ -381,9 +428,10 @@ private fun ComposerTextField(
     placeholder: String,
 ) {
     val colors = LocalSpettroColors.current
+    val text = value.text
     BasicTextField(
-        value = text,
-        onValueChange = onTextChange,
+        value = value,
+        onValueChange = onValueChange,
         enabled = enabled,
         maxLines = 8,
         textStyle = ComposerText.copy(color = colors.textPrimary),
@@ -421,6 +469,12 @@ private fun ComposerTextField(
 
 /** The composer's hint in an open chat (the desktop's, word for word). */
 const val CHAT_PLACEHOLDER = "Ask Spettro to build, fix, or explain…"
+
+/** The hint while the link to the computer is coming back: the field stays usable, Send waits. */
+const val RECONNECTING_PLACEHOLDER = "Spettro is reconnecting — you can keep typing…"
+
+/** The hint while Spettro starts on the computer. */
+const val STARTING_PLACEHOLDER = "Starting Spettro…"
 
 /**
  * The hint on the new-session view, which names the folder right under the
@@ -510,6 +564,77 @@ private fun SendButton(
                 tint = colors.onInk,
                 modifier = Modifier.size(19.dp),
             )
+        }
+    }
+}
+
+/**
+ * The @-mention menu (the desktop's MentionMenu): the project's files that
+ * match what follows the "@", floating above the composer card. A row is the
+ * file's name first and its folder after, muted — people remember files by
+ * name. [files] is null while the folder is still being listed.
+ */
+@Composable
+private fun MentionMenu(
+    files: List<String>?,
+    query: String,
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalSpettroColors.current
+    val shape = RoundedCornerShape(topStart = Dimens.radiusMd, topEnd = Dimens.radiusMd)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.surfaceRaised)
+            .border(Dimens.hairlineWidth, colors.hairline, shape)
+            .padding(bottom = TodoTuck)
+            .heightIn(max = 220.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(vertical = 4.dp),
+    ) {
+        if (files.isNullOrEmpty()) {
+            Text(
+                text = when {
+                    files == null -> "Looking through the project…"
+                    query.isEmpty() -> "No files in this folder"
+                    else -> "No file matches “$query”"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
+            )
+        } else {
+            files.forEach { path ->
+                val slash = path.lastIndexOf('/')
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(path) }
+                        .heightIn(min = 40.dp)
+                        .padding(horizontal = Dimens.spacingMd),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.Description, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(14.dp))
+                    Text(
+                        path.substring(slash + 1),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                    )
+                    if (slash > 0) {
+                        Text(
+                            path.substring(0, slash),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }

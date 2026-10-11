@@ -98,8 +98,8 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  */
 @Immutable
 data class TranscriptActions(
-    /** Puts a sent message's text back in the composer ("Edit & resend"). */
-    val editMessage: ((String) -> Unit)? = null,
+    /** Puts a sent message's text, and the files it mentioned, back in the composer ("Edit & resend"). */
+    val editMessage: ((String, List<String>) -> Unit)? = null,
     /** Sends the last prompt again ("Try again" on a failed turn). */
     val retry: (() -> Unit)? = null,
     /** Opens Models & providers: the fix for an error about the model. */
@@ -166,7 +166,7 @@ private fun UserBubble(message: ChatMessage, modifier: Modifier) {
                 val canEdit = actions.editMessage != null && actions.lastUserMessageId == message.id
                 MessageActions(
                     text = message.text,
-                    onEdit = if (canEdit) ({ actions.editMessage?.invoke(message.text) }) else null,
+                    onEdit = if (canEdit) ({ actions.editMessage?.invoke(message.text, message.mentions) }) else null,
                 ) { onLongPress ->
                     Text(
                         text = activationAnnotated(message.text),

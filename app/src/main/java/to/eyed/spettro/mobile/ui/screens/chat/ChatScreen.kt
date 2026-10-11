@@ -147,9 +147,13 @@ fun ChatScreen(
     prompts: List<DockPrompt> = emptyList(),
     onPromptReply: (DockReply) -> Unit = {},
     onDeniedFeedback: (String) -> Unit = {},
-    onEditMessage: ((String) -> Unit)? = null,
+    onEditMessage: ((String, List<String>) -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
     onOpenProviders: (() -> Unit)? = null,
+    sendReady: Boolean = true,
+    composerPlaceholder: String = CHAT_PLACEHOLDER,
+    mentionFiles: (suspend () -> List<String>)? = null,
+    onMention: (String) -> Unit = {},
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -335,6 +339,10 @@ fun ChatScreen(
                     thinkingFrame = thinkingFrame,
                     plan = plan,
                     planFolded = awaitingApproval || awaitingAnswer || prompts.isNotEmpty(),
+                    canSend = sendReady,
+                    placeholder = composerPlaceholder,
+                    mentionFiles = mentionFiles,
+                    onMention = onMention,
                 )
             }
         }

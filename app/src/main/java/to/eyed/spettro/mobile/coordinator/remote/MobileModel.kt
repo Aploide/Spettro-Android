@@ -658,6 +658,30 @@ class MobileModel(
         return sendPrompt(last.message.text, last.message.attachments, last.message.mentions)
     }
 
+    /** Whether the host lists a folder's files for the composer's @-mention menu. */
+    val canMentionFiles: Boolean
+        get() = (client.state.value as? RemoteState.Connected)?.has(RemoteFeature.PROJECT_FILES) == true
+
+    private data class FileList(val at: Long, val files: List<String>)
+
+    private val fileLists = mutableMapOf<String, FileList>()
+
+    /**
+     * The files the @-mention menu searches for [projectPath], reused for
+     * 30 seconds so typing "@" twice doesn't list the repository twice (the
+     * desktop's projectFiles cache). A failed listing is not kept.
+     */
+    suspend fun projectFiles(projectPath: String): List<String> {
+        fileLists[projectPath]?.takeIf { System.currentTimeMillis() - it.at < FILE_LIST_FRESH_MS }?.let { return it.files }
+        if (!canMentionFiles) return emptyList()
+        return try {
+            api.projectFiles(projectPath).also { fileLists[projectPath] = FileList(System.currentTimeMillis(), it) }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            emptyList()
+        }
+    }
+
     fun cancelRun() {
         val session = _openChat.value ?: return
         scope.launch { runCatching { api.cancel(session.chatId) } }
@@ -1089,6 +1113,9 @@ class MobileModel(
          * the CLI has the value.
          */
         const val OLD_HOST_CONFIG_SPACING_MS = 300L
+
+        /** How long a folder's file list serves the @-mention menu. */
+        const val FILE_LIST_FRESH_MS = 30_000L
     }
 
     private fun textBlock(text: String): JsonObject = buildJsonObject {

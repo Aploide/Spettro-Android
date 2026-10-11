@@ -41,6 +41,8 @@ import to.eyed.spettro.mobile.ui.screens.chat.ChatPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.ConfigSummary
 import to.eyed.spettro.mobile.ui.screens.chat.ChatScreen
 import to.eyed.spettro.mobile.ui.screens.chat.DockPrompt
+import to.eyed.spettro.mobile.ui.screens.chat.CHAT_PLACEHOLDER
+import to.eyed.spettro.mobile.ui.screens.chat.RECONNECTING_PLACEHOLDER
 import to.eyed.spettro.mobile.ui.screens.chat.NewSessionScreen
 import to.eyed.spettro.mobile.ui.screens.chat.OrchestrationPreviewData
 import to.eyed.spettro.mobile.ui.screens.chat.WorkflowGate
@@ -168,6 +170,10 @@ private fun Scene(scene: String, tablet: Boolean) {
     when (scene) {
         "chat" -> Shell(tablet, items = ChatPreviewData.transcript, busy = false)
         "chat_busy" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true)
+        // The composer while the link comes back: the field stays usable,
+        // Send waits. Then the @-mention menu over a project's files.
+        "reconnecting" -> Chat(items = ChatPreviewData.transcript, busy = false, composerText = "and add a test", reconnecting = true)
+        "mention" -> Chat(items = ChatPreviewData.transcript, busy = false, composerText = "compare @save", mentions = true)
         // A turn that ended on an error, with Try again on its card.
         "error" -> Shell(tablet, items = ChatPreviewData.failedTurnTranscript, busy = false)
         // Tool rows: reads folded into one line, a two-hunk edit, a failed
@@ -502,6 +508,8 @@ private fun Chat(
     thinkingFrame: ThinkingFrame? = null,
     awaitingToolIds: Set<String> = emptySet(),
     prompts: List<DockPrompt> = emptyList(),
+    reconnecting: Boolean = false,
+    mentions: Boolean = false,
 ) {
     var text by remember { mutableStateOf(composerText) }
     ChatScreen(
@@ -547,7 +555,10 @@ private fun Chat(
         awaitingApproval = awaitingToolIds.isNotEmpty() || prompts.any { it is DockPrompt.Permission },
         awaitingAnswer = prompts.any { it is DockPrompt.Question },
         prompts = prompts,
-        onEditMessage = { text = it },
+        onEditMessage = { edited, _ -> text = edited },
+        sendReady = !reconnecting,
+        composerPlaceholder = if (reconnecting) RECONNECTING_PLACEHOLDER else CHAT_PLACEHOLDER,
+        mentionFiles = if (mentions) ({ mentionFixture }) else null,
         onRetry = {},
         onOpenProviders = {},
     )
@@ -690,6 +701,16 @@ private fun listChats(): List<ChatSummary> = listOf(
         messageCount = 5,
         preview = "Three headline items: pairing, offline resume, the new config sheet.",
     ),
+)
+
+/** A project's files, for the @-mention menu. */
+private val mentionFixture = listOf(
+    "README.md",
+    "app/build.gradle.kts",
+    "app/src/main/java/to/eyed/spettro/mobile/ui/screens/settings/SaveButton.kt",
+    "app/src/main/java/to/eyed/spettro/mobile/ui/screens/settings/SettingsScreen.kt",
+    "app/src/main/java/to/eyed/spettro/mobile/core/remote/SavedState.kt",
+    "app/src/test/java/to/eyed/spettro/mobile/SaveButtonTest.kt",
 )
 
 // As the CLI sends an approval attached to the card it is drawing: no
