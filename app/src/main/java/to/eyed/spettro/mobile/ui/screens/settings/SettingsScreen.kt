@@ -78,16 +78,15 @@ private val SectionGap = 22.dp
 /**
  * What the connection row says about a live connection: the way it actually
  * reaches the computer, in the desktop's words ("Connected over the
- * internet", "Connected on your network").
+ * internet", "Connected on your network"). The tunnel's host isn't repeated
+ * here: the "Internet address" row right below already names it.
  */
-internal fun connectionLabel(link: RemoteLink, remoteHost: String?): String = when (link) {
+internal fun connectionLabel(link: RemoteLink): String = when (link) {
     RemoteLink.WiFi -> "Connected over Wi-Fi"
     RemoteLink.Ethernet -> "Connected over Ethernet"
     RemoteLink.Usb -> "Connected over USB"
     RemoteLink.LocalNetwork -> "Connected on your network"
-    RemoteLink.Internet ->
-        remoteHost?.takeIf { it.isNotBlank() }?.let { "Connected over the internet · $it" }
-            ?: "Connected over the internet"
+    RemoteLink.Internet -> "Connected over the internet"
 }
 
 /**
@@ -264,7 +263,13 @@ private fun ConnectionSection(
                         color = if (isConnected) colors.success else colors.warning,
                         pulsing = !isConnected,
                     )
-                    Text(connectionLabel, color = colors.textSecondary, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        connectionLabel,
+                        color = colors.textSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }

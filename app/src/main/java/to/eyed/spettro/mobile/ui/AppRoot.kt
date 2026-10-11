@@ -742,7 +742,7 @@ private fun SettingsHost(
         connectionLabel = if (reconnecting) {
             "Reconnecting…"
         } else {
-            connectionLabel(connected.link, credential?.remoteHost)
+            connectionLabel(connected.link)
         },
         isConnected = !reconnecting,
         remoteHost = credential?.remoteHost,
