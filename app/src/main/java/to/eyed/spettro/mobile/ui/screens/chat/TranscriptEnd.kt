@@ -61,3 +61,78 @@ internal suspend fun LazyListState.animateToEnd() {
     val rest = EndScroll.of(layoutInfo)
     if (rest is EndScroll.By) animateScrollBy(rest.px.toFloat())
 }
+
+/** What the transcript's follow-the-end rule reads from one layout. */
+internal data class FollowFrame(
+    val height: Int,
+    val atEnd: Boolean,
+    /** The last item's height while it is on screen, else -1. */
+    val tailSize: Int,
+    val total: Int = 0,
+    /** How far the last item reaches past the end of the view (0 when it
+     *  ends inside it; [Int.MAX_VALUE] while it is off screen). */
+    val overflowPx: Int = 0,
+    /** A scroll — the reader's or the follow rule's — is moving the list. */
+    val scrolling: Boolean = false,
+) {
+    companion object {
+        fun of(info: LazyListLayoutInfo, slackPx: Int, scrolling: Boolean): FollowFrame {
+            val lastVisible = info.visibleItemsInfo.lastOrNull()
+            val tail = lastVisible?.takeIf { it.index == info.totalItemsCount - 1 }
+            val overflow = when {
+                info.totalItemsCount == 0 -> 0
+                tail == null -> Int.MAX_VALUE
+                else -> (tail.offset + tail.size - (info.viewportEndOffset - info.afterContentPadding)).coerceAtLeast(0)
+            }
+            return FollowFrame(info.viewportSize.height, overflow <= slackPx, tail?.size ?: -1, info.totalItemsCount, overflow, scrolling)
+        }
+    }
+}
+
+/** How long a chat just opened keeps landing at its end as its rows measure. */
+internal const val SETTLE_MS = 1_500L
+
+/**
+ * Decides, layout by layout, when the layout (not the reader) has moved the
+ * transcript's end out of view and it should be brought back.
+ *
+ * A move that lands while a scroll is in flight is remembered, not dropped:
+ * while a reply streams the follow rule is animating nearly all the time,
+ * so the prompt dock sliding in mid-animation used to be skipped — and with
+ * nothing moving after it, the end (and the ticker saying what it waits for)
+ * stayed under the dock. It is brought back once the scroll settles, unless
+ * the reader's own finger started that scroll.
+ */
+internal class EndFollower(private val openedAt: Long) {
+    private var last = FollowFrame(height = -1, atEnd = true, tailSize = -1)
+    private var pending = false
+    private var dragged = false
+
+    /** The reader put a finger on the list: their scroll, not ours. */
+    fun onDrag() {
+        dragged = true
+        pending = false
+    }
+
+    /** Returns whether to scroll to the very end now. */
+    fun onFrame(frame: FollowFrame, now: Long): Boolean {
+        // The reader's scroll is over once the list comes to rest.
+        if (last.scrolling && !frame.scrolling) dragged = false
+        val shrank = last.height > 0 && frame.height in 1 until last.height
+        val tailChanged = last.tailSize > 0 && frame.tailSize > 0 && frame.tailSize != last.tailSize
+        val settling = now - openedAt < SETTLE_MS
+        // The slack says who was reading at the end; once the layout moves,
+        // the end comes all the way back into view — a ticker half under the
+        // prompt dock is still in the slack.
+        if (last.atEnd && frame.overflowPx > 0 && !dragged && (shrank || tailChanged || settling)) pending = true
+        if (pending && !frame.scrolling) {
+            pending = false
+            if (frame.overflowPx > 0 && frame.total > 0) {
+                last = frame.copy(atEnd = true, overflowPx = 0)
+                return true
+            }
+        }
+        last = if (pending) frame.copy(atEnd = true) else frame
+        return false
+    }
+}
