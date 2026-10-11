@@ -818,16 +818,16 @@ class RemoteClient(
         if (hostID != null) note.remoteHost?.let { host -> persist { store.updateRemoteHost(hostID, host) } }
         if (note.shuttingDown) {
             // Deliberate, so don't dress it up as a network fault — and don't
-            // retry into a host that just told us it left. Over a tunnel there
-            // is no Bonjour to say when it's back, though, so keep checking
-            // slowly; on the LAN, rediscovery says so.
+            // retry into a host that just told us it left. Rediscovery says
+            // when it's back, but only where Bonjour gets through: not over
+            // a tunnel, and not on the many networks that filter it. So keep
+            // checking slowly whenever there is somewhere to check.
             teardown()
             connectJob?.cancel()
             connectJob = null
             _state.value = RemoteState.Offline(OfflineReason.HostStopped)
             log("host stopped sharing${note.message?.let { ": $it" } ?: ""}")
-            val knowsTunnel = !(note.remoteHost ?: store.credential.value?.remoteHost).isNullOrBlank()
-            if (knowsTunnel) {
+            if (keepsCheckingAfterGoodbye(store.credential.value, note.remoteHost)) {
                 holdReason = OfflineReason.HostStopped
                 connectJob = scope.launch {
                     // The same wait the loop uses, so rediscovery, coming to
@@ -960,6 +960,18 @@ class RemoteClient(
 
         /** How long each route gets to itself before the next one joins the race. */
         private const val RACE_HEAD_START_MS = 750L
+
+        /**
+         * Whether a host that said goodbye is checked on now and then: when
+         * the phone knows an address to try — its public hostname, or the
+         * LAN address it last reached it at. "This screen updates by itself
+         * once it's on" can't wait on Bonjour alone, which a network that
+         * filters mDNS never delivers.
+         */
+        internal fun keepsCheckingAfterGoodbye(cred: RemoteCredential?, announcedRemoteHost: String?): Boolean {
+            val remoteHost = announcedRemoteHost ?: cred?.remoteHost
+            return !remoteHost.isNullOrBlank() || !cred?.lastAddress.isNullOrBlank()
+        }
 
         /** Between quiet checks on a host that said goodbye. */
         private const val HOST_STOPPED_POLL_MS = 45_000L
