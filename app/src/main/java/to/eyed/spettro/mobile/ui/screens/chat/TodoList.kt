@@ -58,6 +58,10 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 /** How far the todo tab slides under the composer card (the desktop's −6px). */
 internal val TodoTuck = 6.dp
 
+/** The open task list's cap, the desktop's 188px, with its head on top. */
+internal val TabMaxHeight = 224.dp
+private val TodoHeadHeight = 36.dp
+
 /**
  * The agent's task list, pinned above the composer as a tab that slides
  * under its card — the desktop's TodoList. It used to be a chip in the strip
@@ -75,6 +79,8 @@ fun TodoList(
     isBusy: Boolean,
     modifier: Modifier = Modifier,
     folded: Boolean = false,
+    /** The whole tab's cap, head included; a short window gets fewer rows. */
+    maxHeight: Dp = TabMaxHeight,
 ) {
     if (plan.isEmpty()) return
     val colors = LocalSpettroColors.current
@@ -102,7 +108,7 @@ fun TodoList(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { override = !open }
-                .heightIn(min = 36.dp)
+                .heightIn(min = TodoHeadHeight)
                 .padding(horizontal = Dimens.spacingMd, vertical = 7.dp)
                 .semantics { contentDescription = if (open) "Hide tasks" else "Show tasks" },
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
@@ -132,7 +138,7 @@ fun TodoList(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 188.dp)
+                    .heightIn(max = (maxHeight - TodoHeadHeight).coerceIn(0.dp, 188.dp))
                     .verticalScroll(rememberScrollState())
                     .padding(start = Dimens.spacingMd, end = Dimens.spacingMd, bottom = Dimens.spacingSm),
                 verticalArrangement = Arrangement.spacedBy(1.dp),

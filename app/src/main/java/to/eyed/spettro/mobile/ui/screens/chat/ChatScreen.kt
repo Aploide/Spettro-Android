@@ -291,6 +291,10 @@ fun ChatScreen(
         // The prompt card's cap: the desktop's min(56vh, 520px), of what is
         // left once the keyboard is up, so the composer always stays in view.
         val dockMax = minOf(maxHeight * 0.56f, 520.dp)
+        // The task list's: the desktop's 188px of rows wherever that fits,
+        // but a phone on its side (or under the keyboard) has barely more
+        // height than the composer, and the transcript keeps most of it.
+        val tabMax = (maxHeight * 0.26f).coerceIn(72.dp, TabMaxHeight)
         Column(modifier = Modifier.fillMaxSize()) {
             if (usage != null || modeName != null) {
                 ReadableColumn {
@@ -395,6 +399,7 @@ fun ChatScreen(
                     onMention = onMention,
                     mentionScope = projectPath,
                     focusRequest = composerFocus + starterFocus,
+                    tabMaxHeight = tabMax,
                 )
             }
         }

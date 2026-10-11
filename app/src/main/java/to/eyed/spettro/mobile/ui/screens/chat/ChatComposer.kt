@@ -69,6 +69,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CompletableDeferred
@@ -135,6 +136,12 @@ fun ChatComposer(
     mentionScope: Any? = null,
     /** Bumped to put the caret in the field and bring the keyboard up (Edit & resend). */
     focusRequest: Int = 0,
+    /**
+     * The tallest the tab over the card (the task list, the @-mention menu)
+     * may grow. A phone on its side has little more height than the
+     * composer itself, and an open task list must leave the transcript room.
+     */
+    tabMaxHeight: Dp = TabMaxHeight,
 ) {
     val colors = LocalSpettroColors.current
     val focusRequester = remember { FocusRequester() }
@@ -193,6 +200,7 @@ fun ChatComposer(
                         files = files?.let { Mentions.rank(it, mention.query) },
                         query = mention.query,
                         onPick = pick,
+                        maxHeight = tabMaxHeight,
                         modifier = Modifier.padding(horizontal = Dimens.spacingSm),
                     )
                 } else {
@@ -200,6 +208,7 @@ fun ChatComposer(
                         plan = plan,
                         isBusy = isBusy,
                         folded = planFolded,
+                        maxHeight = tabMaxHeight,
                         modifier = Modifier.padding(horizontal = Dimens.spacingMd),
                     )
                 }
@@ -604,6 +613,7 @@ private fun MentionMenu(
     query: String,
     onPick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    maxHeight: Dp = TabMaxHeight,
 ) {
     val colors = LocalSpettroColors.current
     val shape = RoundedCornerShape(topStart = Dimens.radiusMd, topEnd = Dimens.radiusMd)
@@ -614,7 +624,7 @@ private fun MentionMenu(
             .background(colors.surfaceRaised)
             .border(Dimens.hairlineWidth, colors.hairline, shape)
             .padding(bottom = TodoTuck)
-            .heightIn(max = 220.dp)
+            .heightIn(max = maxHeight.coerceAtMost(220.dp))
             .verticalScroll(rememberScrollState())
             .padding(vertical = 4.dp),
     ) {
