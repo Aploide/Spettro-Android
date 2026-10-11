@@ -1083,6 +1083,9 @@ private fun RemoteChatHost(
     // Thinking and Ultra are one dial, the thinking chip's slider; whether
     // the model can think at all comes from the models catalog.
     val catalog by model.models.collectAsState()
+    // Whether a model is connected, once the providers list is known: a
+    // "connect a model" error is fixed when one is.
+    val providersList by model.providers.collectAsState()
     LaunchedEffect(session.chatId) { model.loadModelsIfNeeded() }
     val thinking = if (Thinking.state(configOptions) != null) {
         ThinkingControl(
@@ -1191,6 +1194,7 @@ private fun RemoteChatHost(
         onMention = { path -> mentions = mentions + path },
         onRetry = { model.retryLast() },
         onOpenProviders = onOpenProviders,
+        noModel = providersList?.isEmpty,
         onDelete = {
             model.deleteChat(session.chatId)
             onBack()

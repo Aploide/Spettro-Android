@@ -108,6 +108,8 @@ data class TranscriptActions(
     val lastUserMessageId: String? = null,
     /** The error that ended the last turn, while nothing runs: the only one with Try again. */
     val retryNoticeId: String? = null,
+    /** Whether no model is connected on the computer; null while unknown. */
+    val noModel: Boolean? = null,
 )
 
 val LocalTranscriptActions = compositionLocalOf { TranscriptActions() }
@@ -492,25 +494,37 @@ private fun NoticeCard(message: ChatMessage, isError: Boolean, modifier: Modifie
 }
 
 /**
- * The error card's next step, as the desktop picks it: when resending can't
- * help — no model connected, the model unavailable — the fix ("Connect…",
- * "Choose a model…"); otherwise Try again, on the error that ended the last
- * turn only.
+ * The error card's next step, as the desktop's NoticeView picks it: when
+ * resending can't help — no model connected, the model unavailable, the CLI
+ * to update or reinstall — the fix ("Connect…", "Choose a model…"; updating
+ * and reinstalling happen on the computer, so the phone offers nothing);
+ * otherwise Try again, on the error that ended the last turn only. Once a
+ * model is connected the Connect fix is done, and Try again is back.
  */
 @Composable
 private fun ErrorNextStep(message: ChatMessage) {
     val actions = LocalTranscriptActions.current
     val human = remember(message.text) { humanizeError(message.text) }
     val action = human.action
-    val opensProviders = action != null &&
-        (action.kind == ErrorActionKind.Connect || action.kind == ErrorActionKind.Models)
+    val kind = action?.kind
+    val fixed = kind == ErrorActionKind.Connect && actions.noModel == false
+    val needsFix = !fixed && kind in FIX_KINDS
+    val opensProviders = kind == ErrorActionKind.Connect || kind == ErrorActionKind.Models
     when {
-        opensProviders && actions.openProviders != null ->
+        needsFix && opensProviders && actions.openProviders != null ->
             ErrorButton(label = "${action!!.label}…", icon = null, onClick = actions.openProviders)
-        !opensProviders && actions.retry != null && actions.retryNoticeId == message.id ->
+        !needsFix && actions.retry != null && actions.retryNoticeId == message.id ->
             ErrorButton(label = "Try again", icon = Icons.Outlined.Refresh, onClick = actions.retry)
     }
 }
+
+/** Errors a resend can't get past: the card offers their fix, never Try again. */
+private val FIX_KINDS = setOf(
+    ErrorActionKind.Connect,
+    ErrorActionKind.Models,
+    ErrorActionKind.Update,
+    ErrorActionKind.Reinstall,
+)
 
 /** The error card's trailing button (`.tr-error-retry`): outlined, 28dp (36 for a thumb). */
 @Composable

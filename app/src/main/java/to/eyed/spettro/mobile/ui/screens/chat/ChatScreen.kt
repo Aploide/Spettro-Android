@@ -154,6 +154,8 @@ fun ChatScreen(
     onEditMessage: ((String, List<String>) -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
     onOpenProviders: (() -> Unit)? = null,
+    /** Whether no model is connected on the computer (null while unknown): a Connect error is fixed once one is. */
+    noModel: Boolean? = null,
     sendReady: Boolean = true,
     composerPlaceholder: String = CHAT_PLACEHOLDER,
     mentionFiles: (suspend () -> List<String>)? = null,
@@ -194,6 +196,7 @@ fun ChatScreen(
             openProviders = onOpenProviders,
             lastUserMessageId = anchors.lastUserMessageId,
             retryNoticeId = anchors.retryNoticeId,
+            noModel = noModel,
         ),
     ) {
     Scaffold(
