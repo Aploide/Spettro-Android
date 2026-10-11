@@ -35,8 +35,11 @@ import to.eyed.spettro.mobile.core.remote.RemoteRoute
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.remote.ChatSummary
 import to.eyed.spettro.mobile.model.ConfigValue
+import to.eyed.spettro.mobile.model.DisplayRow
 import to.eyed.spettro.mobile.model.Thinking
 import to.eyed.spettro.mobile.model.ThinkingCommitter
+import to.eyed.spettro.mobile.model.ToolGroups
+import to.eyed.spettro.mobile.model.TranscriptRow
 import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
 import to.eyed.spettro.mobile.ui.components.thinking.ThinkingFrame
 import to.eyed.spettro.mobile.ui.screens.chat.workflowGate
@@ -202,8 +205,16 @@ private fun Scene(scene: String, tablet: Boolean) {
         "tools" -> Shell(tablet, items = ChatPreviewData.toolsTranscript, busy = true, awaitingToolIds = setOf("tool-await"))
         // The same with the folded reads and the edit open: the rows they
         // stand for, and the edit as a real unified diff.
-        "tools_diff" -> CompositionLocalProvider(LocalOpenTools provides setOf("tools-tool-read", "tool-edit-2")) {
-            Shell(tablet, items = ChatPreviewData.toolsTranscript.dropLast(2), busy = false)
+        "tools_diff" -> {
+            val items = ChatPreviewData.toolsTranscript.dropLast(2)
+            // The group's id comes from the fold itself, so it can't drift
+            // from what the chat keys the folded row by.
+            val groups = ToolGroups.fold(items.map { TranscriptRow.Item(it) })
+                .filterIsInstance<DisplayRow.Tools>()
+                .map { it.id }
+            CompositionLocalProvider(LocalOpenTools provides groups.toSet() + "tool-edit-2") {
+                Shell(tablet, items = items, busy = false)
+            }
         }
         // The agent's task list, open above the composer while a turn runs.
         "todo" -> Shell(tablet, items = ChatPreviewData.streamingTranscript, busy = true, plan = longPlan)
@@ -368,7 +379,12 @@ private fun Scene(scene: String, tablet: Boolean) {
             Settings()
         }
         // Settings while connected through the computer's internet tunnel.
-        "tunnel" -> Settings(overInternet = true)
+        "tunnel" -> if (tablet) {
+            SplitShell(items = null)
+            DesktopModal(onDismiss = {}) { Settings(overInternet = true) }
+        } else {
+            Settings(overInternet = true)
+        }
         "providers" -> ProvidersScreen(
             providers = previewProviders,
             models = previewModels,
