@@ -135,7 +135,7 @@ class SliderMoves(
         val last = now.stops.lastIndex
         val next = when (key) {
             SliderKey.Forward -> minOf(last, from + 1)
-            // From Off there is nothing further left.
+            // From Off, or an unset level, there is nothing further left.
             SliderKey.Back -> if (from < 0) null else maxOf(0, from - 1)
             SliderKey.Home -> 0
             SliderKey.End -> last

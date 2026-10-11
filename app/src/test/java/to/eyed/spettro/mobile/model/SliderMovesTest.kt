@@ -25,7 +25,7 @@ import to.eyed.spettro.mobile.core.acp.AcpConfigOption
 class SliderMovesTest {
 
     // Options shaped like internal/acp/config_options.go builds them.
-    private fun options(thinking: String, ultra: Boolean) = listOf(
+    private fun options(thinking: String, ultra: Boolean, offered: Boolean = true) = listOf(
         AcpConfigOption(
             id = "thinking",
             name = "Thinking",
@@ -34,7 +34,9 @@ class SliderMovesTest {
                 groups = listOf(
                     AcpConfigOption.OptionGroup(
                         null,
-                        listOf("off", "low", "medium", "high", "x-high", "max").map { AcpConfigOption.Opt(it, it) },
+                        listOf("off", "low", "medium", "high", "x-high", "max")
+                            .filter { offered || it != "off" }
+                            .map { AcpConfigOption.Opt(it, it) },
                     ),
                 ),
             ),
@@ -42,13 +44,15 @@ class SliderMovesTest {
         AcpConfigOption(id = "ultra", name = "Ultra", kind = AcpConfigOption.Kind.Bool(ultra)),
     )
 
-    private fun base(thinking: String, ultra: Boolean = false) = Thinking.state(options(thinking, ultra))!!
+    private fun base(thinking: String, ultra: Boolean = false, offered: Boolean = true) =
+        Thinking.state(options(thinking, ultra, offered))!!
 
-    private val low = 0
-    private val medium = 1
-    private val high = 2
-    private val max = 4
-    private val ultra = 5
+    private val off = 0
+    private val low = 1
+    private val medium = 2
+    private val high = 3
+    private val max = 5
+    private val ultra = 6
 
     /** The slider over a fake queue whose answers the test hands out. */
     private class Rig(scope: TestScope, base: ThinkingState, disabled: Boolean = false) {
@@ -182,7 +186,7 @@ class SliderMovesTest {
     @Test
     fun `goes nowhere further left from Off, and Low to the right`() = runTest {
         val rig = Rig(this, base("off"))
-        assertEquals(-1, rig.moves.state().index)
+        assertEquals(off, rig.moves.state().index)
         assertFalse(rig.moves.key(SliderKey.Back, repeat = false))
         assertNull(rig.moves.pending)
         assertTrue(rig.moves.key(SliderKey.Forward, repeat = false))
@@ -195,7 +199,47 @@ class SliderMovesTest {
         rig.moves.key(SliderKey.End, repeat = false)
         assertEquals(Thinking.ULTRA, rig.moves.pending)
         rig.moves.key(SliderKey.Home, repeat = false)
-        assertEquals(listOf("ultra", "low"), rig.sentIds)
+        assertEquals(listOf("ultra", "off"), rig.sentIds)
+    }
+
+    @Test
+    fun `Back from Low reaches Off`() = runTest {
+        val rig = Rig(this, base("low"))
+        assertTrue(rig.moves.key(SliderKey.Back, repeat = false))
+        assertEquals(listOf("off"), rig.sentIds)
+    }
+
+    @Test
+    fun `a held Back key runs through Off and sends it once`() = runTest {
+        val rig = Rig(this, base("medium"))
+        assertTrue(rig.moves.key(SliderKey.Back, repeat = false))
+        assertEquals(listOf("low"), rig.sentIds)
+        // Held: the thumb previews Off, the CLI hears it once the key comes up.
+        assertTrue(rig.moves.key(SliderKey.Back, repeat = true))
+        assertEquals(Thinking.LEVELS[off], rig.moves.pending)
+        assertEquals("Off", rig.moves.state().label)
+        // At Off a further repeat moves nothing.
+        assertFalse(rig.moves.key(SliderKey.Back, repeat = true))
+        assertEquals(listOf("low"), rig.sentIds)
+        rig.moves.keyUp()
+        assertEquals(listOf("low", "off"), rig.sentIds)
+        advanceTimeBy(Thinking.HELD_KEY_MS * 2)
+        assertEquals(listOf("low", "off"), rig.sentIds)
+    }
+
+    @Test
+    fun `an unset off (no Off stop) steps up to Low and down to nothing`() = runTest {
+        val unset = base("off", offered = false)
+        assertFalse(unset.stops.any { it.id == "off" })
+        assertEquals(-1, unset.index)
+        val rig = Rig(this, unset)
+        assertFalse(rig.moves.key(SliderKey.Back, repeat = false))
+        assertNull(rig.moves.pending)
+        assertTrue(rig.moves.key(SliderKey.Forward, repeat = false))
+        assertEquals(listOf("low"), rig.sentIds)
+        val talkBack = Rig(this, unset)
+        assertTrue(talkBack.moves.setProgress(1f))
+        assertEquals(listOf("low"), talkBack.sentIds)
     }
 
     @Test
@@ -210,8 +254,12 @@ class SliderMovesTest {
     // MARK: TalkBack
 
     @Test
-    fun `TalkBack's step up from Off is Low, and down from it nothing`() {
-        // Off reports 0, as Low does: a step up asks for 1, a step down for 0.
+    fun `TalkBack's steps over Off, and from an unset level`() {
+        // Off is the stop at 0: a step up from it is Low, a step down from Low is Off.
+        assertEquals(1, Thinking.a11yTarget(index = 0, target = 1f, last = 6))
+        assertEquals(0, Thinking.a11yTarget(index = 1, target = 0f, last = 6))
+        // An unset level reports 0, as the first stop does: a step up asks
+        // for 1, a step down for 0.
         assertEquals(0, Thinking.a11yTarget(index = -1, target = 1f, last = 5))
         assertNull(Thinking.a11yTarget(index = -1, target = 0f, last = 5))
         assertEquals(3, Thinking.a11yTarget(index = 2, target = 3f, last = 5))
@@ -226,6 +274,13 @@ class SliderMovesTest {
         assertEquals(listOf("low"), rig.sentIds)
     }
 
+    @Test
+    fun `TalkBack steps down from Low to Off`() = runTest {
+        val rig = Rig(this, base("low"))
+        assertTrue(rig.moves.setProgress(0f))
+        assertEquals(listOf("off"), rig.sentIds)
+    }
+
     // MARK: Presses and drags
 
     @Test
@@ -237,6 +292,15 @@ class SliderMovesTest {
         rig.moves.release()
         assertNull(rig.moves.press)
         assertEquals(listOf("high"), rig.sentIds)
+    }
+
+    @Test
+    fun `a press at the left end selects Off`() = runTest {
+        val rig = Rig(this, base("medium"))
+        assertTrue(rig.moves.pressAt(off))
+        assertEquals(SliderPress(at = off, rest = off, moved = false), rig.moves.press)
+        rig.moves.release()
+        assertEquals(listOf("off"), rig.sentIds)
     }
 
     @Test

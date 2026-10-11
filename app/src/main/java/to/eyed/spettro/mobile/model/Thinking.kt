@@ -38,19 +38,24 @@ object Thinking {
     const val ULTRA_STOP = "ultra"
 
     /**
-     * A CLI level that turns thinking off. Not a stop: the user asked for
-     * "low to max", so Off is only ever shown, when something else set it.
+     * The CLI level that turns thinking off, and its default when nothing is
+     * set. The leftmost stop whenever the CLI lists it.
      */
-    private const val OFF = "off"
+    const val OFF = "off"
+
+    /** Off's caption, and the caption for a level that is none of the stops. */
+    const val OFF_CAPTION = "Answers straight away, without thinking first"
 
     /** The Spettro Subscription's provider id (provider/manager.go). */
     private const val SUBSCRIPTION_PROVIDER = "spettro"
 
     /**
      * The levels in slider order, named in plain words. "X-High" is the
-     * CLI's menu label; on a slider it reads as a typo.
+     * CLI's menu label; on a slider it reads as a typo. Off is always our
+     * "Off", whatever the CLI calls it.
      */
     val LEVELS: List<ThinkingStop> = listOf(
+        ThinkingStop(OFF, "Off", OFF_CAPTION),
         ThinkingStop("low", "Low", "Answers quickly with only a brief think"),
         ThinkingStop("medium", "Medium", "Thinks for a moment before acting"),
         ThinkingStop("high", "High", "Thinks things through — a good default for real work"),
@@ -70,7 +75,6 @@ object Thinking {
         ultra = true,
     )
 
-    const val OFF_CAPTION = "Thinking is off — the model answers straight away"
     const val PAUSED_CAPTION = "Ultra is saved, but workflows don’t run under Ask first"
     const val PAUSED_VALUE_TEXT = "Ultra, paused — workflows need Restricted or Don’t ask permission"
     const val PAUSED_CHIP_TITLE = "Ultra is paused under Ask first — workflows need Restricted or Don’t ask permission"
@@ -95,7 +99,7 @@ object Thinking {
      * the CLI advertises no thinking option: then there is nothing to slide.
      *
      * The stops follow what the CLI offers — a level it drops disappears, one
-     * it adds lands after Max under its own name — but always in Low → Max
+     * it adds lands after Max under its own name — but always in Off → Max
      * order, whatever order the menu came in. Ultra is offered only beside an
      * `ultra` boolean.
      */
@@ -106,7 +110,7 @@ object Thinking {
         val ultraKind = ultraOption?.kind as? AcpConfigOption.Kind.Bool
         val permission = options.firstOrNull { it.id == PERMISSION_ID }
 
-        val offered = choicesOf(thinkingOption).filter { it.value != OFF }
+        val offered = choicesOf(thinkingOption)
         val stops = if (offered.isEmpty()) {
             LEVELS.toMutableList()
         } else {
@@ -150,7 +154,10 @@ object Thinking {
      *  - To Ultra: thinking high, then ultracode on.
      *  - From Ultra: ultracode off first (so nothing runs as a workflow at the
      *    new level even for a moment), then the level.
-     *  - Elsewhere: the level alone.
+     *  - Elsewhere: the level alone — Off from a level, or a level from Off.
+     *
+     * So Ultra → Off is ultracode off, then thinking off; Off → Ultra is
+     * thinking high, then ultracode on.
      */
     fun callsFor(ultraOn: Boolean, target: ThinkingStop): List<ConfigCall> = when {
         target.ultra -> listOf(
@@ -192,10 +199,12 @@ object Thinking {
 
     /**
      * The stop TalkBack's set-progress [target] means, from the thumb at
-     * [index] with [last] the last stop. The slider reports Off as 0 — it is
-     * no stop of its own — so TalkBack's step up from Off asks for 1, which
-     * would skip Low. From Off any step up is Low, as the desktop's arrow is,
-     * and a step down is nothing further left (null).
+     * [index] with [last] the last stop. The slider reports an unset level
+     * (index -1: `off` from a CLI that doesn't list it) as 0, the first
+     * stop's value, so TalkBack's step up from there asks for 1, which would
+     * skip the first stop. From an unset level any step up is the first stop,
+     * as the desktop's arrow is, and a step down is nothing further left
+     * (null).
      */
     fun a11yTarget(index: Int, target: Float, last: Int): Int? {
         if (last < 0 || target.isNaN()) return null
@@ -230,8 +239,15 @@ object Thinking {
     /** What a screen reader says the slider is set to (the desktop's aria-valuetext). */
     fun valueText(state: ThinkingState): String = if (state.paused) PAUSED_VALUE_TEXT else state.label
 
+    /**
+     * Whether thinking is off: on the Off stop, or at a level that is none of
+     * the stops (`off` from a CLI that doesn't list it). Never under Ultra.
+     */
+    fun isOff(state: ThinkingState): Boolean =
+        !state.ultraOn && (state.index < 0 || state.stops.getOrNull(state.index)?.id == OFF)
+
     /** The chip's words: a bare "Off" in a toolbar reads as something broken. */
-    fun chipLabel(state: ThinkingState): String = if (state.index < 0) "Thinking off" else state.label
+    fun chipLabel(state: ThinkingState): String = if (isOff(state)) "Thinking off" else state.label
 
     /** The chip's long-press title. */
     fun chipTitle(state: ThinkingState): String = when {
@@ -240,7 +256,7 @@ object Thinking {
         else -> "Thinking: ${state.label}"
     }
 
-    /** The line under the slider for the stop the words name ([aim], -1 for Off). */
+    /** The line under the slider for the stop the words name ([aim], -1 for an unset level). */
     fun caption(state: ThinkingState, aim: Int, showPaused: Boolean, disabled: Boolean, modelName: String?): String {
         val aimStop = state.stops.getOrNull(aim)
         return when {
@@ -263,7 +279,11 @@ data class ThinkingStop(
 
 data class ThinkingState(
     val stops: List<ThinkingStop>,
-    /** The stop the thumb sits on; -1 is Off (the thumb rests short of Low). */
+    /**
+     * The stop the thumb sits on; -1 when the CLI's level is none of the
+     * stops (in practice `off` from a CLI that doesn't list it); then the
+     * thumb rests short of the first stop.
+     */
     val index: Int,
     /** The value's name: a stop's label, or "Off". */
     val label: String,

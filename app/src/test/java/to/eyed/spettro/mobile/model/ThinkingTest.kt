@@ -58,19 +58,19 @@ class ThinkingTest {
     // MARK: Where the thumb sits
 
     @Test
-    fun `is Low to Max, then Ultra, with no Off stop`() {
+    fun `is Off, Low to Max, then Ultra`() {
         val state = Thinking.state(listOf(thinking("high"), ultra(false)))
-        assertEquals(listOf("Low", "Medium", "High", "Extra high", "Max", "Ultra"), state?.stops?.map { it.label })
+        assertEquals(listOf("Off", "Low", "Medium", "High", "Extra high", "Max", "Ultra"), state?.stops?.map { it.label })
     }
 
     @Test
     fun `is Ultra whenever ultracode is on, whatever the level`() {
         // Ultra is high + ultracode; a level set elsewhere (/thinking max)
         // while ultracode is on still reads as Ultra — that is what will run.
-        for (level in listOf("high", "max", "low")) {
+        for (level in listOf("high", "max", "low", "off")) {
             val state = Thinking.state(listOf(thinking(level), ultra(true)))
             assertEquals("Ultra", state?.label)
-            assertEquals(5, state?.index)
+            assertEquals(6, state?.index)
         }
     }
 
@@ -78,21 +78,39 @@ class ThinkingTest {
     fun `is the matching level otherwise, in plain words`() {
         val state = Thinking.state(listOf(thinking("x-high"), ultra(false)))
         assertEquals("Extra high", state?.label)
-        assertEquals(3, state?.index)
+        assertEquals(4, state?.index)
     }
 
     @Test
-    fun `rests at the far left, labelled Off, when thinking is off`() {
-        val state = Thinking.state(listOf(thinking("off"), ultra(false)))
-        assertEquals(-1, state?.index)
-        assertEquals("Off", state?.label)
-        assertEquals("Thinking off", Thinking.chipLabel(state!!))
+    fun `sits on the Off stop when thinking is off`() {
+        val state = Thinking.state(listOf(thinking("off"), ultra(false)))!!
+        assertEquals(0, state.index)
+        assertEquals("Off", state.label)
+        assertEquals(Thinking.OFF_CAPTION, state.stops[0].caption)
+        assertEquals("Thinking off", Thinking.chipLabel(state))
+        assertTrue(Thinking.isOff(state))
     }
 
     @Test
-    fun `keeps Low to Max order whatever order the CLI lists them in`() {
+    fun `keeps Off to Max order whatever order the CLI lists them in`() {
         val state = Thinking.state(listOf(thinking("low", listOf("max", "off", "low", "high"))))
-        assertEquals(listOf("low", "high", "max"), state?.stops?.map { it.id })
+        assertEquals(listOf("off", "low", "high", "max"), state?.stops?.map { it.id })
+    }
+
+    @Test
+    fun `puts Off first and a level it doesn't know after Max`() {
+        val state = Thinking.state(listOf(thinking("turbo", listOf("turbo", "off", "low"))))
+        assertEquals(listOf("off", "low", "turbo"), state?.stops?.map { it.id })
+    }
+
+    @Test
+    fun `offers no Off stop when the CLI doesn't list off, and leaves an off it is set to unset`() {
+        val state = Thinking.state(listOf(thinking("off", listOf("low", "medium", "high", "x-high", "max"))))!!
+        assertFalse(state.stops.any { it.id == "off" })
+        assertEquals(-1, state.index)
+        assertEquals("Off", state.label)
+        assertEquals("Thinking off", Thinking.chipLabel(state))
+        assertTrue(Thinking.isOff(state))
     }
 
     @Test
@@ -103,9 +121,9 @@ class ThinkingTest {
     }
 
     @Test
-    fun `offers every level when the CLI lists none`() {
+    fun `offers every level, Off included, when the CLI lists none`() {
         val state = Thinking.state(listOf(thinking("high", emptyList())))
-        assertEquals(Thinking.LEVELS.map { it.id }, state?.stops?.map { it.id })
+        assertEquals(listOf("off", "low", "medium", "high", "x-high", "max"), state?.stops?.map { it.id })
     }
 
     @Test
@@ -121,6 +139,7 @@ class ThinkingTest {
         assertFalse(Thinking.state(listOf(permission("restricted"), thinking("high"), ultra(true)))!!.paused)
         // Off is never paused: there is nothing to hold back.
         assertFalse(Thinking.state(listOf(permission("ask-first"), thinking("high"), ultra(false)))!!.paused)
+        assertFalse(Thinking.state(listOf(permission("ask-first"), thinking("off"), ultra(false)))!!.paused)
     }
 
     @Test
@@ -144,12 +163,13 @@ class ThinkingTest {
     @Test
     fun `captions the stop the words name, Off, a pause, and a model that can't think`() {
         val state = Thinking.state(listOf(thinking("off"), ultra(false)))!!
+        assertEquals(Thinking.OFF_CAPTION, Thinking.caption(state, 0, showPaused = false, disabled = false, modelName = null))
         assertEquals(Thinking.OFF_CAPTION, Thinking.caption(state, -1, showPaused = false, disabled = false, modelName = null))
         assertEquals(
             "Thinks for a moment before acting",
-            Thinking.caption(state, 1, showPaused = false, disabled = false, modelName = null),
+            Thinking.caption(state, 2, showPaused = false, disabled = false, modelName = null),
         )
-        assertEquals(Thinking.PAUSED_CAPTION, Thinking.caption(state, 5, showPaused = true, disabled = false, modelName = null))
+        assertEquals(Thinking.PAUSED_CAPTION, Thinking.caption(state, 6, showPaused = true, disabled = false, modelName = null))
         assertEquals(
             "GPT mini doesn’t think before answering, so this has no effect",
             Thinking.caption(state, 1, showPaused = false, disabled = true, modelName = "GPT mini"),
@@ -192,13 +212,62 @@ class ThinkingTest {
     }
 
     @Test
+    fun `to Off sends thinking off alone`() {
+        assertEquals(listOf(ConfigCall("thinking", ConfigValue.Str("off"))), Thinking.callsFor(false, stop("off")))
+    }
+
+    @Test
+    fun `from Off to a level sends the level alone`() {
+        assertEquals(listOf(ConfigCall("thinking", ConfigValue.Str("low"))), Thinking.callsFor(false, stop("low")))
+    }
+
+    @Test
+    fun `from Ultra to Off sends ultracode off first, then thinking off`() {
+        assertEquals(
+            listOf(
+                ConfigCall("ultra", ConfigValue.Bool(false)),
+                ConfigCall("thinking", ConfigValue.Str("off")),
+            ),
+            Thinking.callsFor(true, stop("off")),
+        )
+    }
+
+    @Test
     fun `previews the move, paused at once under Ask first`() {
         val base = Thinking.state(listOf(permission("ask-first"), thinking("max"), ultra(false)))!!
         val preview = Thinking.previewState(base, Thinking.ULTRA)
-        assertEquals(5, preview.index)
+        assertEquals(6, preview.index)
         assertTrue(preview.ultraOn)
         assertTrue(preview.paused)
         assertEquals("high", preview.thinking)
+    }
+
+    @Test
+    fun `previews Off from paused Ultra, at index 0, neither lit nor paused`() {
+        val base = Thinking.state(listOf(permission("ask-first"), thinking("high"), ultra(true, suspended = true)))!!
+        val preview = Thinking.previewState(base, stop("off"))
+        assertEquals(0, preview.index)
+        assertEquals("Off", preview.label)
+        assertEquals("off", preview.thinking)
+        assertFalse(preview.ultraOn)
+        assertFalse(preview.paused)
+    }
+
+    @Test
+    fun `previews Ultra from Off under Ask first, paused at once`() {
+        val base = Thinking.state(listOf(permission("ask-first"), thinking("off"), ultra(false)))!!
+        val preview = Thinking.previewState(base, Thinking.ULTRA)
+        assertEquals(6, preview.index)
+        assertTrue(preview.paused)
+        assertEquals("high", preview.thinking)
+    }
+
+    @Test
+    fun `isOff is the Off stop or an unset off, never Ultra`() {
+        assertTrue(Thinking.isOff(Thinking.state(listOf(thinking("off")))!!))
+        assertTrue(Thinking.isOff(Thinking.state(listOf(thinking("off", listOf("low", "high"))))!!))
+        assertFalse(Thinking.isOff(Thinking.state(listOf(thinking("off"), ultra(true)))!!))
+        assertFalse(Thinking.isOff(Thinking.state(listOf(thinking("low")))!!))
     }
 
     @Test
@@ -213,6 +282,9 @@ class ThinkingTest {
         assertTrue(Thinking.caughtUp(maxed, stop("max")))
         assertFalse(Thinking.caughtUp(there, stop("high")))
         assertFalse(Thinking.caughtUp(null, stop("high")))
+        val off = stop("off")
+        assertTrue(Thinking.caughtUp(Thinking.state(listOf(thinking("off"), ultra(false))), off))
+        assertFalse(Thinking.caughtUp(Thinking.state(listOf(thinking("off"), ultra(true))), off))
     }
 
     // MARK: Whether the model reasons

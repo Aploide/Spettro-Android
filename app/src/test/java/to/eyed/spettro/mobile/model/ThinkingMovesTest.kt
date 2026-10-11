@@ -21,11 +21,14 @@ import org.junit.Test
  */
 class ThinkingMovesTest {
 
-    private val low = Thinking.LEVELS[0]
-    private val medium = Thinking.LEVELS[1]
-    private val high = Thinking.LEVELS[2]
-    private val xHigh = Thinking.LEVELS[3]
-    private val max = Thinking.LEVELS[4]
+    private fun level(id: String) = Thinking.LEVELS.first { it.id == id }
+
+    private val off = level("off")
+    private val low = level("low")
+    private val medium = level("medium")
+    private val high = level("high")
+    private val xHigh = level("x-high")
+    private val max = level("max")
 
     /** A CLI that records every call, and can hold one open so ordering can be checked. */
     private class FakeCli(var ultraOn: Boolean = false) {
@@ -75,6 +78,20 @@ class ThinkingMovesTest {
         val cli = FakeCli(ultraOn = true)
         assertTrue(committer(cli).commit(max).await())
         assertEquals(listOf(ultra(false), thinking("max")), cli.calls)
+    }
+
+    @Test
+    fun `Ultra to Off, ultracode off, then thinking off`() = runBlocking {
+        val cli = FakeCli(ultraOn = true)
+        assertTrue(committer(cli).commit(off).await())
+        assertEquals(listOf(ultra(false), thinking("off")), cli.calls)
+    }
+
+    @Test
+    fun `Off to Ultra, thinking high, then ultracode on`() = runBlocking {
+        val cli = FakeCli(ultraOn = false)
+        assertTrue(committer(cli).commit(Thinking.ULTRA).await())
+        assertEquals(listOf(thinking("high"), ultra(true)), cli.calls)
     }
 
     @Test
