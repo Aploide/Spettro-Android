@@ -57,6 +57,44 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // One APK per ABI for sideloading: most of a universal APK is ML Kit's
+    // bundled barcode model (libbarhopper_v3.so), once for every ABI. The
+    // splits only go on when a release task is asked for, so debug builds,
+    // unit tests and the screenshot harness stay one APK. The Play bundle
+    // (bundleRelease) ignores them and splits by itself. versionCodes per
+    // ABI: see androidComponents below.
+    splits {
+        abi {
+            isEnable = gradle.startParameter.taskNames.any { it.contains("Release") }
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86_64")
+            // Every ABI, x86 included: the APK there was before the splits.
+            isUniversalApk = true
+        }
+    }
+}
+
+// Each release APK's versionCode is versionCode × 10 + an ABI digit:
+// universal 0, armeabi-v7a 1, arm64-v8a 2, x86_64 3 (18 -> 180..183). Any
+// APK of a newer release upgrades any APK of an older one, and within a
+// release a split may replace the universal APK.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters.firstOrNull {
+                it.filterType == com.android.build.api.variant.FilterConfiguration.FilterType.ABI
+            }?.identifier
+            val digit = when (abi) {
+                "armeabi-v7a" -> 1
+                "arm64-v8a" -> 2
+                "x86_64" -> 3
+                else -> 0
+            }
+            val base = output.versionCode.orNull ?: return@forEach
+            output.versionCode.set(base * 10 + digit)
+        }
+    }
 }
 
 dependencies {

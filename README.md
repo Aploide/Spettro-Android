@@ -254,6 +254,23 @@ still `to.eyed.spettro.mobile`, still labelled *Spettro*.
 ./gradlew assembleRelease    # R8-minified and resource-shrunk; signed with the debug key
 ```
 
+A release build makes one APK per ABI plus a universal one, in
+`app/build/outputs/apk/release/`. **For a phone (the Seeker included) take
+`app-arm64-v8a-release.apk`**, about 12 MB against 27 MB for the universal
+APK: most of the app is ML Kit's barcode model, once for every ABI.
+`app-armeabi-v7a-release.apk` is for older 32-bit phones,
+`app-x86_64-release.apk` for emulators, and `app-universal-release.apk`
+carries every ABI, x86 included, as the single APK did before. Debug builds
+stay one APK.
+
+Each APK's versionCode is `versionCode × 10` plus an ABI digit: universal 0,
+armeabi-v7a 1, arm64-v8a 2, x86_64 3, so `versionCode = 18` gives 180, 181,
+182 and 183. Any APK of a newer release upgrades any APK of an older one,
+and within a release a split may replace the universal APK. The Play bundle
+(`bundleRelease`) ignores the splits and keeps the plain `versionCode`; the
+APKs are signed with the debug key, so they are a separate track from Play
+anyway.
+
 To actually use the app you need the Spettro desktop app running on a
 computer with sharing on (Settings › Remote). Pair on the same network as the
 computer — scan its QR code, paste or open its `spettro-pair://` link — and
