@@ -38,6 +38,7 @@ fun SpettroTopBar(
     onBack: (() -> Unit)? = null,
     background: Color = LocalSpettroColors.current.canvas,
     actions: @Composable RowScope.() -> Unit = {},
+    backBadge: Color? = null,
 ) {
     val colors = LocalSpettroColors.current
     Row(
@@ -51,7 +52,17 @@ fun SpettroTopBar(
     ) {
         if (onBack != null) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = colors.textPrimary)
+                Box {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = if (backBadge != null) "Back, another chat needs you" else "Back",
+                        tint = colors.textPrimary,
+                    )
+                    // Something waits elsewhere: the dot says so on the way out.
+                    if (backBadge != null) {
+                        StatusDot(color = backBadge, size = 7.dp, modifier = Modifier.align(Alignment.TopEnd))
+                    }
+                }
             }
         } else {
             Spacer(Modifier.width(12.dp))

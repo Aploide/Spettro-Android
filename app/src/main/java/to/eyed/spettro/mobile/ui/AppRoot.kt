@@ -352,6 +352,9 @@ private fun RemoteNavigator(
     }
     val newSessionPath = chosenPath?.takeIf { path -> projects.any { it.path == path } }
         ?: projects.firstOrNull()?.path
+    // The new-session view's @-mention menu lists the chosen folder.
+    val newSessionFiles: (suspend () -> List<String>)? =
+        newSessionPath?.takeIf { model.canMentionFiles }?.let { path -> suspend { model.projectFiles(path) } }
     val newSessionFolder = newSessionPath?.let { path ->
         projects.firstOrNull { it.path == path }?.name?.ifBlank { null }
             ?: path.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\')
@@ -362,7 +365,7 @@ private fun RemoteNavigator(
      * draft stays — when there is no folder yet (the picker opens) or the
      * chat couldn't be made.
      */
-    val startChat: suspend (String, List<ImageAttachment>) -> Boolean = start@{ text, images ->
+    val startChat: suspend (String, List<ImageAttachment>, List<String>) -> Boolean = start@{ text, images, mentions ->
         val path = newSessionPath
         if (path == null) {
             showProjectPicker = true
@@ -371,7 +374,7 @@ private fun RemoteNavigator(
         val id = model.newChat(path) ?: return@start false
         if (!model.openChat(id)) return@start false
         screen = RemoteScreen.Chat
-        model.sendPrompt(text, images)
+        model.sendPrompt(text, images, mentions)
     }
 
     // Where Providers goes back to: Settings, or the screen an error card
@@ -440,6 +443,7 @@ private fun RemoteNavigator(
                         NewSessionHost(
                             folderName = newSessionFolder,
                             folderPath = newSessionPath,
+                            mentionFiles = newSessionFiles,
                             onChooseFolder = { showProjectPicker = true },
                             onStart = startChat,
                         )
@@ -519,6 +523,7 @@ private fun RemoteNavigator(
                     NewSessionHost(
                         folderName = newSessionFolder,
                         folderPath = newSessionPath,
+                        mentionFiles = newSessionFiles,
                         onChooseFolder = { showProjectPicker = true },
                         onStart = startChat,
                         onBack = { screen = RemoteScreen.ChatList },
@@ -779,14 +784,16 @@ private fun ProvidersHost(model: MobileModel, onBack: () -> Unit) {
 private fun NewSessionHost(
     folderName: String?,
     folderPath: String? = null,
+    mentionFiles: (suspend () -> List<String>)? = null,
     onChooseFolder: () -> Unit,
-    onStart: suspend (String, List<ImageAttachment>) -> Boolean,
+    onStart: suspend (String, List<ImageAttachment>, List<String>) -> Boolean,
     onBack: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var text by rememberSaveable { mutableStateOf("") }
     var attachments by remember { mutableStateOf(listOf<ImageAttachment>()) }
+    var mentions by rememberSaveable { mutableStateOf(listOf<String>()) }
     var sending by remember { mutableStateOf(false) }
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(4),
@@ -812,9 +819,10 @@ private fun NewSessionHost(
                 scope.launch {
                     sending = true
                     try {
-                        if (onStart(message, attachments)) {
+                        if (onStart(message, attachments, Mentions.live(message, mentions))) {
                             text = ""
                             attachments = emptyList()
+                            mentions = emptyList()
                         }
                     } finally {
                         sending = false
@@ -826,6 +834,8 @@ private fun NewSessionHost(
         sending = sending,
         onBack = onBack,
         folderPath = folderPath,
+        mentionFiles = mentionFiles,
+        onMention = { mentions = mentions + it },
     )
 }
 
@@ -1034,6 +1044,7 @@ private fun RemoteChatHost(
     val questions by model.pendingQuestions.collectAsState()
     val chats by model.chats.collectAsState()
     val setAside by model.promptsSetAside.collectAsState()
+    val needsYou by model.chatsNeedingYou.collectAsState()
     val routes = promptRoutes(session.chatId, chats.map { it.id }, permissions, questions)
     // Opening the chat a prompt waits in is asking to see it.
     LaunchedEffect(session.chatId) { model.bringBackPrompts(session.chatId) }
@@ -1123,6 +1134,7 @@ private fun RemoteChatHost(
         onTogglePinned = { model.setPinned(session.chatId, !isPinned) },
         onToggleArchived = { model.setArchived(session.chatId, !isArchived) },
         onRename = if (model.canRename) ({ model.renameChat(session.chatId, it) }) else null,
+        otherChatNeedsYou = needsYou.any { !it.equals(session.chatId, ignoreCase = true) },
         waitingFor = waitingFor,
         onReviewPrompt = { model.bringBackPrompts(session.chatId) },
         workflowGate = workflowGate(configOptions),

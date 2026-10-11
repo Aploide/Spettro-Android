@@ -189,6 +189,8 @@ fun NewSessionScreen(
     onBack: (() -> Unit)? = null,
     sending: Boolean = false,
     folderPath: String? = null,
+    mentionFiles: (suspend () -> List<String>)? = null,
+    onMention: (String) -> Unit = {},
 ) {
     val colors = LocalSpettroColors.current
     Column(
@@ -233,6 +235,9 @@ fun NewSessionScreen(
                         commands = emptyList(),
                         onCommandPick = {},
                         placeholder = NEW_SESSION_PLACEHOLDER,
+                        mentionFiles = mentionFiles,
+                        onMention = onMention,
+                        mentionScope = folderPath,
                     )
                     ProjectChip(
                         folderName = folderName,

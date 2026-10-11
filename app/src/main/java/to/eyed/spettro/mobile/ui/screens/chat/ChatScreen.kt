@@ -157,6 +157,7 @@ fun ChatScreen(
     mentionFiles: (suspend () -> List<String>)? = null,
     onMention: (String) -> Unit = {},
     onRename: ((String) -> Unit)? = null,
+    otherChatNeedsYou: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -202,6 +203,8 @@ fun ChatScreen(
                 // In the tablet split shell the chat sits beside the list,
                 // so there is nowhere to go "back" to.
                 onBack = onBack.takeIf { showBack },
+                // Another chat's prompt waits: amber on the way back to the list.
+                backBadge = colors.warning.takeIf { otherChatNeedsYou },
                 actions = {
                     Box {
                         BarIconButton(
@@ -357,6 +360,7 @@ fun ChatScreen(
                     placeholder = composerPlaceholder,
                     mentionFiles = mentionFiles,
                     onMention = onMention,
+                    mentionScope = projectPath,
                 )
             }
         }

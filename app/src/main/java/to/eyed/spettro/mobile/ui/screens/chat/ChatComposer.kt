@@ -128,6 +128,7 @@ fun ChatComposer(
     canSend: Boolean = true,
     mentionFiles: (suspend () -> List<String>)? = null,
     onMention: (String) -> Unit = {},
+    mentionScope: Any? = null,
 ) {
     val colors = LocalSpettroColors.current
     // The field's own value, caret and all, so an "@query" can be found under
@@ -140,8 +141,9 @@ fun ChatComposer(
         null
     }
     // The folder's files, fetched the first time an "@" asks for them.
-    var files by remember { mutableStateOf<List<String>?>(null) }
-    LaunchedEffect(mention != null) {
+    // ([mentionScope] names the folder: another folder, another list.)
+    var files by remember(mentionScope) { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(mention != null, mentionScope) {
         if (mention != null && files == null && mentionFiles != null) {
             files = runCatching { mentionFiles() }.getOrDefault(emptyList())
         }
