@@ -294,8 +294,12 @@ internal object ChatPreviewData {
         ultraOption(on = false),
     )
 
-    /** The CLI's thinking option (internal/acp/config_options.go): Off, Low … Max. */
-    fun thinkingOption(current: String) = AcpConfigOption(
+    /**
+     * The CLI's thinking option (internal/acp/config_options.go): Off, Low …
+     * Max. Without [offered], the Off choice is left out, as a CLI that
+     * doesn't list it would.
+     */
+    fun thinkingOption(current: String, offered: Boolean = true) = AcpConfigOption(
         id = "thinking",
         name = "Thinking",
         description = "Extended-thinking effort",
@@ -312,7 +316,7 @@ internal object ChatPreviewData {
                         AcpConfigOption.Opt("High", "high"),
                         AcpConfigOption.Opt("X-High", "x-high"),
                         AcpConfigOption.Opt("Max", "max"),
-                    ),
+                    ).filter { offered || it.value != "off" },
                 ),
             ),
         ),
@@ -334,10 +338,15 @@ internal object ChatPreviewData {
      * [configOptions] with thinking at [thinking], Ultra [ultra] and the
      * permission at [permission] — the thinking slider's harness scenes.
      */
-    fun configOptionsWith(thinking: String, ultra: Boolean, permission: String = "yolo"): List<AcpConfigOption> =
+    fun configOptionsWith(
+        thinking: String,
+        ultra: Boolean,
+        permission: String = "yolo",
+        offered: Boolean = true,
+    ): List<AcpConfigOption> =
         configOptions.map { option ->
             when (option.id) {
-                "thinking" -> thinkingOption(thinking)
+                "thinking" -> thinkingOption(thinking, offered)
                 "ultra" -> ultraOption(on = ultra, suspended = ultra && permission == "ask-first")
                 "permission" -> option.copy(
                     kind = (option.kind as AcpConfigOption.Kind.Select).copy(current = permission),

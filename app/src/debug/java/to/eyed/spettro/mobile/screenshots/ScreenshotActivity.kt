@@ -246,11 +246,14 @@ private fun Scene(scene: String, tablet: Boolean) {
             workflowGate = WorkflowGate(ultraOn = false, askFirst = true, canRestrict = true),
         )
         // The thinking slider, open over the chat: at rest on High; frozen
-        // mid-meteor (`--es progress 0.35 [--es from 4]`, seed 7); lit
-        // Ultra smouldering (`--es idle 1.5`, seed 11); Ultra paused under
-        // Ask first; Off; a model that doesn't think, with Ultra still on and
-        // with thinking Off; and a live one to drive by hand, its moves
-        // answered by a stand-in CLI.
+        // mid-meteor (`--es progress 0.35 [--es from 5]` for Max, 0 for
+        // Off; seed 7); lit Ultra smouldering (`--es idle 1.5`, seed 11);
+        // Ultra paused under Ask first; on the Off stop; on Low; set to off
+        // by a CLI that doesn't list it (unset, short of Low); a model that
+        // doesn't think, with Ultra still on and with thinking Off; and a
+        // live one to drive by hand, its moves answered by a stand-in CLI.
+        // Then the chat with the sheet closed, its chip reading "Thinking
+        // off".
         "thinking" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("high", ultra = false))
         "thinking_meteor" -> {
             val extras = LocalSliderExtras.current
@@ -270,6 +273,11 @@ private fun Scene(scene: String, tablet: Boolean) {
             options = ChatPreviewData.configOptionsWith("high", ultra = true, permission = "ask-first"),
         )
         "thinking_off" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("off", ultra = false))
+        "thinking_low" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("low", ultra = false))
+        "thinking_unset" -> ThinkingScene(
+            tablet,
+            options = ChatPreviewData.configOptionsWith("off", ultra = false, offered = false),
+        )
         "thinking_inert" -> ThinkingScene(
             tablet,
             options = ChatPreviewData.configOptionsWith("high", ultra = true),
@@ -281,6 +289,12 @@ private fun Scene(scene: String, tablet: Boolean) {
             reasons = false,
         )
         "thinking_live" -> ThinkingScene(tablet, options = ChatPreviewData.configOptionsWith("max", ultra = false), live = true)
+        "thinking_chip_off" -> Shell(
+            tablet,
+            items = ChatPreviewData.transcript,
+            busy = false,
+            thinking = previewThinking(ChatPreviewData.configOptionsWith("off", ultra = false)),
+        )
         "list" -> if (tablet) SplitShell(items = null) else ChatList()
         "split" -> SplitShell(items = ChatPreviewData.transcript, busy = false)
         "config" -> {

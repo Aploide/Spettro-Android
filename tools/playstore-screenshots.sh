@@ -38,10 +38,11 @@
 #   activation               (the "ultracode" and "+500k" highlight, and the budget line)
 #   activation_askfirst      (the same under Ask first: muted, with the way out)
 #   thinking  thinking_meteor  thinking_smoulder  thinking_paused  thinking_off
-#   thinking_inert  thinking_inert_off  thinking_live
+#   thinking_low  thinking_unset  thinking_inert  thinking_inert_off  thinking_live
 #                            (the slider open over the chat; a meteor's
-#                             instant via --es progress 0.35 [--es from 4],
-#                             the smoulder's via --es idle 1.5)
+#                             instant via --es progress 0.35 [--es from 5],
+#                             0 for Off, the smoulder's via --es idle 1.5)
+#   thinking_chip_off        (the chat's chip reading "Thinking off")
 #   new_session              (what "+" opens: greeting, "Working in", starter prompts)
 #   new_chat                 (an empty chat: the greeting over starter prompts)
 #   reconnecting | disconnected_reconnecting
