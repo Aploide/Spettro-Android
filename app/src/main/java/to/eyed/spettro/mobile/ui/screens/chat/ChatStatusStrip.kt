@@ -43,20 +43,19 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.TabularNums
 
 /**
- * The thin strip under the chat's top bar: the mode chip on the left, plan progress in the middle — tappable to
- * unfold the agent's task list — and context-window occupancy on the right,
- * tinted red past 90%.
+ * The thin strip under the chat's top bar: the mode chip on the left and
+ * context-window occupancy on the right, tinted red past 90%. The run's
+ * live readout is the transcript's tail, and the plan is the todo tab over
+ * the composer, as on the desktop.
  */
 @Composable
 fun ChatStatusStrip(
-    plan: List<AcpPlanEntry>,
     usage: AcpUsage?,
     modeName: String?,
     modeColorName: String?,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    var planExpanded by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -71,123 +70,15 @@ fun ChatStatusStrip(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // The run's live readout is the transcript's tail now (the
-            // desktop's RunTicker), where the eye already is.
             if (modeName != null) {
                 ModeChip(label = modeName, colorName = modeColorName ?: modeName)
-            }
-
-            if (plan.isNotEmpty()) {
-                PlanProgress(
-                    plan = plan,
-                    expanded = planExpanded,
-                    onToggle = { planExpanded = !planExpanded },
-                )
             }
 
             androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
 
             usage?.let { UsageReadout(it) }
         }
-        if (planExpanded && plan.isNotEmpty()) {
-            PlanList(plan = plan)
-        }
         HairlineDivider()
-    }
-}
-
-@Composable
-private fun PlanProgress(
-    plan: List<AcpPlanEntry>,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-) {
-    val done = plan.count { it.status == "completed" }
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(Dimens.radiusSm))
-            .clickable(onClick = onToggle)
-            .padding(horizontal = Dimens.spacingXs, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Checklist,
-            contentDescription = "Plan",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(13.dp),
-        )
-        Text(
-            text = "$done/${plan.size}",
-            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        LinearProgressIndicator(
-            progress = { if (plan.isEmpty()) 0f else done.toFloat() / plan.size },
-            color = LocalSpettroColors.current.accent,
-            trackColor = LocalSpettroColors.current.hairline,
-            drawStopIndicator = {},
-            modifier = Modifier
-                .width(32.dp)
-                .height(3.dp)
-                .clip(RoundedCornerShape(percent = 50)),
-        )
-    }
-}
-
-/** The unfolded plan: one row per entry with a status glyph. */
-@Composable
-private fun PlanList(plan: List<AcpPlanEntry>) {
-    val colors = LocalSpettroColors.current
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                start = Dimens.spacingLg,
-                end = Dimens.spacingLg,
-                bottom = Dimens.spacingSm,
-            ),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
-    ) {
-        plan.forEach { entry ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                when (entry.status) {
-                    "completed" -> Icon(
-                        imageVector = Icons.Outlined.Check,
-                        contentDescription = "Completed",
-                        tint = colors.success,
-                        modifier = Modifier.size(12.dp),
-                    )
-                    "in_progress" -> SpettroSpinner(size = 10.dp)
-                    else -> Icon(
-                        imageVector = Icons.Outlined.RadioButtonUnchecked,
-                        contentDescription = "Pending",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(12.dp),
-                    )
-                }
-                Text(
-                    text = entry.content,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        textDecoration = if (entry.status == "completed") {
-                            TextDecoration.LineThrough
-                        } else {
-                            TextDecoration.None
-                        },
-                    ),
-                    color = if (entry.status == "in_progress") {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
     }
 }
 
@@ -229,7 +120,6 @@ private fun formatTokens(count: Int): String = when {
 private fun ChatStatusStripPreviewBusy() {
     SpettroTheme(darkTheme = true) {
         ChatStatusStrip(
-            plan = ChatPreviewData.plan,
             usage = ChatPreviewData.usage,
             modeName = "Coding",
             modeColorName = "coding",
@@ -242,7 +132,6 @@ private fun ChatStatusStripPreviewBusy() {
 private fun ChatStatusStripPreviewIdle() {
     SpettroTheme(darkTheme = false) {
         ChatStatusStrip(
-            plan = ChatPreviewData.plan,
             usage = ChatPreviewData.usageHot,
             modeName = "plan",
             modeColorName = "plan",

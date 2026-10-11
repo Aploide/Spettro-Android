@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CompletableDeferred
 import to.eyed.spettro.mobile.core.acp.AcpCommand
+import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.ui.components.SpettroMenu
 import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
@@ -115,6 +116,8 @@ fun ChatComposer(
     thinking: ThinkingControl? = null,
     thinkingFrame: ThinkingFrame? = null,
     placeholder: String = CHAT_PLACEHOLDER,
+    plan: List<AcpPlanEntry> = emptyList(),
+    planFolded: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     val workflow = remember(text, workflowGate) { workflowDraft(text, workflowGate) }
@@ -131,6 +134,17 @@ fun ChatComposer(
             .padding(start = Dimens.spacingMd, end = Dimens.spacingMd, top = 2.dp, bottom = Dimens.spacingSm),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        TuckedUnder(
+            tuck = TodoTuck,
+            tab = {
+                TodoList(
+                    plan = plan,
+                    isBusy = isBusy,
+                    folded = planFolded,
+                    modifier = Modifier.padding(horizontal = Dimens.spacingMd),
+                )
+            },
+            card = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -248,6 +262,8 @@ fun ChatComposer(
                 )
             }
         }
+            },
+        )
         WorkflowHint(
             draft = workflow,
             onSwitchPermission = onSwitchPermission?.takeIf { workflowGate.canRestrict },

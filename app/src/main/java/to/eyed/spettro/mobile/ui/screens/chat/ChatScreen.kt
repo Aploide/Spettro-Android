@@ -208,10 +208,9 @@ fun ChatScreen(
                 .consumeWindowInsets(padding)
                 .imePadding(),
         ) {
-            if (plan.isNotEmpty() || usage != null || modeName != null) {
+            if (usage != null || modeName != null) {
                 ReadableColumn {
                     ChatStatusStrip(
-                        plan = plan,
                         usage = usage,
                         modeName = modeName,
                         modeColorName = modeColorName,
@@ -285,6 +284,8 @@ fun ChatScreen(
                     onSwitchPermission = onSwitchPermission,
                     thinking = thinking,
                     thinkingFrame = thinkingFrame,
+                    plan = plan,
+                    planFolded = awaitingApproval || awaitingAnswer,
                 )
             }
         }
