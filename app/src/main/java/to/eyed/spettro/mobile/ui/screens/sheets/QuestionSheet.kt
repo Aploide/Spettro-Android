@@ -207,6 +207,10 @@ internal fun QuestionSheetContent(
         // on a phone on its side the card is little taller than the footer,
         // and a fixed header left the options no room at all.
         val pageScroll = rememberScrollState()
+        // Each question opens at its top. Scrolled down to reach one
+        // question's options, the next would otherwise open there too, its
+        // step and its question above the viewport with nothing to say so.
+        LaunchedEffect(step) { pageScroll.scrollTo(0) }
         Column(
             modifier = Modifier
                 .weight(1f, fill = false)
