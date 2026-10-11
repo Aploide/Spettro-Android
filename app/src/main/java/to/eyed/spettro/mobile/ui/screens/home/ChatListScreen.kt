@@ -258,7 +258,10 @@ fun ChatListScreen(
                                         chat = chat,
                                         now = now,
                                         selected = chat.id == selectedChatId,
-                                        needsYou = chat.id in needsYou,
+                                        // The open chat's prompt is already in its
+                                        // dock beside the list (the desktop's
+                                        // `needsYou && !isSelected`).
+                                        needsYou = chat.id in needsYou && chat.id != selectedChatId,
                                         onClick = { onOpenChat(chat.id) },
                                         onLongClick = { menuFor = chat.id },
                                         ground = ground,
