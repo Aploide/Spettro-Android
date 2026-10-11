@@ -153,11 +153,13 @@ private val BAR_CENTER = 22.dp
 /**
  * The labels' top: 18 under the bar's centre line, as on the desktop, whose
  * 32px hit area (the bar at its middle), 6px gap and -4px margin put them
- * there. The body ends with them; the caption's gap follows.
+ * there. The body ends with them, as tall as their text at the user's font
+ * scale; the caption's gap follows.
  */
 private val LABELS_TOP = BAR_CENTER + 18.dp
-private val LABELS_HEIGHT = 15.dp
-private val BODY_HEIGHT = LABELS_TOP + LABELS_HEIGHT
+
+/** The least room between two stop names; names that would come closer are left out ([SliderLabels]). */
+private val LABEL_GAP = 4.dp
 
 /**
  * How far the thumb's layer reaches past the body on every side: lit Ultra's
@@ -457,10 +459,11 @@ fun ThinkingSlider(
             )
         }
 
+        // As tall as the labels make it: the bar's layers match whatever
+        // height that is, and add none of their own.
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(BODY_HEIGHT)
                 .clearAndSetSemantics {
                     contentDescription = "Thinking"
                     stateDescription = Thinking.valueText(state)
@@ -558,7 +561,7 @@ fun ThinkingSlider(
             val dim = if (disabled) DISABLED_ALPHA else 1f
             Box(
                 Modifier
-                    .fillMaxSize()
+                    .matchParentSize()
                     .bleed(THUMB_ROOM)
                     .graphicsLayer { alpha = dim }
                     .padding(THUMB_ROOM),
@@ -660,7 +663,6 @@ fun ThinkingSlider(
                 modifier = Modifier
                     .padding(top = LABELS_TOP)
                     .fillMaxWidth()
-                    .height(LABELS_HEIGHT)
                     .graphicsLayer { alpha = dim },
             )
         }
@@ -1012,8 +1014,11 @@ private fun Color.saturate(s: Float): Color {
 
 /**
  * The stops' names, each centred under its stop (and kept on screen at the
- * ends). Taps land on the body round them, which selects the stop under the
- * finger, as tapping a label does on the desktop.
+ * ends), as tall as their text. Names that would run into each other are
+ * left out ([SliderLabels.visible]), never shrunk: the aimed stop's and the
+ * ends' stay. Taps land on the body round them, which selects the stop
+ * under the finger, as tapping a label does on the desktop; every stop keeps
+ * its accessibility action on the body.
  */
 @Composable
 private fun Labels(
@@ -1042,16 +1047,20 @@ private fun Labels(
             }
         },
     ) { measurables, constraints ->
-        val placeables = measurables.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+        val placeables = measurables.map {
+            it.measure(constraints.copy(minWidth = 0, minHeight = 0, maxHeight = Constraints.Infinity))
+        }
         val width = constraints.maxWidth
         val cap = CAP.roundToPx()
         val span = width - 2 * cap
-        layout(width, constraints.maxHeight) {
+        val centres = placeables.indices.map { i -> cap + span * (if (last <= 0) 0f else i.toFloat() / last) }
+        val shown = SliderLabels.visible(centres, placeables.map { it.width }, width, aim, LABEL_GAP.roundToPx())
+        // Every name counts towards the height, shown or not, so the row
+        // doesn't change height as the names come and go.
+        val height = (placeables.maxOfOrNull { it.height } ?: 0).coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(width, height) {
             placeables.forEachIndexed { i, p ->
-                val f = if (last <= 0) 0f else i.toFloat() / last
-                val centre = cap + span * f
-                val x = (centre - p.width / 2f).roundToInt().coerceIn(0, (width - p.width).coerceAtLeast(0))
-                p.place(x, 0)
+                if (i in shown) p.place(SliderLabels.span(centres[i], p.width, width).first, 0)
             }
         }
     }
