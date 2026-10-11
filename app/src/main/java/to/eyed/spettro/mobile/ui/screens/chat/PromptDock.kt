@@ -135,7 +135,8 @@ private const val PREVIEW_DIFF_LINES = 30
 fun PromptDock(
     prompts: List<DockPrompt>,
     onReply: (DockReply) -> Unit,
-    onDeniedFeedback: (String) -> Unit,
+    /** Sends "what to do instead"; false when it couldn't go (reconnecting), and the text stays. */
+    onDeniedFeedback: (String) -> Boolean,
     maxHeight: Dp,
     lastUserMessageId: String?,
     modifier: Modifier = Modifier,
@@ -196,8 +197,7 @@ fun PromptDock(
                 DeniedFeedback(
                     title = denied?.first.orEmpty(),
                     onSend = {
-                        onDeniedFeedback(it)
-                        denied = null
+                        if (onDeniedFeedback(it)) denied = null
                     },
                     onDismiss = { denied = null },
                 )

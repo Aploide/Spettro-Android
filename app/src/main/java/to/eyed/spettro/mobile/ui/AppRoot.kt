@@ -1062,6 +1062,8 @@ private fun RemoteChatHost(
     // The files picked from the @-mention menu; only those still written in
     // the text when it goes are sent.
     var mentions by rememberSaveable(session.chatId) { mutableStateOf(listOf<String>()) }
+    // Bumped by Edit & resend: the composer takes the focus and the keyboard comes up.
+    var composerFocus by remember(session.chatId) { mutableStateOf(0) }
     var attachments by remember(session.chatId) { mutableStateOf(listOf<ImageAttachment>()) }
     var showConfig by remember { mutableStateOf(false) }
 
@@ -1177,7 +1179,9 @@ private fun RemoteChatHost(
         onEditMessage = { text, mentioned ->
             composerText = text
             mentions = mentioned
+            composerFocus += 1
         },
+        composerFocus = composerFocus,
         // The field never locks: while the link comes back or Spettro starts
         // on the computer, the draft stays editable and only Send waits.
         sendReady = !reconnecting && agentReady,

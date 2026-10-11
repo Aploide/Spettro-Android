@@ -150,12 +150,14 @@ fun ChatScreen(
     awaitingToolIds: Set<String> = emptySet(),
     prompts: List<DockPrompt> = emptyList(),
     onPromptReply: (DockReply) -> Unit = {},
-    onDeniedFeedback: (String) -> Unit = {},
+    onDeniedFeedback: (String) -> Boolean = { false },
     onEditMessage: ((String, List<String>) -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
     onOpenProviders: (() -> Unit)? = null,
     /** Whether no model is connected on the computer (null while unknown): a Connect error is fixed once one is. */
     noModel: Boolean? = null,
+    /** Bumped to focus the composer and bring the keyboard up (Edit & resend). */
+    composerFocus: Int = 0,
     sendReady: Boolean = true,
     composerPlaceholder: String = CHAT_PLACEHOLDER,
     mentionFiles: (suspend () -> List<String>)? = null,
@@ -366,6 +368,7 @@ fun ChatScreen(
                     mentionFiles = mentionFiles,
                     onMention = onMention,
                     mentionScope = projectPath,
+                    focusRequest = composerFocus,
                 )
             }
         }

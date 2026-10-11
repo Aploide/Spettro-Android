@@ -6,6 +6,9 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import to.eyed.spettro.mobile.model.Mentions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -130,8 +133,18 @@ fun ChatComposer(
     mentionFiles: (suspend () -> List<String>)? = null,
     onMention: (String) -> Unit = {},
     mentionScope: Any? = null,
+    /** Bumped to put the caret in the field and bring the keyboard up (Edit & resend). */
+    focusRequest: Int = 0,
 ) {
     val colors = LocalSpettroColors.current
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(focusRequest) {
+        if (focusRequest > 0) {
+            runCatching { focusRequester.requestFocus() }
+            keyboard?.show()
+        }
+    }
     // The field's own value, caret and all, so an "@query" can be found under
     // the caret; the caller owns only the text.
     var field by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
@@ -235,6 +248,7 @@ fun ChatComposer(
                 muted = workflow.muted,
                 interactionSource = interactionSource,
                 placeholder = placeholder,
+                focusRequester = focusRequester,
             )
             Row(
                 modifier = Modifier
@@ -304,9 +318,11 @@ fun ChatComposer(
                         )
                     }
                 }
+                val hasContent = text.isNotBlank() || attachments.isNotEmpty()
                 SendButton(
                     isBusy = isBusy,
-                    canSend = enabled && canSend && (text.isNotBlank() || attachments.isNotEmpty()),
+                    hasContent = hasContent,
+                    canSend = enabled && canSend && hasContent,
                     onSend = onSend,
                     onStop = onStop,
                 )
@@ -429,6 +445,7 @@ private fun ComposerTextField(
     muted: Boolean,
     interactionSource: MutableInteractionSource,
     placeholder: String,
+    focusRequester: FocusRequester,
 ) {
     val colors = LocalSpettroColors.current
     val text = value.text
@@ -449,7 +466,8 @@ private fun ComposerTextField(
         interactionSource = interactionSource,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 44.dp),
+            .heightIn(min = 44.dp)
+            .focusRequester(focusRequester),
         decorationBox = { innerTextField ->
             Box(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
@@ -491,6 +509,7 @@ private val SendSize = 36.dp
 @Composable
 private fun SendButton(
     isBusy: Boolean,
+    hasContent: Boolean,
     canSend: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -500,7 +519,8 @@ private fun SendButton(
         // Mid-turn there are two things to do: stop the turn, or guide it —
         // a message sent now steers the running agent at its next step. The
         // Guide pill only shows once there is something to send, and then
-        // Stop steps back to an outline so the two don't compete.
+        // Stop steps back to an outline so the two don't compete. While the
+        // link comes back Guide stays, dimmed: the steer is waiting to go.
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -510,7 +530,7 @@ private fun SendButton(
                     .size(SendSize)
                     .clip(CircleShape)
                     .then(
-                        if (canSend) {
+                        if (hasContent) {
                             Modifier.border(Dimens.hairlineWidth, colors.hairline, CircleShape)
                         } else {
                             Modifier.background(colors.ink)
@@ -522,17 +542,18 @@ private fun SendButton(
                 Box(
                     Modifier
                         .size(11.dp)
-                        .background(if (canSend) colors.ink else colors.onInk, RoundedCornerShape(2.dp))
+                        .background(if (hasContent) colors.ink else colors.onInk, RoundedCornerShape(2.dp))
                         .semantics { contentDescription = "Stop" },
                 )
             }
-            if (canSend) {
+            if (hasContent) {
                 Row(
                     modifier = Modifier
                         .height(SendSize)
+                        .alpha(if (canSend) 1f else 0.25f)
                         .clip(CircleShape)
                         .background(colors.ink)
-                        .clickable(onClick = onSend)
+                        .clickable(enabled = canSend, onClick = onSend)
                         .padding(start = 10.dp, end = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
