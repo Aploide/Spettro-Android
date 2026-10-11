@@ -103,6 +103,8 @@ on any of it. An old host sends no list, which reads as "none of these":
 | `rename` | Rename appears in the chat's menu and on a long press in the list |
 | `projectFiles` | the `@` menu lists the project's files |
 | `snapshotV2` | reopened chats keep steering, streaming, timing, mention and workflow fields |
+| `unpair` | Forget in Settings first asks the computer to take this phone off its paired devices (`devices/unpair`, which only ever removes the signed-in device); without it, or when not connected, the phone forgets here only |
+| `goodbyeReason` | a goodbye `host/state` says why — `quit`, `restart` (quitting to install an update, shown as "Spettro is restarting") or `sharing-off` — and there is one per shutdown; without it the phone reads its first goodbye: no message means the app quit |
 
 ### Staying connected
 
@@ -118,8 +120,9 @@ every 10 s, every 30 s after five minutes; never in the background or after
 Disconnect. A drop while a chat is open is ridden out in
 place for up to 20 s — the transcript and the draft stay, a "Reconnecting…"
 pill shows, and Send waits — before the disconnected screen takes over. That
-screen says why in plain words (looking, can't reach, sharing off, turned
-away, removed, update needed, local network access) and always keeps a
+screen says why in plain words (looking, can't reach, sharing off, not
+open, restarting for an update, turned away, removed, update needed, local
+network access) and always keeps a
 "Forget this computer…" escape hatch so a stale pairing can be discarded.
 There are no background notifications; another chat that needs an answer is
 marked "Needs you" in the list.

@@ -104,6 +104,18 @@ enum class OfflineReason {
     Transport,
 }
 
+/** What the host's last goodbye ([OfflineReason.HostStopped]) was. */
+enum class Goodbye {
+    /** The desktop app quit; sharing stays on and comes back with its next launch. */
+    Quit,
+
+    /** The desktop app is restarting to install an update. */
+    Restart,
+
+    /** Sharing was switched off. */
+    SharingOff,
+}
+
 /** Why a QR scan didn't result in a pairing — always user-actionable. */
 class RemotePairingException(message: String) : Exception(message)
 
@@ -277,14 +289,14 @@ class RemoteClient(
      */
     val refusals: StateFlow<Int> = _refusals.asStateFlow()
 
-    private val _hostQuit = MutableStateFlow(false)
+    private val _goodbye = MutableStateFlow(Goodbye.SharingOff)
 
     /**
-     * Whether the last goodbye ([OfflineReason.HostStopped]) was the app
-     * quitting rather than sharing being switched off — see [isQuitGoodbye].
-     * Sharing stays on across a quit, so "turn it back on" would be wrong.
+     * What the last goodbye ([OfflineReason.HostStopped]) was — see
+     * [goodbyeOf]. Sharing stays on across a quit or a restart, so "turn it
+     * back on" would be wrong for those.
      */
-    val hostQuit: StateFlow<Boolean> = _hostQuit.asStateFlow()
+    val goodbye: StateFlow<Goodbye> = _goodbye.asStateFlow()
 
     private val _inbound = MutableSharedFlow<InboundNotification>(
         extraBufferCapacity = 256,
@@ -985,11 +997,12 @@ class RemoteClient(
 
     private fun applyHostState(note: RemoteNotification.HostState) {
         if (note.shuttingDown) {
-            // The first goodbye says which it was: a quitting desktop follows
-            // its own with the sharing-off one as it takes the listener down.
-            if (_state.value != RemoteState.Offline(OfflineReason.HostStopped)) {
-                _hostQuit.value = isQuitGoodbye(note.message)
-            }
+            _goodbye.value = goodbyeAfter(
+                current = _goodbye.value,
+                alreadyStopped = _state.value == RemoteState.Offline(OfflineReason.HostStopped),
+                reason = note.reason,
+                message = note.message,
+            )
             // Deliberate, so don't dress it up as a network fault — and don't
             // retry into a host that just told us it left. Rediscovery says
             // when it's back, but only where Bonjour gets through, and many
@@ -1133,6 +1146,36 @@ class RemoteClient(
          * back with the next launch.
          */
         fun isQuitGoodbye(message: String?): Boolean = message.isNullOrBlank()
+
+        /**
+         * What a goodbye was: its [reason] when it gives one this phone
+         * knows ([RemoteFeature.GOODBYE_REASON]), otherwise read from its
+         * [message] as older hosts need ([isQuitGoodbye]).
+         */
+        fun goodbyeOf(reason: String?, message: String?): Goodbye = when (reason) {
+            GoodbyeReason.QUIT -> Goodbye.Quit
+            GoodbyeReason.RESTART -> Goodbye.Restart
+            GoodbyeReason.SHARING_OFF -> Goodbye.SharingOff
+            else -> if (isQuitGoodbye(message)) Goodbye.Quit else Goodbye.SharingOff
+        }
+
+        /**
+         * The goodbye to show after one more arrives, the last being
+         * [current]. A host that says why is taken at its word. One that
+         * doesn't is read from its first goodbye ([alreadyStopped] is false):
+         * an older desktop that quits follows its own goodbye with the
+         * sharing-off one as it takes the listener down.
+         */
+        internal fun goodbyeAfter(
+            current: Goodbye,
+            alreadyStopped: Boolean,
+            reason: String?,
+            message: String?,
+        ): Goodbye = when {
+            reason != null -> goodbyeOf(reason, message)
+            alreadyStopped -> current
+            else -> goodbyeOf(null, message)
+        }
 
         /**
          * Whether Forget can take this phone off the host's paired devices

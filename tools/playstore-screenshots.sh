@@ -51,7 +51,7 @@
 #   list_reconnecting        (the list then: the dot by the computer's name amber
 #                             and pulsing)
 #   disconnected_<reason>[_repeated]
-#                            (searching hostasleep sharingoff hostquit
+#                            (searching hostasleep sharingoff hostquit hostrestarting
 #                             nolocalnetwork turnedaway versionmismatch revoked
 #                             transport disconnected; _repeated after a run of
 #                             refusals)

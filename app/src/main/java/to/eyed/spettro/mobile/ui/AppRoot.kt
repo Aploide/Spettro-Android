@@ -287,8 +287,8 @@ fun AppRoot(container: AppContainer) {
 
         else -> {
             val credential by client.credential.collectAsState()
-            val hostQuit by client.hostQuit.collectAsState()
-            val reason = DisconnectReason.from(state, hostQuit)
+            val goodbye by client.goodbye.collectAsState()
+            val reason = DisconnectReason.from(state, goodbye)
             val localNetwork = rememberLocalNetworkPermission { granted ->
                 // start() begins browsing now that it may, and retries at once.
                 if (granted) client.start()

@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import to.eyed.spettro.mobile.core.remote.Goodbye
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.RemoteAuthError
 import to.eyed.spettro.mobile.core.remote.RemoteClient
@@ -98,9 +99,18 @@ class DisconnectReasonTest {
         assertTrue(RemoteClient.isQuitGoodbye(""))
         assertFalse(RemoteClient.isQuitGoodbye("Remote access was turned off."))
         val stopped = RemoteState.Offline(OfflineReason.HostStopped)
-        assertEquals(DisconnectReason.HostQuit, DisconnectReason.from(stopped, hostQuit = true))
-        assertEquals(DisconnectReason.SharingOff, DisconnectReason.from(stopped, hostQuit = false))
+        assertEquals(DisconnectReason.HostQuit, DisconnectReason.from(stopped, Goodbye.Quit))
+        assertEquals(DisconnectReason.SharingOff, DisconnectReason.from(stopped, Goodbye.SharingOff))
         // Only a goodbye is read that way.
-        assertEquals(DisconnectReason.HostAsleep, DisconnectReason.from(RemoteState.Offline(OfflineReason.HostNotFound), hostQuit = true))
+        assertEquals(DisconnectReason.HostAsleep, DisconnectReason.from(RemoteState.Offline(OfflineReason.HostNotFound), Goodbye.Quit))
+    }
+
+    @Test
+    fun `a desktop restarting for an update has its own screen`() {
+        val stopped = RemoteState.Offline(OfflineReason.HostStopped)
+        assertEquals(DisconnectReason.HostRestarting, DisconnectReason.from(stopped, Goodbye.Restart))
+        // Without a goodbye to go on, it reads as sharing switched off, as before.
+        assertEquals(DisconnectReason.SharingOff, DisconnectReason.from(stopped))
+        assertEquals(DisconnectReason.Transport, DisconnectReason.from(RemoteState.Offline(OfflineReason.Transport), Goodbye.Restart))
     }
 }

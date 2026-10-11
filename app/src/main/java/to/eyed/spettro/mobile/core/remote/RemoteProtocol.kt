@@ -106,6 +106,9 @@ object RemoteFeature {
 
     /** `devices/unpair` exists: a phone that forgets the host can take itself off its list. */
     const val UNPAIR = "unpair"
+
+    /** Every goodbye `host/state` says why in `reason` ([HostStateParams.reason]), and there is one per shutdown. */
+    const val GOODBYE_REASON = "goodbyeReason"
 }
 
 /**
@@ -304,7 +307,25 @@ data class HostStateParams(
     /** True when the host is going away deliberately. */
     val shuttingDown: Boolean = false,
     val message: String? = null,
+    /**
+     * Why it is going away, on a goodbye from a host with
+     * [RemoteFeature.GOODBYE_REASON]: [GoodbyeReason.QUIT],
+     * [GoodbyeReason.RESTART] or [GoodbyeReason.SHARING_OFF].
+     */
+    val reason: String? = null,
 )
+
+/** The `reason` values of a goodbye `host/state`. */
+object GoodbyeReason {
+    /** The desktop app is quitting; sharing stays on for its next launch. */
+    const val QUIT = "quit"
+
+    /** The desktop app is quitting to install an update, and comes straight back. */
+    const val RESTART = "restart"
+
+    /** Sharing was switched off (the goodbye also carries a `message`). */
+    const val SHARING_OFF = "sharing-off"
+}
 
 @Serializable
 data class PermissionAskParams(

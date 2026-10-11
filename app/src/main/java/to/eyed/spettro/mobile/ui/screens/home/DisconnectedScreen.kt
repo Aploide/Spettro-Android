@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import to.eyed.spettro.mobile.core.remote.Goodbye
 import to.eyed.spettro.mobile.core.remote.OfflineReason
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.ui.components.SpettroSpinner
@@ -66,7 +67,8 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * thing to tell the user, mapped from `core.remote`'s state by [from]:
  * Searching (still looking / connecting), HostAsleep (not on this network),
  * SharingOff (host said it stopped), HostQuit (the desktop app quit, with
- * sharing still on), NoLocalNetwork (Android withholds the
+ * sharing still on), HostRestarting (it quit to install an update and comes
+ * straight back), NoLocalNetwork (Android withholds the
  * local network), TurnedAway (the host refused the handshake for now),
  * VersionMismatch (the two can't talk), Revoked (the host no longer knows
  * this phone), Transport (the socket dropped for an unnamed reason), and
@@ -80,6 +82,7 @@ enum class DisconnectReason {
     HostAsleep,
     SharingOff,
     HostQuit,
+    HostRestarting,
     NoLocalNetwork,
     TurnedAway,
     VersionMismatch,
@@ -90,16 +93,20 @@ enum class DisconnectReason {
 
     companion object {
         /**
-         * The reason to show for a non-connected [state]; [hostQuit] tells a
-         * goodbye from a quitting app from sharing switched off.
+         * The reason to show for a non-connected [state]; [goodbye] tells a
+         * goodbye from a quitting or restarting app from sharing switched off.
          */
-        fun from(state: RemoteState, hostQuit: Boolean = false): DisconnectReason = when (state) {
+        fun from(state: RemoteState, goodbye: Goodbye = Goodbye.SharingOff): DisconnectReason = when (state) {
             is RemoteState.Offline -> when (state.reason) {
                 OfflineReason.HostNotFound -> HostAsleep
                 OfflineReason.Rejected -> TurnedAway
                 OfflineReason.VersionMismatch -> VersionMismatch
                 OfflineReason.NotRecognised -> Revoked
-                OfflineReason.HostStopped -> if (hostQuit) HostQuit else SharingOff
+                OfflineReason.HostStopped -> when (goodbye) {
+                    Goodbye.Quit -> HostQuit
+                    Goodbye.Restart -> HostRestarting
+                    Goodbye.SharingOff -> SharingOff
+                }
                 OfflineReason.NoLocalNetwork -> NoLocalNetwork
                 OfflineReason.Transport -> Transport
             }
@@ -157,7 +164,7 @@ fun DisconnectedScreen(
         DisconnectReason.SharingOff -> Icons.Outlined.Block
         DisconnectReason.NoLocalNetwork -> Icons.Outlined.WarningAmber
         DisconnectReason.TurnedAway -> Icons.Outlined.WarningAmber
-        DisconnectReason.VersionMismatch -> Icons.Outlined.SystemUpdate
+        DisconnectReason.VersionMismatch, DisconnectReason.HostRestarting -> Icons.Outlined.SystemUpdate
         DisconnectReason.Revoked -> Icons.Outlined.PersonRemove
         DisconnectReason.Disconnected -> Icons.Outlined.LinkOff
     }
@@ -167,6 +174,7 @@ fun DisconnectedScreen(
         DisconnectReason.Transport -> "Lost the connection to $host"
         DisconnectReason.SharingOff -> "Sharing is off"
         DisconnectReason.HostQuit -> "Spettro isn’t open on $host"
+        DisconnectReason.HostRestarting -> "Spettro is restarting on $host"
         DisconnectReason.NoLocalNetwork -> "Allow local network access"
         DisconnectReason.TurnedAway -> "$host turned the connection down"
         DisconnectReason.VersionMismatch -> "Update Spettro"
@@ -188,6 +196,8 @@ fun DisconnectedScreen(
             "Turn it back on in Settings › Remote on your computer. This screen updates by itself once it’s on."
         DisconnectReason.HostQuit ->
             "Sharing is still on. Open Spettro on $host and this screen updates by itself once it’s back."
+        DisconnectReason.HostRestarting ->
+            "It’s finishing an update. This screen updates by itself once it’s back."
         DisconnectReason.NoLocalNetwork ->
             "Spettro talks to $host directly over your Wi-Fi, and Android asks before an app can reach devices on your local network."
         // One refusal is usually passing. A run of them may well be a
@@ -375,6 +385,10 @@ private fun SharingOffPreview() = DisconnectedPreview(DisconnectReason.SharingOf
 @Preview(name = "Desktop quit", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun HostQuitPreview() = DisconnectedPreview(DisconnectReason.HostQuit)
+
+@Preview(name = "Desktop restarting", showBackground = true, backgroundColor = 0xFF1C1C1E)
+@Composable
+private fun HostRestartingPreview() = DisconnectedPreview(DisconnectReason.HostRestarting)
 
 @Preview(name = "No local network", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable

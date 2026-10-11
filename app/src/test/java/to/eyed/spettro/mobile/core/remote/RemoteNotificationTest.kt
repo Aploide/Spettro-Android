@@ -147,6 +147,27 @@ class RemoteNotificationTest {
     }
 
     @Test
+    fun `a goodbye's reason is parsed, and absent from older hosts`() {
+        val restart = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":false,"shuttingDown":true,"reason":"restart"}""",
+        ) as RemoteNotification.HostState
+        assertEquals("restart", restart.reason)
+        assertEquals(null, restart.message)
+        val sharingOff = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":false,"shuttingDown":true,"reason":"sharing-off","message":"Remote access was turned off."}""",
+        ) as RemoteNotification.HostState
+        assertEquals("sharing-off", sharingOff.reason)
+        assertEquals("Remote access was turned off.", sharingOff.message)
+        val old = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":false,"shuttingDown":true}""",
+        ) as RemoteNotification.HostState
+        assertEquals(null, old.reason)
+    }
+
+    @Test
     fun `a remoteHost from an older host is ignored`() {
         val note = parse(
             RemoteMethod.HOST_STATE,
