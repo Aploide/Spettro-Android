@@ -53,7 +53,13 @@ class DiscoveryRefreshTest {
         assertTrue(refreshes(RemoteState.Offline(OfflineReason.HostStopped)))
         assertTrue(refreshes(RemoteState.Offline(OfflineReason.HostNotFound)))
         assertTrue(refreshes(RemoteState.Offline(OfflineReason.Transport)))
-        assertTrue(refreshes(RemoteState.Offline(OfflineReason.Rejected)))
+    }
+
+    @Test
+    fun aHostThatRefusedIsNotLookedFor() {
+        // It answered: nothing to find, and a re-find must not cut the
+        // refusal spacing short (the host blocks a run of failed handshakes).
+        assertFalse(refreshes(RemoteState.Offline(OfflineReason.Rejected)))
     }
 
     @Test
@@ -73,6 +79,35 @@ class DiscoveryRefreshTest {
         assertFalse(refreshes(stopped, paired = false))
         assertFalse(refreshes(stopped, localNetworkAllowed = false))
         assertFalse(refreshes(RemoteState.Searching, inBackgroundGrace = true))
+    }
+
+    // MARK: What a browse result is worth
+
+    private fun found(address: String = "192.168.1.21", port: Int = 7777) =
+        DiscoveredHost(hostID = "h", name = "endermite", kind = "app", host = address, port = port)
+
+    @Test
+    fun ourHostShowingUpIsNews() {
+        assertTrue(RemoteClient.isNews(before = null, now = found()))
+    }
+
+    @Test
+    fun aRefreshThatFindsOurHostWhereItWasIsNotNews() {
+        // Every refresh finds a refusing (or unreachable) host again; that
+        // must not signal a retry, or it would be asked every ~10 s.
+        assertFalse(RemoteClient.isNews(before = found(), now = found()))
+    }
+
+    @Test
+    fun ourHostAtAnotherAddressOrPortIsNews() {
+        assertTrue(RemoteClient.isNews(before = found(), now = found(address = "192.168.1.30")))
+        assertTrue(RemoteClient.isNews(before = found(), now = found(port = 7778)))
+    }
+
+    @Test
+    fun ourHostGoneIsNotNews() {
+        assertFalse(RemoteClient.isNews(before = found(), now = null))
+        assertFalse(RemoteClient.isNews(before = null, now = null))
     }
 
     // MARK: Loop

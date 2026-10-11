@@ -1059,9 +1059,17 @@ class RemoteClient(
     private fun observeDiscovery() {
         if (discoveryJob?.isActive == true) return
         discoveryJob = scope.launch {
+            // Only news about our host counts: it showing up, or turning up
+            // somewhere else. Another host coming and going, or a refresh
+            // that finds ours where it was, is no reason to cut a wait short
+            // (a refusing host would be asked far more often than it allows).
+            var seen: DiscoveredHost? = null
             discovery.hosts.collect { hosts ->
                 val cred = store.credential.value ?: return@collect
-                if (cred.hostID !in hosts) return@collect
+                val found = hosts[cred.hostID]
+                val news = isNews(seen, found)
+                seen = found
+                if (!news) return@collect
                 when (val current = _state.value) {
                     is RemoteState.Searching -> kickRetry()
                     is RemoteState.Offline -> when (current.reason) {
@@ -1191,6 +1199,13 @@ class RemoteClient(
          * itself. Not once connected, after Disconnect, or for a verdict
          * only the user can act on.
          */
+        /**
+         * Whether a [RemoteDiscovery.hosts] value is worth a retry: our host
+         * is there now and wasn't, or is at another address than it was.
+         */
+        internal fun isNews(before: DiscoveredHost?, now: DiscoveredHost?): Boolean =
+            now != null && (before == null || before.host != now.host || before.port != now.port)
+
         internal fun refreshesDiscovery(
             state: RemoteState,
             paired: Boolean,
@@ -1204,8 +1219,10 @@ class RemoteClient(
                     OfflineReason.HostStopped,
                     OfflineReason.HostNotFound,
                     OfflineReason.Transport,
-                    OfflineReason.Rejected,
                     -> true
+                    // It answered: there is nothing to find, and its refusals
+                    // are spaced out on purpose.
+                    OfflineReason.Rejected,
                     OfflineReason.NotRecognised,
                     OfflineReason.VersionMismatch,
                     OfflineReason.NoLocalNetwork,

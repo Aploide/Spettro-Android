@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,6 +67,14 @@ class RemoteDiscovery(context: Context) {
     /** serviceName -> hostID, so a lost service can be removed from [hosts]. */
     private val serviceToHost = HashMap<String, String>()
 
+    /** Hosts seen before the last [refresh] that it hasn't resolved again yet. */
+    private val unconfirmed = HashSet<String>()
+
+    /** Counts [refresh]es (and stops), so a late confirm check knows it's stale. */
+    private var refreshGeneration = 0
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     fun start() {
         synchronized(lock) {
             if (discoveryListener != null) return
@@ -98,8 +108,14 @@ class RemoteDiscovery(context: Context) {
      * asks the network again instead of Android's cache. Android's NSD often
      * misses a host going away and coming back (a desktop quit and
      * relaunched), and a new browse reports it as found if it is there.
-     * What was seen is cleared first, so a host that answers at the same
-     * address emits again. Does nothing while not browsing.
+     *
+     * What was seen stays in [hosts] while the new browse looks, so the
+     * Bonjour route isn't lost for a connect attempt in between; a host the
+     * new browse hasn't resolved again within [REFRESH_CONFIRM_MS] is
+     * dropped. So [hosts] changes only when something did: a host that is
+     * still there at the same address emits nothing, and one that went away
+     * and comes back emits twice (gone, then back). Does nothing while not
+     * browsing.
      */
     fun refresh() {
         synchronized(lock) {
@@ -112,8 +128,9 @@ class RemoteDiscovery(context: Context) {
             // A resolve in flight finishes and carries the queue on; what
             // was waiting behind it is the old browse's.
             resolveQueue.clear()
-            serviceToHost.clear()
-            _hosts.value = emptyMap()
+            unconfirmed.clear()
+            unconfirmed.addAll(_hosts.value.keys)
+            val generation = ++refreshGeneration
             val listener = makeDiscoveryListener()
             discoveryListener = listener
             try {
@@ -127,7 +144,20 @@ class RemoteDiscovery(context: Context) {
                 _isBrowsing.value = false
                 _failure.value = e.message ?: "discovery failed"
             }
+            mainHandler.postDelayed({ dropUnconfirmed(generation) }, REFRESH_CONFIRM_MS)
         }
+    }
+
+    /** Drops what the refresh numbered [generation] didn't see again. */
+    private fun dropUnconfirmed(generation: Int) {
+        val gone = synchronized(lock) {
+            if (generation != refreshGeneration || discoveryListener == null) return
+            val ids = unconfirmed.toSet()
+            unconfirmed.clear()
+            serviceToHost.entries.removeAll { it.value in ids }
+            ids
+        }
+        if (gone.isNotEmpty()) _hosts.update { it - gone }
     }
 
     fun stop() {
@@ -149,6 +179,8 @@ class RemoteDiscovery(context: Context) {
             resolveQueue.clear()
             resolving = false
             serviceToHost.clear()
+            unconfirmed.clear()
+            refreshGeneration++
         }
         _isBrowsing.value = false
         _hosts.value = emptyMap()
@@ -267,11 +299,17 @@ class RemoteDiscovery(context: Context) {
             protocolVersion = txt(RemoteProtocolInfo.TxtKey.PROTOCOL_VERSION)?.toIntOrNull()
                 ?: RemoteProtocolInfo.VERSION,
         )
-        synchronized(lock) { serviceToHost[serviceInfo.serviceName] = hostID }
+        synchronized(lock) {
+            serviceToHost[serviceInfo.serviceName] = hostID
+            unconfirmed.remove(hostID)
+        }
         _hosts.update { it + (hostID to discovered) }
     }
 
     private companion object {
         const val MAX_RESOLVE_ATTEMPTS = 2
+
+        /** How long a [refresh] waits for a host it saw before to show up again. */
+        const val REFRESH_CONFIRM_MS = 5_000L
     }
 }
