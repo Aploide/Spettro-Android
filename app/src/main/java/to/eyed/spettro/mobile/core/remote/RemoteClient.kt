@@ -54,6 +54,12 @@ sealed interface RemoteState {
     /** Found it; connecting and authenticating. */
     data object Connecting : RemoteState
 
+    /**
+     * Paired, and dropped on purpose (Settings › Disconnect): nothing is
+     * looking or retrying until [RemoteClient.start].
+     */
+    data object Disconnected : RemoteState
+
     /** Attached and usable. */
     data class Connected(
         val host: HostInfo,
@@ -285,6 +291,20 @@ class RemoteClient(
             // quietly instead of telling a network-fault story.
             _state.value == RemoteState.Offline(OfflineReason.HostStopped) -> _state.value
             else -> RemoteState.Searching
+        }
+    }
+
+    /**
+     * Drops the socket because the user asked to, and stays down: unlike
+     * [stop], which only ever runs out of sight, this one is looked at, so
+     * it says nothing is happening rather than "looking". The next [start]
+     * — Reconnect, or the app's next return to the foreground — reconnects.
+     */
+    fun disconnect() {
+        stop()
+        if (store.credential.value != null) {
+            _state.value = RemoteState.Disconnected
+            log("disconnected")
         }
     }
 

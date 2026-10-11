@@ -47,6 +47,13 @@ class DisconnectReasonTest {
     }
 
     @Test
+    fun `a deliberate disconnect is not a search`() {
+        // Nothing retries after Settings › Disconnect, so "Looking for…" and
+        // its spinner would wait forever with no button to press.
+        assertEquals(DisconnectReason.Disconnected, DisconnectReason.from(RemoteState.Disconnected))
+    }
+
+    @Test
     fun `looking and connecting both read as searching`() {
         assertEquals(DisconnectReason.Searching, DisconnectReason.from(RemoteState.Searching))
         assertEquals(DisconnectReason.Searching, DisconnectReason.from(RemoteState.Connecting))

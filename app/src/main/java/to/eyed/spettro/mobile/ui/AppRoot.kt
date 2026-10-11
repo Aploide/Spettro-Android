@@ -218,7 +218,7 @@ fun AppRoot(container: AppContainer) {
                     model.flushDeletesAndWait()
                     // Deliberate: go straight to the disconnected screen.
                     lastConnected = null
-                    client.stop()
+                    client.disconnect()
                 }
             },
         )

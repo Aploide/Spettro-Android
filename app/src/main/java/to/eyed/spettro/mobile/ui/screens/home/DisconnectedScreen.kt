@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.PersonRemove
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Refresh
@@ -68,7 +69,8 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * SharingOff (host said it stopped), NoLocalNetwork (Android withholds the
  * local network), TurnedAway (the host refused the handshake for now),
  * VersionMismatch (the two can't talk), Revoked (the host no longer knows
- * this phone), and Transport (the socket dropped for an unnamed reason).
+ * this phone), Transport (the socket dropped for an unnamed reason), and
+ * Disconnected (the user dropped it, and nothing retries).
  *
  * Only Revoked invites pairing again: the others leave a working pairing
  * alone, and forgetting it over a passing refusal would throw it away.
@@ -83,6 +85,7 @@ enum class DisconnectReason {
     VersionMismatch,
     Revoked,
     Transport,
+    Disconnected,
     ;
 
     companion object {
@@ -98,6 +101,7 @@ enum class DisconnectReason {
                 OfflineReason.NoLocalNetwork -> NoLocalNetwork
                 OfflineReason.Transport -> Transport
             }
+            RemoteState.Disconnected -> Disconnected
             else -> Searching
         }
     }
@@ -144,6 +148,7 @@ fun DisconnectedScreen(
         DisconnectReason.TurnedAway -> Icons.Outlined.WarningAmber
         DisconnectReason.VersionMismatch -> Icons.Outlined.SystemUpdate
         DisconnectReason.Revoked -> Icons.Outlined.PersonRemove
+        DisconnectReason.Disconnected -> Icons.Outlined.LinkOff
     }
     val title = when (reason) {
         DisconnectReason.Searching -> "Looking for $host…"
@@ -154,6 +159,7 @@ fun DisconnectedScreen(
         DisconnectReason.TurnedAway -> "$host turned the connection down"
         DisconnectReason.VersionMismatch -> "Update Spettro"
         DisconnectReason.Revoked -> "This phone was removed"
+        DisconnectReason.Disconnected -> "Disconnected from $host"
     }
     val detail = when (reason) {
         DisconnectReason.Searching ->
@@ -184,6 +190,8 @@ fun DisconnectedScreen(
             "This phone and $host run versions of Spettro that can’t talk to each other. Update whichever is older, then try again."
         DisconnectReason.Revoked ->
             "$host no longer recognises this phone. Pair again to reconnect."
+        DisconnectReason.Disconnected ->
+            "You disconnected this phone. The pairing is kept, so it reconnects whenever you’re ready."
     }
 
     Column(
@@ -249,7 +257,7 @@ fun DisconnectedScreen(
                     )
                 else ->
                     PrimaryActionButton(
-                        label = "Try again",
+                        label = if (reason == DisconnectReason.Disconnected) "Reconnect" else "Try again",
                         icon = Icons.Outlined.Refresh,
                         onClick = onRetry,
                     )
@@ -365,6 +373,10 @@ private fun UnreachablePreview() = DisconnectedPreview(DisconnectReason.Unreacha
 @Preview(name = "Turned away", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun TurnedAwayPreview() = DisconnectedPreview(DisconnectReason.TurnedAway)
+
+@Preview(name = "Disconnected", showBackground = true, backgroundColor = 0xFF1C1C1E)
+@Composable
+private fun DisconnectedByUserPreview() = DisconnectedPreview(DisconnectReason.Disconnected)
 
 @Preview(name = "Version mismatch", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable

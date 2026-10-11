@@ -33,5 +33,6 @@ class TransientDropTest {
         assertFalse(offline(OfflineReason.HostStopped))
         assertFalse(offline(OfflineReason.NoLocalNetwork))
         assertFalse(isTransientDrop(RemoteState.Unpaired))
+        assertFalse(isTransientDrop(RemoteState.Disconnected))
     }
 }
