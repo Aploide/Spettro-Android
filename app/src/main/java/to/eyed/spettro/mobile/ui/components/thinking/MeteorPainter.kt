@@ -107,7 +107,8 @@ fun DrawScope.drawMeteor(run: MeteorRun, progress: Double, palette: MeteorPalett
     // The streak as fill: the slider's bar, burnt in from where its fill
     // stood to the head, white-hot at the head and cooling back to ember.
     // Painted, not added, so it is the bar itself rather than light on it.
-    // Set out from Low, it burns Low's end cap too; from further along, the
+    // Set out from the first stop (Off, or Low when the CLI lists no Off), it
+    // burns the end cap too; from further along, the
     // tail that reaches back over the fill fades in from nothing, so the
     // accent turns to fire rather than being cut off by it. After impact the
     // real fill is under it and it fades away.

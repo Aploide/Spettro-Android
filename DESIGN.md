@@ -183,14 +183,16 @@ passes WCAG AA on every surface — `ContrastTest` asserts it over (Lilac|Mono)�
 ### The thinking slider (`ui/components/thinking/`, `model/Thinking*.kt`)
 
 A port of the desktop's ThinkingSlider: one dial over two CLI options, the `thinking` select
-and the `ultra` boolean. Stops are Low · Medium · High · Extra high · Max (whatever subset the
-CLI offers, always in that order), then **Ultra** — which means thinking *high* plus
-ultracode, not max. Off is never a stop; it is only shown when something else set it. The
-caption under the track says what the stop does; Ultra paused under Ask first offers
-Restricted instead. It opens from the composer's thinking chip as a sheet.
+and the `ultra` boolean. Stops are Off · Low · Medium · High · Extra high · Max (whatever
+subset the CLI offers, always in that order), then **Ultra** — which means thinking *high*
+plus ultracode, not max. Off, the CLI's default, is the leftmost stop whenever the CLI lists
+it; a CLI that doesn't list it but is set to it leaves the level unset, shown as a small
+hollow thumb short of the first stop. The caption under the track says what the stop does;
+Ultra paused under Ask first offers Restricted instead. It opens from the composer's
+thinking chip as a sheet.
 
-- The track's fill is the accent up to the thumb; toward Ultra it warms through the fire
-  tokens. A lit Ultra paints the whole track in fire with the smoulder (`Embers`, seed 11,
+- The track's fill is the accent up to the thumb, and empty at Off, end cap included;
+  toward Ultra it warms through the fire tokens. A lit Ultra paints the whole track in fire with the smoulder (`Embers`, seed 11,
   a wave every 3.8 s) and a breathing white-hot thumb.
 - Moving into Ultra flies a **meteor** (`Meteor`, seeded by the flight count) from the stop
   the thumb stood on; the thumb and lit fill take over when the head lands. Reduced motion

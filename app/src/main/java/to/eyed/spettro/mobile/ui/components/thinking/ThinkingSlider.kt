@@ -119,7 +119,7 @@ import to.eyed.spettro.mobile.ui.theme.SpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroMotion
 import to.eyed.spettro.mobile.ui.theme.rememberReducedMotion
 
-// The thinking slider: how hard the model thinks, from Low to Max, and one
+// The thinking slider: how hard the model thinks, from Off to Max, and one
 // stop past Max — Ultra, where substantial tasks run as multi-agent
 // workflows. Port of the desktop's ThinkingSlider.tsx and thinkingSlider.css.
 // It replaces both the thinking menu and the Ultra switch: two controls for
@@ -161,8 +161,8 @@ private val BODY_HEIGHT = LABELS_TOP + LABELS_HEIGHT
 
 /**
  * How far the thumb's layer reaches past the body on every side: lit Ultra's
- * widest glow (r + 4, blurred 14) at the drag's 1.08 scale, and the Off
- * thumb short of Low. Dimmed, the body is drawn through a layer, and a
+ * widest glow (r + 4, blurred 14) at the drag's 1.08 scale, and the unset
+ * thumb short of the first stop. Dimmed, the body is drawn through a layer, and a
  * layer only holds what lies inside it.
  */
 private val THUMB_ROOM = 40.dp
@@ -171,8 +171,9 @@ private val THUMB_ROOM = 40.dp
 private const val DISABLED_ALPHA = 0.45f
 
 /**
- * Where the thumb rests while thinking is off: left of the Low stop, just
- * clear of the bar's end (its cap, 8, plus the 12dp ring's radius).
+ * Where the thumb rests for an unset level (`off` from a CLI that doesn't
+ * list it): left of the first stop, just clear of the bar's end (its cap, 8,
+ * plus the 12dp ring's radius).
  */
 private const val OFF_THUMB = -14f
 
@@ -282,6 +283,10 @@ fun ThinkingSlider(
     // eye last saw it and the streak burns it the rest of the way. The hidden
     // thumb waits there too, and is put down on Ultra at impact.
     val at = if (flying) flightFrom!! else shown
+    // Off — the stop, or a level the CLI doesn't list — fills nothing, not
+    // even the end cap. It follows the stop the bar is drawn at, so in
+    // flight it is the stop the meteor left from.
+    val atOff = at < 0 || stops.getOrNull(at)?.id == Thinking.OFF
     val fillFrac = frac(at)
     val showPaused = state.paused && shown == ultraIndex
     val litLook = shownStop?.ultra == true && !showPaused
@@ -300,15 +305,21 @@ fun ThinkingSlider(
     val snapMoves = inFlight || drag?.moved == true || reduced || frozen
     val targetFrac = fillFrac
     val targetOff = if (at < 0) OFF_THUMB else 0f
+    // How far the fill's end cap has retracted: all the way at Off, sliding
+    // with the thumb, as the desktop's translateX(-100%) on the fill does.
+    val targetEmpty = if (atOff) 1f else 0f
     val fracAnim = remember { Animatable(targetFrac) }
     val offAnim = remember { Animatable(targetOff) }
-    LaunchedEffect(targetFrac, targetOff, snapMoves) {
+    val emptyAnim = remember { Animatable(targetEmpty) }
+    LaunchedEffect(targetFrac, targetOff, targetEmpty, snapMoves) {
         if (snapMoves) {
             fracAnim.snapTo(targetFrac)
             offAnim.snapTo(targetOff)
+            emptyAnim.snapTo(targetEmpty)
         } else {
             launch { fracAnim.animateTo(targetFrac, SpettroMotion.slider()) }
             launch { offAnim.animateTo(targetOff, SpettroMotion.slider()) }
+            launch { emptyAnim.animateTo(targetEmpty, SpettroMotion.slider()) }
         }
     }
 
@@ -554,14 +565,17 @@ fun ThinkingSlider(
             ) {
                 Canvas(Modifier.fillMaxSize()) {
                     inDp { w, _ ->
+                        val f = fracAnimValue(snapMoves, targetFrac, fracAnim.value)
+                        val e = fracAnimValue(snapMoves, targetEmpty, emptyAnim.value)
                         drawBar(
                             colors = colors,
                             width = w,
                             stops = stops.size,
                             ultraIndex = ultraIndex,
-                            fillEnd = if (shown < 0) 0f else CAP.value + (w - 2 * CAP.value) * fracAnimValue(snapMoves, targetFrac, fracAnim.value),
+                            fillEnd = CAP.value * (1 - e) + (w - 2 * CAP.value) * f,
                             fillFrac = fillFrac,
                             shown = shown,
+                            empty = atOff,
                             fireAlpha = fireAlpha.value,
                             litLook = litLook && !flying,
                             pausedLook = pausedLook,
@@ -629,7 +643,7 @@ fun ThinkingSlider(
                             colors = colors,
                             center = Offset(CAP.value + (w - 2 * CAP.value) * f + off, BAR_CENTER.value),
                             look = when {
-                                at < 0 -> ThumbLook.Off
+                                at < 0 -> ThumbLook.Unset
                                 pausedLook -> ThumbLook.Paused
                                 litLook -> ThumbLook.Lit
                                 else -> ThumbLook.Normal
@@ -749,6 +763,8 @@ private fun DrawScope.drawBar(
     fillEnd: Float,
     fillFrac: Float,
     shown: Int,
+    /** At Off: nothing is filled, so no stop is passed. */
+    empty: Boolean,
     fireAlpha: Float,
     litLook: Boolean,
     pausedLook: Boolean,
@@ -853,7 +869,7 @@ private fun DrawScope.drawBar(
 
         // The stops: small dots set into the bar, lit only where the fill is.
         for (i in 0 until stops) {
-            val passed = i <= shown && frac(i) <= fillFrac
+            val passed = i <= shown && frac(i) <= fillFrac && !empty
             val color = when {
                 !passed -> colors.textPrimary.copy(alpha = 0.26f)
                 // On the fire and on the paused grey a notch of shade reads on both.
@@ -865,7 +881,8 @@ private fun DrawScope.drawBar(
     }
 }
 
-private enum class ThumbLook { Normal, Off, Lit, Paused }
+/** Unset: a level that is none of the stops; the Off stop is Normal. */
+private enum class ThumbLook { Normal, Unset, Lit, Paused }
 
 /** The knob, riding on the bar, unclipped by it. */
 private fun DrawScope.drawThumb(
@@ -881,14 +898,15 @@ private fun DrawScope.drawThumb(
     if (alpha <= 0f) return
     val dark = colors.isDark
     withTransform({ scale(scale, scale, pivot = center) }) {
-        val r = if (look == ThumbLook.Off) 6f else 11f
+        val r = if (look == ThumbLook.Unset) 6f else 11f
         if (focusRing) {
             drawCircle(colors.focusRing.copy(alpha = colors.focusRing.alpha * alpha), radius = r + 3f, center = center, style = Stroke(2f))
         }
         when (look) {
-            ThumbLook.Off -> {
-                // Off (set somewhere else — it is not a stop): a smaller
-                // hollow thumb short of Low, so position and label agree.
+            ThumbLook.Unset -> {
+                // An unset level (`off` from a CLI that doesn't list it, so
+                // not a stop): a smaller hollow thumb short of the first
+                // stop, so position and label agree.
                 drawCircle(colors.surfaceRaised, radius = r, center = center, alpha = alpha)
                 drawCircle(colors.textTertiary, radius = r - 0.75f, center = center, style = Stroke(1.5f), alpha = alpha)
             }

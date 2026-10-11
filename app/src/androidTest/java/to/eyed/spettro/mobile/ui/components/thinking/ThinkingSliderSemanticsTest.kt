@@ -77,19 +77,19 @@ class ThinkingSliderSemanticsTest {
         val slider = rule.onNodeWithContentDescription("Thinking")
         slider.assert(state("High"))
         val range = slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
-        // Low, Medium, High, X-High, Max, Ultra: six stops, four between the
-        // ends. Off is no stop of its own (it reports 0, as Low does).
-        assertEquals(2f, range.current)
-        assertEquals(0f..5f, range.range)
-        assertEquals(4, range.steps)
+        // Off, Low, Medium, High, X-High, Max, Ultra: seven stops, five
+        // between the ends.
+        assertEquals(3f, range.current)
+        assertEquals(0f..6f, range.range)
+        assertEquals(5, range.steps)
 
         // TalkBack's swipe up / volume up is a SetProgress one step on.
-        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(3f) }
+        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(4f) }
         rule.waitUntil(3_000) { commits.isNotEmpty() }
         rule.waitForIdle()
         slider.assert(state("Extra high"))
 
-        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(5f) }
+        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(6f) }
         rule.waitUntil(3_000) { commits.lastOrNull()?.ultra == true }
         rule.waitForIdle()
         slider.assert(state("Ultra"))
@@ -97,14 +97,23 @@ class ThinkingSliderSemanticsTest {
         // Each stop is also a custom action, named as the stop is.
         assertEquals(listOf("Thinking"), slider.fetchSemanticsNode().config.getOrNull(SemanticsProperties.ContentDescription))
         val custom = slider.fetchSemanticsNode().config[SemanticsActions.CustomActions].map { it.label }
-        assertEquals(listOf("Low", "Medium", "High", "Extra high", "Max", "Ultra"), custom)
+        assertEquals(listOf("Off", "Low", "Medium", "High", "Extra high", "Max", "Ultra"), custom)
 
-        // And from Ultra straight back down to Low in one action.
-        val toLow = slider.fetchSemanticsNode().config[SemanticsActions.CustomActions].first()
+        // And from Ultra straight back down to Low in one action…
+        fun action(label: String) =
+            slider.fetchSemanticsNode().config[SemanticsActions.CustomActions].first { it.label == label }
+        val toLow = action("Low")
         rule.runOnIdle { toLow.action() }
         rule.waitUntil(3_000) { commits.lastOrNull()?.id == "low" }
         rule.waitForIdle()
         slider.assert(state("Low"))
+
+        // …and on to Off, a stop like the others.
+        val toOff = action("Off")
+        rule.runOnIdle { toOff.action() }
+        rule.waitUntil(3_000) { commits.lastOrNull()?.id == "off" }
+        rule.waitForIdle()
+        slider.assert(state("Off"))
     }
 
     @Test
@@ -128,11 +137,19 @@ class ThinkingSliderSemanticsTest {
         }
         val slider = rule.onNodeWithContentDescription("Thinking")
         slider.assert(state("Off"))
-        // TalkBack's step up from the 0 Off reports asks for 1; it means Low.
+        // Off is the stop at 0.
+        assertEquals(0f, slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current)
+        // TalkBack's step up from Off asks for 1; it means Low.
         slider.performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
         rule.waitUntil(3_000) { commits.isNotEmpty() }
         rule.waitForIdle()
         assertEquals("low", commits.single().id)
         slider.assert(state("Low"))
+        // And a step down from Low is Off again.
+        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
+        rule.waitUntil(3_000) { commits.size == 2 }
+        rule.waitForIdle()
+        assertEquals("off", commits.last().id)
+        slider.assert(state("Off"))
     }
 }

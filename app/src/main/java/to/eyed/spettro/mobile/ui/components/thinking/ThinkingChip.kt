@@ -201,7 +201,7 @@ fun ThinkingChip(
     if (open) {
         SpettroSheet(onDismissRequest = { open = false }) {
             // Full width, so the size animation's clip (when the Paused
-            // prompt comes and goes) is the sheet's edge: the Off thumb and
+            // prompt comes and goes) is the sheet's edge: the unset thumb and
             // lit Ultra's glow hang past the slider's own box.
             Column(
                 modifier = Modifier
