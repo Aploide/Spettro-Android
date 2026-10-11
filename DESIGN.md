@@ -2,7 +2,7 @@
 
 Android remote-control client for the `spettro` AI coding agent. Born as a port of the iOS
 app (`SpettroMobile`); it now follows the Electron desktop app (`../Spettro-Desktop`) — its
-remote host, its tunnel and its design language.
+remote host and its design language.
 Package root: `to.eyed.spettro.mobile`. UI: Jetpack Compose, Material 3 Expressive, dressed
 in the desktop's tokens.
 
@@ -10,15 +10,14 @@ in the desktop's tokens.
 
 - **Protocol B — "Spettro Remote"** (the only mode), version 1: WebSocket + JSON-RPC 2.0
   to the Spettro desktop app host. Bonjour `_spettro-remote._tcp`, QR pair-once
-  (HMAC-SHA256 challenge/response), durable device key. Reached on the LAN at
-  `ws://<ip>:<port>/`, or from anywhere at `wss://<remoteHost>/` through the computer's
-  Cloudflare named tunnel (`r` in the QR, `remoteHost` in the auth result and
-  `host/state`; `""` = no tunnel). Routes are raced LAN-first with a 750 ms head start
-  (`core/remote/RemoteConnection.kt`). Pairing over the tunnel is refused with `-33003`
-  unless the desktop allows it; resuming always works. Newer host abilities are announced
-  in `features` (`RemoteFeature`: configResult, notices, pendingReplay, mentions, rename,
-  projectFiles, remoteHost, snapshotV2) rather than by a version bump. Spec:
-  `../Spettro-Desktop/ARCHITECTURE.md` (Remote protocol; Remote over the internet), wire
+  (HMAC-SHA256 challenge/response), durable device key. Reached on the LAN only, at
+  `ws://<ip>:<port>/` (Bonjour, the last LAN address on Wi-Fi or Ethernet, or a loopback
+  address for a USB `adb reverse` forward), raced with a 750 ms head start
+  (`core/remote/RemoteConnection.kt`). There is no internet route: an older desktop's `r`
+  in the QR and `remoteHost` in the auth result or `host/state` are ignored. Newer host
+  abilities are announced in `features` (`RemoteFeature`: configResult, notices,
+  pendingReplay, mentions, rename, projectFiles, snapshotV2) rather than by a version
+  bump. Spec: `../Spettro-Desktop/ARCHITECTURE.md` (Remote protocol), wire
   types in `../Spettro-Desktop/src/shared/remote.ts`, host in `src/main/remote/`.
 - **Protocol A — CLI HTTP+SSE** *(removed)*: the direct `spettro --headless` connection
   originally shipped alongside Protocol B, but was removed — the paired companion-app
@@ -71,12 +70,12 @@ sealed interface RemoteState {
   data object Connecting : RemoteState
   data class Connected(
     val host: HostInfo, val agentReady: Boolean, val pairingOpen: Boolean = false,
-    val via: RemoteRoute = RemoteRoute.Lan,          // Lan | Internet (the tunnel)
+    val link: RemoteLink = RemoteLink.LocalNetwork,  // WiFi | Ethernet | Usb | LocalNetwork
     val features: Set<String> = emptySet(),          // RemoteFeature; has(feature)
   ) : RemoteState
   data class Offline(val reason: OfflineReason) : RemoteState
 }
-enum class OfflineReason { HostNotFound, TunnelUnreachable, Rejected, VersionMismatch, NotRecognised,
+enum class OfflineReason { HostNotFound, Rejected, VersionMismatch, NotRecognised,
                            HostStopped, NoLocalNetwork, Transport }
 
 class RemoteClient(...) {
@@ -210,9 +209,8 @@ Restricted instead. It opens from the composer's thinking chip as a sheet.
    prompts that name no chat.
 2. **PairingScreen** — three steps, QR scan (CameraX + ML Kit), paste a pairing link; the
    local-network permission is asked before pairing with a LAN address.
-3. **DisconnectedScreen** — one calm screen per reason (looking, can't reach — over the
-   internet too when there is a tunnel —, lost the connection, sharing off, local network
-   access, turned away, update needed, removed), with Try again / Pair again / Allow access
+3. **DisconnectedScreen** — one calm screen per reason (looking, can't reach, lost the
+   connection, sharing off, desktop app quit, local network access, turned away, update needed, removed), with Try again / Pair again / Allow access
    and always "Forget this computer…".
 4. **ChatListScreen** — the desktop sidebar: sections by project folder (collapsible), pinned
    first, search (titles and folders), long-press actions (pin, rename, archive, delete with
@@ -242,8 +240,8 @@ Restricted instead. It opens from the composer's thinking chip as a sheet.
    pickers (thinking and Ultra live in the slider).
 8. **PermissionSheet** / **QuestionSheet** — only for prompts that name no chat; never
    preselect recommended; unanswered questions omitted from reply.
-9. **SettingsScreen** — connection (computer, route: Wi-Fi or over the internet, internet
-   address, agent), subscription, models & providers link, appearance (System/Light/Dark,
+9. **SettingsScreen** — connection (computer, route: Wi-Fi, Ethernet, USB or on your
+   network, agent), subscription, models & providers link, appearance (System/Light/Dark,
    Lilac/Monochrome), connection log, about. A centered modal on tablets.
 10. **ProvidersScreen** — providers, API key connect, local endpoints (probe/add/remove),
     model list with favorites.
@@ -289,4 +287,4 @@ mentions, the thinking dial, its moves and commit queue, the meteor's plan, `gro
 case-for-case port of the desktop suite — screenshots cannot catch a member attached to the wrong
 run), the `ultracode` activation matcher and the `+500k` budget directive against the Go
 implementation's own golden vectors, and `ContrastTest` over (Lilac|Mono)×(light|dark).
-E2E: the Spettro desktop app hosting on a computer (LAN and tunnel) + this app on a device.
+E2E: the Spettro desktop app hosting on a computer (on the LAN) + this app on a device.

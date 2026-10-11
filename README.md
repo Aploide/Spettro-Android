@@ -17,9 +17,8 @@ manual DI via `AppContainer`).
 everything it emits: chats, streamed tokens, tool calls, diffs, plans,
 permission prompts, and ask-user questions. It pairs with the **Spettro
 desktop app** on your computer — Linux, macOS, or Windows — over the local
-network (Bonjour discovery, QR-code pairing, WebSocket + JSON-RPC 2.0), or
-from anywhere through the computer's Cloudflare tunnel, and mirrors its chat
-list; the computer owns the agent. Every prompt, config change, and
+network (Bonjour discovery, QR-code pairing, WebSocket + JSON-RPC 2.0), and
+mirrors its chat list; the computer owns the agent. Every prompt, config change, and
 permission reply is a request; every chat update is a notification. The app
 owns the display transcript, the composer, and the sheets; the agent owns
 the model, the tool loop, and the file edits.
@@ -31,11 +30,11 @@ the model, the tool loop, and the file edits.
 | | **Spettro Remote** (Protocol B, version 1) |
 |---|---|
 | Connects to | Spettro desktop app acting as host (Settings › Remote › sharing on) |
-| Transport | WebSocket, JSON-RPC 2.0 (symmetric peer): `ws://<lan-ip>:<port>/` at home, `wss://<remoteHost>/` through the tunnel |
+| Transport | WebSocket, JSON-RPC 2.0 (symmetric peer): `ws://<lan-ip>:<port>/` on the local network (or a USB port forward) |
 | Discovery | Bonjour `_spettro-remote._tcp` via `NsdManager`, plus the QR's address hint and the last address that worked |
 | Auth | QR pair-once, HMAC-SHA256 challenge/response, durable device key |
 | Surface | Full chat list, projects, multi-session, config, permissions, questions, renames, @-mentions |
-| Spec | `../Spettro-Desktop/ARCHITECTURE.md` (Remote protocol, Remote over the internet); the wire is `../Spettro-Desktop/src/shared/remote.ts` |
+| Spec | `../Spettro-Desktop/ARCHITECTURE.md` (Remote protocol); the wire is `../Spettro-Desktop/src/shared/remote.ts` |
 
 The companion-app pairing is the only supported connection: the durable,
 HMAC-authenticated pairing is safer than exposing a raw agent endpoint, so
@@ -51,40 +50,33 @@ layers never parse ACP content; `core.acp` does.
 
 ### Pairing
 
-The desktop shows a QR code, `spettro-pair://pair?v=1&h=<hostID>&n=<name>&k=<kind>&s=<secret>&a=<addr>&p=<port>[&r=<hostname>]`
-(`RemotePairing.parse`). Scan it from the pairing screen, paste it, or open
-it as a link: the desktop's **Copy link** puts the same URL on the
-clipboard, and tapping it on the phone opens the app on
+The desktop shows a QR code, `spettro-pair://pair?v=1&h=<hostID>&n=<name>&k=<kind>&s=<secret>&a=<addr>&p=<port>`
+(`RemotePairing.parse`; unknown keys, such as the `r` an older desktop
+added for its internet tunnel, are ignored). Scan it from the pairing
+screen, paste it, or open it as a link: the desktop's **Copy link** puts
+the same URL on the clipboard, and tapping it on the phone opens the app on
 `spettro-pair://pair` (a `VIEW` intent filter on `MainActivity`, which is
 `singleTask` so the link reaches the running app). Unpaired, a link pairs as
 if scanned. Already paired, `PairingLinkPrompt` asks first — "Pair with
 “Studio iMac”?" — because pairing replaces the current computer; a link
 from the computer already connected changes nothing and is dropped quietly.
 
-Pairing over the internet is **off by default** on the desktop. A pairing
-attempt that only reaches the tunnel is turned down with `-33003`, which the
-phone says as "Pair on the same network as this computer first." Once
-paired, resuming always works over the tunnel.
+### Routes
 
-### Routes: the LAN and the tunnel
-
-`r` in the QR, `remoteHost` in the auth result and in every `host/state`, is
-the bare public hostname of the computer's Cloudflare named tunnel (`""` or
-absent: no tunnel). The client stores it with the credential and builds
-`wss://<remoteHost>/` from it; TLS ends at Cloudflare's edge, so no
-certificate handling lives on the phone. A goodbye `host/state` leaves the
-field out, which means unchanged; only `""` clears it.
-
-`EndpointPlan` (`core/remote/RemoteConnection.kt`) lists where to try, best
-first: where Bonjour sees the computer now, the last LAN address that worked
-(only on Wi-Fi or Ethernet), then the tunnel. `raceStaggered` races them
-"happy eyeballs" style — each next one after a 750 ms head start, or as soon
-as the one before fails — and the first to say hello as the right host wins;
-the losers are closed before the winner authenticates. Settings shows which
-route won ("Connected via Wi-Fi" / "Connected over the internet") and the
-internet address. When nothing answers, `offlineReason` picks the story: a
-tunnel that was tried and failed reads as *Can't reach …* over the
-internet, not as a local-network problem.
+The phone only reaches the computer on the local network; there is no
+internet route. `EndpointPlan` (`core/remote/RemoteConnection.kt`) lists
+where to try, best first: where Bonjour sees the computer now, then the last
+LAN address that worked — only on Wi-Fi or Ethernet, except a loopback
+address, which is a USB cable's `adb reverse` port forward and is tried on
+any network. Pairing tries the code's address hint, then Bonjour.
+`raceStaggered` races them "happy eyeballs" style — each next one after a
+750 ms head start, or as soon as the one before fails — and the first to say
+hello as the right host wins; the losers are closed before the winner
+authenticates. Settings shows which way the connection goes ("Connected over
+Wi-Fi", "over Ethernet", "over USB", "on your network"). When nothing
+answers, `offlineReason` picks the story: Bonjour sees the computer (a
+transport fault), the local-network permission is missing, or it isn't on
+this network.
 
 ### Local network permission (Android 17)
 
@@ -92,8 +84,8 @@ Android 17 (API 37) guards the LAN behind `ACCESS_LOCAL_NETWORK`. The app
 declares it, asks with a rationale before pairing with a LAN address
 (`rememberLocalNetworkPermission`), and offers it again from the
 disconnected screen. Without it the LAN routes are dropped from the plan —
-the system would refuse the sockets anyway — and a computer with a tunnel
-is still reached over the internet. Older Android ignores the permission.
+the system would refuse the sockets anyway — so nothing is tried until it is
+granted. Older Android ignores the permission.
 
 ### Features
 
@@ -110,7 +102,6 @@ on any of it. An old host sends no list, which reads as "none of these":
 | `mentions` | `chats/prompt` carries the `@`-mentioned files; without it they stay plain text |
 | `rename` | Rename appears in the chat's menu and on a long press in the list |
 | `projectFiles` | the `@` menu lists the project's files |
-| `remoteHost` | the tunnel hostname is kept up to date (absence means "no tunnel", not "unknown") |
 | `snapshotV2` | reopened chats keep steering, streaming, timing, mention and workflow fields |
 
 ### Staying connected
@@ -258,10 +249,9 @@ still `to.eyed.spettro.mobile`, still labelled *Spettro*.
 
 To actually use the app you need the Spettro desktop app running on a
 computer with sharing on (Settings › Remote). Pair on the same network as the
-computer — scan its QR code, paste or open its `spettro-pair://` link — unless
-it allows pairing over the internet; afterwards the phone also reaches it
-through its tunnel, if it has one. Each application id pairs separately, so
-the dev copy needs its own pairing.
+computer — scan its QR code, paste or open its `spettro-pair://` link — and
+the phone reconnects whenever it's on that network again. Each application
+id pairs separately, so the dev copy needs its own pairing.
 
 ### The screenshot harness
 
@@ -320,7 +310,7 @@ plus this app on a device.
 
 ## Related repositories
 
-- `../Spettro-Desktop` — the desktop app this pairs with: the remote host,
-  the tunnel, and the design system (`src/renderer/src/design/`) this app
+- `../Spettro-Desktop` — the desktop app this pairs with: the remote host
+  and the design system (`src/renderer/src/design/`) this app
   follows; its `ARCHITECTURE.md` documents the protocol
 - `../spettro` — the agent itself (the CLI)

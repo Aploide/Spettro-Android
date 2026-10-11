@@ -16,10 +16,9 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
-    <!-- The LAN route is deliberately plaintext ws:// (auth is HMAC
-         proof-of-key, hosts are raw IPs — TLS certs can't work there), so
-         cleartext must be allowed app-wide. The internet route is wss://
-         through the computer's Cloudflare tunnel, which owns the cert. -->
+    <!-- The computer is only reached on the LAN, deliberately over
+         plaintext ws:// (auth is HMAC proof-of-key, hosts are raw IPs — TLS
+         certs can't work there), so cleartext must be allowed app-wide. -->
     <application
         android:usesCleartextTraffic="true"
         android:allowBackup="false"

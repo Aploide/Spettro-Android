@@ -47,13 +47,11 @@
 #   reconnecting | disconnected_reconnecting
 #                            (a dropped link ridden out in place: the pill, the
 #                             composer's reconnecting placeholder)
-#   disconnected_<reason>[_lan][_nolan][_repeated]
-#                            (searching hostasleep unreachable sharingoff
+#   disconnected_<reason>[_repeated]
+#                            (searching hostasleep sharingoff hostquit
 #                             nolocalnetwork turnedaway versionmismatch revoked
-#                             transport; for a computer with an internet tunnel
-#                             unless _lan, _nolan without the local-network
-#                             permission, _repeated after a run of refusals)
-#   tunnel                   (Settings connected over the internet: the route and the address)
+#                             transport disconnected; _repeated after a run of
+#                             refusals)
 #   pairing_link  pairing_link_bad
 #                            (a spettro-pair:// link opened while paired elsewhere,
 #                             and one that isn't a pairing link)
