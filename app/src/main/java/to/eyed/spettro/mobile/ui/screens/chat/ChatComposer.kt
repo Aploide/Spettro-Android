@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CompletableDeferred
 import to.eyed.spettro.mobile.core.acp.AcpCommand
+import to.eyed.spettro.mobile.model.CommandCopy
 import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.model.ImageAttachment
 import to.eyed.spettro.mobile.ui.components.SpettroMenu
@@ -645,7 +646,8 @@ private fun MentionMenu(
 
 /**
  * The slash-command picker: a searchable bottom sheet listing every command
- * the agent advertises. Filtering is a case-insensitive contains on the name.
+ * the agent advertises, in plain words, the developer ones last
+ * ([CommandCopy]). The search matches a name's start or the description.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -666,11 +668,7 @@ internal fun CommandPaletteContent(
 ) {
     val colors = LocalSpettroColors.current
     var search by rememberSaveable { mutableStateOf("") }
-    val filtered = if (search.isBlank()) {
-        commands
-    } else {
-        commands.filter { it.name.contains(search.trim(), ignoreCase = true) }
-    }
+    val filtered = remember(commands, search) { CommandCopy.matching(commands, search) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         SpettroTextField(
@@ -709,9 +707,10 @@ internal fun CommandPaletteContent(
                         style = MonoBody.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
                         color = colors.textPrimary,
                     )
-                    if (command.description.isNotEmpty()) {
+                    val description = CommandCopy.description(command)
+                    if (description != null) {
                         Text(
-                            text = command.description,
+                            text = description,
                             style = MaterialTheme.typography.bodySmall,
                             color = colors.textSecondary,
                         )

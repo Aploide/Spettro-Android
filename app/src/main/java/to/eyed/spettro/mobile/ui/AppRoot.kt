@@ -84,6 +84,7 @@ import to.eyed.spettro.mobile.ui.screens.chat.DockPrompt
 import to.eyed.spettro.mobile.ui.screens.chat.CHAT_PLACEHOLDER
 import to.eyed.spettro.mobile.ui.screens.chat.RECONNECTING_PLACEHOLDER
 import to.eyed.spettro.mobile.ui.screens.chat.STARTING_PLACEHOLDER
+import to.eyed.spettro.mobile.model.CommandCopy
 import to.eyed.spettro.mobile.model.Mentions
 import to.eyed.spettro.mobile.ui.screens.chat.DockReply
 import to.eyed.spettro.mobile.core.remote.OfflineReason
@@ -1128,7 +1129,15 @@ private fun RemoteChatHost(
         configSummary = summary,
         onConfigTap = { showConfig = true },
         commands = commands,
-        onCommandPick = { composerText = "/${it.name} " },
+        // A command that takes arguments waits in the field ("/mode "); any
+        // other runs as it is, as the desktop's palette does.
+        onCommandPick = { command ->
+            if (CommandCopy.takesArguments(command)) {
+                composerText = "/${command.name} "
+            } else {
+                model.sendPrompt("/${command.name}")
+            }
+        },
         onBack = onBack,
         showBack = showBack,
         onTogglePinned = { model.setPinned(session.chatId, !isPinned) },
