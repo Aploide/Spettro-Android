@@ -1,5 +1,6 @@
 package to.eyed.spettro.mobile.ui
 
+import to.eyed.spettro.mobile.ui.components.rememberOnLocalNetwork
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.WindowInsets
@@ -291,6 +292,7 @@ fun AppRoot(container: AppContainer) {
                 // start() begins browsing now that it may, and retries at once.
                 if (granted) client.start()
             }
+            val onLocalNetwork by rememberOnLocalNetwork()
             DisconnectedScreen(
                 reason = reason,
                 hostName = credential?.hostName,
@@ -301,6 +303,7 @@ fun AppRoot(container: AppContainer) {
                 onAllowLocalNetwork = localNetwork::request,
                 localNetworkMissing = !localNetwork.isGranted,
                 refusedRepeatedly = refusals > 1,
+                onLocalNetwork = onLocalNetwork,
             )
         }
     }

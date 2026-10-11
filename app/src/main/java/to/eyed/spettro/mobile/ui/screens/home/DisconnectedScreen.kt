@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.Wifi
+import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -108,6 +109,15 @@ enum class DisconnectReason {
 }
 
 /**
+ * Whether to say the phone isn't on Wi-Fi: only for the "can't find it"
+ * stories, and only when the computer has no internet tunnel — with one,
+ * mobile data is a fine way in and Wi-Fi isn't the advice.
+ */
+internal fun offNetworkHint(reason: DisconnectReason, hasRemoteHost: Boolean, onLocalNetwork: Boolean): Boolean =
+    !onLocalNetwork && !hasRemoteHost &&
+        (reason == DisconnectReason.Searching || reason == DisconnectReason.HostAsleep)
+
+/**
  * The resting screen whenever the computer isn't reachable — deliberately
  * calm, because the fix is usually on the other device. Port of the iOS
  * `DisconnectedView`, minus the router that decides when to show it.
@@ -133,13 +143,16 @@ fun DisconnectedScreen(
     localNetworkMissing: Boolean = false,
     /** The host has turned down more than one handshake in a row. */
     refusedRepeatedly: Boolean = false,
+    /** The phone is on Wi-Fi or Ethernet, where a computer on the LAN can be found. */
+    onLocalNetwork: Boolean = true,
 ) {
     val colors = LocalSpettroColors.current
     val host = hostName ?: "your computer"
     val isWorking = reason == DisconnectReason.Searching
     var confirmingForget by rememberSaveable { mutableStateOf(false) }
+    val offNetwork = offNetworkHint(reason, hasRemoteHost, onLocalNetwork)
 
-    val icon: ImageVector = when (reason) {
+    val icon: ImageVector = if (offNetwork) Icons.Outlined.WifiOff else when (reason) {
         DisconnectReason.Searching -> Icons.Outlined.Wifi
         DisconnectReason.HostAsleep, DisconnectReason.Transport -> Icons.Outlined.Computer
         DisconnectReason.Unreachable -> Icons.Outlined.CloudOff
@@ -161,7 +174,11 @@ fun DisconnectedScreen(
         DisconnectReason.Revoked -> "This phone was removed"
         DisconnectReason.Disconnected -> "Disconnected from $host"
     }
-    val detail = when (reason) {
+    val detail = if (offNetwork) {
+        // Nothing on the LAN can be found from mobile data or with no network
+        // at all, and without a tunnel there is no other way to the computer.
+        "This phone isn’t on Wi-Fi. Join the same Wi-Fi as $host and it connects by itself."
+    } else when (reason) {
         DisconnectReason.Searching ->
             if (hasRemoteHost) "Make sure it’s awake and sharing is on."
             else "Make sure it’s awake and on the same Wi-Fi as this phone."

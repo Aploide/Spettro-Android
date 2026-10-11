@@ -58,4 +58,20 @@ class DisconnectReasonTest {
         assertEquals(DisconnectReason.Searching, DisconnectReason.from(RemoteState.Searching))
         assertEquals(DisconnectReason.Searching, DisconnectReason.from(RemoteState.Connecting))
     }
+
+    @Test
+    fun `off Wi-Fi is said only where finding the computer is the problem`() {
+        // The phone's real state with Wi-Fi off and no SIM: nothing on the
+        // LAN can be found, and "make sure it's awake" sends the user to the
+        // wrong device.
+        assertTrue(offNetworkHint(DisconnectReason.Searching, hasRemoteHost = false, onLocalNetwork = false))
+        assertTrue(offNetworkHint(DisconnectReason.HostAsleep, hasRemoteHost = false, onLocalNetwork = false))
+        // On Wi-Fi, or with a tunnel to go through, it isn't the advice.
+        assertFalse(offNetworkHint(DisconnectReason.Searching, hasRemoteHost = false, onLocalNetwork = true))
+        assertFalse(offNetworkHint(DisconnectReason.Searching, hasRemoteHost = true, onLocalNetwork = false))
+        // Other stories keep their own words.
+        assertFalse(offNetworkHint(DisconnectReason.Disconnected, hasRemoteHost = false, onLocalNetwork = false))
+        assertFalse(offNetworkHint(DisconnectReason.SharingOff, hasRemoteHost = false, onLocalNetwork = false))
+        assertFalse(offNetworkHint(DisconnectReason.Revoked, hasRemoteHost = false, onLocalNetwork = false))
+    }
 }
