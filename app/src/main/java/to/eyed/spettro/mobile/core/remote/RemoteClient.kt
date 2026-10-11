@@ -597,7 +597,7 @@ class RemoteClient(
 
             val every = candidatesFor(cred)
             // While the host is gone on purpose, the LAN is checked often and
-            // quietly in between the slow checks of every route: a refused
+            // quietly in between the slow checks of every route: a refused TCP
             // connection costs next to nothing, and the host doesn't count
             // it, while the tunnel is somebody else's server.
             val lanOnly = hold != null && !goodbyeChecks.takeCheck(monotonicMs())
@@ -640,17 +640,21 @@ class RemoteClient(
                     log("auth rejected permanently (${e.code}): ${e.message}")
                     return
                 }
-                val refused = hold == null && RemoteAuthError.isAuthCode(e.code)
+                // A host that answers the handshake is back, whatever it
+                // said: from here its verdict counts, quick checks or not.
+                holdReason = holdAfterHandshakeFailure(hold, e.code)
+                val refused = holdReason == null && RemoteAuthError.isAuthCode(e.code)
                 if (refused) _refusals.update { it + 1 }
                 _state.value = RemoteState.Offline(
-                    hold ?: if (refused) OfflineReason.Rejected else offlineTransportReason(cred, candidates),
+                    holdReason ?: if (refused) OfflineReason.Rejected else offlineTransportReason(cred, candidates),
                 )
                 if (!lanOnly || RemoteAuthError.isAuthCode(e.code)) log("connect failed (${e.code}): ${e.message}")
-                if (refused && _refusals.value > 1) {
+                val spacing = if (refused) refusalSpacingMs(_refusals.value) else null
+                if (spacing != null) {
                     // The host counts failed handshakes per address and
                     // blocks a run of them; over the tunnel that address may
                     // be shared. Ask rarely enough never to trip it.
-                    withTimeoutOrNull(REFUSED_RETRY_MS) { retrySignal.receive() }
+                    withTimeoutOrNull(spacing) { retrySignal.receive() }
                     continue
                 }
             } catch (e: Exception) {
@@ -659,7 +663,7 @@ class RemoteClient(
                 if (!lanOnly) log("connect failed: ${e.message}")
             }
 
-            awaitRetry(slow = hold != null, lanToCheck = hasQuickLanCheck(every))
+            awaitRetry(slow = holdReason != null, lanToCheck = hasQuickLanCheck(every))
         }
     }
 
@@ -1098,7 +1102,21 @@ class RemoteClient(
          * Between handshakes once the host has refused more than one in a
          * row: well clear of its limit of five failures in five minutes.
          */
-        private const val REFUSED_RETRY_MS = 90_000L
+        internal const val REFUSED_RETRY_MS = 90_000L
+
+        /**
+         * The hold a handshake that failed with [code] leaves: an auth
+         * verdict (a bad proof, a closed pairing window) means the host that
+         * said goodbye is answering again, so the goodbye no longer stands —
+         * the refusal is counted and spaced like any other instead of being
+         * retried on the quick LAN checks, which would trip the host's
+         * per-address block.
+         */
+        internal fun holdAfterHandshakeFailure(hold: OfflineReason?, code: Int): OfflineReason? =
+            if (RemoteAuthError.isAuthCode(code)) null else hold
+
+        /** The wait before the next handshake after [refusals] in a row, or null for the usual backoff. */
+        internal fun refusalSpacingMs(refusals: Int): Long? = if (refusals > 1) REFUSED_RETRY_MS else null
 
         private const val MAX_DIAGNOSTICS = 40
 

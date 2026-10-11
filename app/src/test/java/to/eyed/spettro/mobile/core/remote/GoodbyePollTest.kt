@@ -2,6 +2,7 @@ package to.eyed.spettro.mobile.core.remote
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -67,5 +68,21 @@ class GoodbyePollTest {
         assertEquals(0L, checks.nextWait(5_000L, lanToCheck = true))
         assertTrue(checks.takeCheck(5_000L))
         assertFalse(checks.takeCheck(8_000L))
+    }
+
+    @Test
+    fun aRefusedHandshakeDuringTheHoldIsSpacedLikeAnyRefusal() {
+        // A bad proof or a closed pairing window is an answer: the host is
+        // back, so the goodbye no longer holds the loop on its quick checks…
+        assertNull(RemoteClient.holdAfterHandshakeFailure(OfflineReason.HostStopped, RemoteAuthError.BAD_PROOF))
+        assertNull(RemoteClient.holdAfterHandshakeFailure(OfflineReason.HostStopped, RemoteAuthError.PAIRING_EXPIRED))
+        // …while anything that isn't a verdict leaves the goodbye standing.
+        assertEquals(OfflineReason.HostStopped, RemoteClient.holdAfterHandshakeFailure(OfflineReason.HostStopped, -32603))
+        assertNull(RemoteClient.holdAfterHandshakeFailure(null, RemoteAuthError.BAD_PROOF))
+        // The second refusal in a row waits 90 s, well clear of the host's
+        // five failures in five minutes.
+        assertNull(RemoteClient.refusalSpacingMs(1))
+        assertEquals(RemoteClient.REFUSED_RETRY_MS, RemoteClient.refusalSpacingMs(2))
+        assertEquals(RemoteClient.REFUSED_RETRY_MS, RemoteClient.refusalSpacingMs(5))
     }
 }
