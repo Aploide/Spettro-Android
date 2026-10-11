@@ -4,9 +4,10 @@ A native Android client for the **`spettro` AI coding agent** — a Kotlin port
 of the iOS companion app (`SpettroMobile`). The app ships no AI itself: it is
 a remote control and transcript view for an agent that runs elsewhere.
 
-UI is **Jetpack Compose with Material 3 Expressive**; package root is
-`to.eyed.spettro.mobile`. minSdk 33, targetSdk 36, Kotlin + coroutines
-throughout (no RxJava, no Hilt — manual DI via `AppContainer`).
+UI is **Jetpack Compose with Material 3 Expressive**, dressed in the desktop
+app's design language; package root is `to.eyed.spettro.mobile`. minSdk 33,
+targetSdk/compileSdk 37, Kotlin + coroutines throughout (no RxJava, no Hilt —
+manual DI via `AppContainer`).
 
 ---
 
@@ -15,9 +16,10 @@ throughout (no RxJava, no Hilt — manual DI via `AppContainer`).
 **Spettro for Android** talks to a `spettro` agent host and renders
 everything it emits: chats, streamed tokens, tool calls, diffs, plans,
 permission prompts, and ask-user questions. It pairs with the **Spettro
-desktop app** on your computer — Linux, macOS, or Windows — over the local network
-(Bonjour discovery, QR-code pairing, WebSocket + JSON-RPC 2.0) and mirrors
-its chat list; the computer owns the agent. Every prompt, config change, and
+desktop app** on your computer — Linux, macOS, or Windows — over the local
+network (Bonjour discovery, QR-code pairing, WebSocket + JSON-RPC 2.0), or
+from anywhere through the computer's Cloudflare tunnel, and mirrors its chat
+list; the computer owns the agent. Every prompt, config change, and
 permission reply is a request; every chat update is a notification. The app
 owns the display transcript, the composer, and the sheets; the agent owns
 the model, the tool loop, and the file edits.
@@ -26,14 +28,14 @@ the model, the tool loop, and the file edits.
 
 ## The connection
 
-| | **Spettro Remote** (Protocol B) |
+| | **Spettro Remote** (Protocol B, version 1) |
 |---|---|
-| Connects to | Spettro desktop app acting as host |
-| Transport | WebSocket, JSON-RPC 2.0 (symmetric peer) |
-| Discovery | Bonjour `_spettro-remote._tcp` via `NsdManager` |
+| Connects to | Spettro desktop app acting as host (Settings › Remote › sharing on) |
+| Transport | WebSocket, JSON-RPC 2.0 (symmetric peer): `ws://<lan-ip>:<port>/` at home, `wss://<remoteHost>/` through the tunnel |
+| Discovery | Bonjour `_spettro-remote._tcp` via `NsdManager`, plus the QR's address hint and the last address that worked |
 | Auth | QR pair-once, HMAC-SHA256 challenge/response, durable device key |
-| Surface | Full chat list, projects, multi-session, config, permissions, questions |
-| Spec | `../Spettro/docs/34-remote-protocol.md` |
+| Surface | Full chat list, projects, multi-session, config, permissions, questions, renames, @-mentions |
+| Spec | `../Spettro-Desktop/ARCHITECTURE.md` (Remote protocol, Remote over the internet); the wire is `../Spettro-Desktop/src/shared/remote.ts` |
 
 The companion-app pairing is the only supported connection: the durable,
 HMAC-authenticated pairing is safer than exposing a raw agent endpoint, so
@@ -43,47 +45,140 @@ there is deliberately no direct/headless CLI mode.
 (`Unpaired → Searching → Connecting → Connected`, plus `Offline` with a
 typed reason), a diagnostics log, and `RemoteApi` typed wrappers for every
 host request (`chatsList`, `chatsOpen`, `prompt`, `cancel`, `config`,
-`permissionReply`, `questionReply`, `agentCall`, …). Raw ACP payloads cross
-module boundaries as `JsonObject` — the protocol layers never parse ACP
-content; `core.acp` does.
+`rename`, `projectFiles`, `permissionReply`, `questionReply`, `agentCall`,
+…). Raw ACP payloads cross module boundaries as `JsonObject` — the protocol
+layers never parse ACP content; `core.acp` does.
 
-Failed connections retry on their own: exponential backoff from 1s to 30s,
-reset the moment anything succeeds, the app comes to the foreground, or
-Bonjour sees the host reappear. While the app is offline, the disconnected
-screen keeps a "Forget this computer…" escape hatch so a stale pairing can always
-be discarded.
+### Pairing
+
+The desktop shows a QR code, `spettro-pair://pair?v=1&h=<hostID>&n=<name>&k=<kind>&s=<secret>&a=<addr>&p=<port>[&r=<hostname>]`
+(`RemotePairing.parse`). Scan it from the pairing screen, paste it, or open
+it as a link: the desktop's **Copy link** puts the same URL on the
+clipboard, and tapping it on the phone opens the app on
+`spettro-pair://pair` (a `VIEW` intent filter on `MainActivity`, which is
+`singleTask` so the link reaches the running app). Unpaired, a link pairs as
+if scanned. Already paired, `PairingLinkPrompt` asks first — "Pair with
+“Studio iMac”?" — because pairing replaces the current computer; a link
+from the computer already connected changes nothing and is dropped quietly.
+
+Pairing over the internet is **off by default** on the desktop. A pairing
+attempt that only reaches the tunnel is turned down with `-33003`, which the
+phone says as "Pair on the same network as this computer first." Once
+paired, resuming always works over the tunnel.
+
+### Routes: the LAN and the tunnel
+
+`r` in the QR, `remoteHost` in the auth result and in every `host/state`, is
+the bare public hostname of the computer's Cloudflare named tunnel (`""` or
+absent: no tunnel). The client stores it with the credential and builds
+`wss://<remoteHost>/` from it; TLS ends at Cloudflare's edge, so no
+certificate handling lives on the phone. A goodbye `host/state` leaves the
+field out, which means unchanged; only `""` clears it.
+
+`EndpointPlan` (`core/remote/RemoteConnection.kt`) lists where to try, best
+first: where Bonjour sees the computer now, the last LAN address that worked
+(only on Wi-Fi or Ethernet), then the tunnel. `raceStaggered` races them
+"happy eyeballs" style — each next one after a 750 ms head start, or as soon
+as the one before fails — and the first to say hello as the right host wins;
+the losers are closed before the winner authenticates. Settings shows which
+route won ("Connected via Wi-Fi" / "Connected over the internet") and the
+internet address. When nothing answers, `offlineReason` picks the story: a
+tunnel that was tried and failed reads as *Can't reach …* over the
+internet, not as a local-network problem.
+
+### Local network permission (Android 17)
+
+Android 17 (API 37) guards the LAN behind `ACCESS_LOCAL_NETWORK`. The app
+declares it, asks with a rationale before pairing with a LAN address
+(`rememberLocalNetworkPermission`), and offers it again from the
+disconnected screen. Without it the LAN routes are dropped from the plan —
+the system would refuse the sockets anyway — and a computer with a tunnel
+is still reached over the internet. Older Android ignores the permission.
+
+### Features
+
+The protocol version stays 1: a host refuses any other. What a host adds on
+top it announces in `features` (in `hello` and the auth result; see
+`RemoteFeature`), and the phone checks `Connected.has(...)` before relying
+on any of it. An old host sends no list, which reads as "none of these":
+
+| Feature | What the phone does with it |
+|---|---|
+| `configResult` | `chats/config` waits for `{configOptions}` (or an error after a rollback); without it, the two calls of one slider move go 300 ms apart |
+| `notices` | desktop-side notices (`chat/state` with a `notice`, no `stopReason`) show in the transcript |
+| `pendingReplay` | approvals and questions still waiting are re-asked after auth, so a reconnect never loses one |
+| `mentions` | `chats/prompt` carries the `@`-mentioned files; without it they stay plain text |
+| `rename` | Rename appears in the chat's menu and on a long press in the list |
+| `projectFiles` | the `@` menu lists the project's files |
+| `remoteHost` | the tunnel hostname is kept up to date (absence means "no tunnel", not "unknown") |
+| `snapshotV2` | reopened chats keep steering, streaming, timing, mention and workflow fields |
+
+### Staying connected
+
+The connection follows the process lifecycle (`AppContainer`, via
+`ProcessLifecycleOwner`): it starts when the app comes to the foreground and
+is let go a little after it leaves, so the system photo picker doesn't drop
+it. Failed connections retry on their own: exponential backoff from 1s to
+30s, reset the moment anything succeeds, the app comes to the foreground, or
+Bonjour sees the host reappear. A drop while a chat is open is ridden out in
+place for up to 20 s — the transcript and the draft stay, a "Reconnecting…"
+pill shows, and Send waits — before the disconnected screen takes over. That
+screen says why in plain words (looking, can't reach, sharing off, turned
+away, removed, update needed, local network access) and always keeps a
+"Forget this computer…" escape hatch so a stale pairing can be discarded.
+There are no background notifications; another chat that needs an answer is
+marked "Needs you" in the list.
 
 ## Project layout
 
 ```
 app/src/main/java/to/eyed/spettro/mobile/
-├── MainActivity.kt            entry point; starts/stops the client with lifecycle
+├── MainActivity.kt            entry point; theme, and spettro-pair:// links
 ├── coordinator/               manual DI + app-wide coordinators
-│   ├── AppContainer.kt        service locator (the "DI graph")
-│   └── remote/MobileModel.kt  root coordinator: mirrors the host's state
+│   ├── AppContainer.kt        service locator; starts/stops the client with the process
+│   └── remote/                MobileModel (root coordinator: mirrors the host's
+│                              state), ChatOpenBuffer, DeleteScheduler (Undo window)
 ├── core/
 │   ├── SpettroJson.kt, B64.kt shared Json instance + base64url/std helpers
+│   ├── Humanize.kt            errors in plain words, raw text behind "Show details"
+│   ├── WorkflowActivation.kt  the "ultracode" matcher; WorkflowBudget.kt the "+500k" directive
 │   ├── rpc/                   JsonRpcPeer — symmetric JSON-RPC 2.0 over OkHttp WS
-│   ├── remote/                Protocol B: RemoteClient, RemoteApi, discovery (NSD),
-│   │                          pairing (QR + HMAC), credential store, notifications
+│   ├── remote/                Protocol B: RemoteClient, RemoteApi, RemoteProtocol
+│   │                          (wire types, features), RemoteConnection (routes,
+│   │                          endpoint plan, the race), discovery (NSD), pairing
+│   │                          (QR + HMAC), credential store, notifications
 │   └── acp/                   ACP payload parsing: session updates, config options
 │                              (both wire shapes), permission/question requests,
 │                              StoredSession decode, extension types
 ├── model/                     ChatSession transcript state holder, TranscriptItem,
-│   │                          ToolCallItem, image attachments
-│   └── Orchestration.kt       folds the flat wire back into runs (see below)
+│   │                          ToolCallItem, image attachments, and the pure logic
+│   │                          the UI draws from:
+│   ├── Orchestration.kt       folds the flat wire back into workflow runs (see below)
+│   ├── Thinking*.kt, SliderMoves.kt, Meteor.kt, Embers.kt
+│   │                          the thinking slider: one dial over thinking + Ultra,
+│   │                          the commit queue, the meteor and the smoulder
+│   ├── ToolGroups.kt, ToolPresentation.kt, UnifiedDiff.kt
+│   │                          tool rows: folded reads, verbs and notes, real diffs
+│   ├── Prompts.kt, QuestionForm.kt   the prompt dock's approvals and questions
+│   └── Todos.kt, Mentions.kt, CommandCopy.kt, RunPhase.kt, TranscriptAnchors.kt
 └── ui/
-    ├── theme/                 the desktop's tokens (Lilac/Monochrome × light/dark), type, motion
-    ├── components/            shared composables (cards, chips, badges, spinners…)
+    ├── theme/                 the desktop's tokens (Lilac/Monochrome × light/dark), type,
+    │                          motion, ThemeStore (appearance + accent, phone-local)
+    ├── components/            shared composables (buttons, cards, chips, spinners,
+    │                          local-network permission) and thinking/ (slider + chip)
     ├── screens/
     │   ├── home/              PairingScreen, QR scanner, ChatListScreen,
-    │   │                      DisconnectedScreen, project picker
-    │   ├── chat/              ChatScreen, composer, transcript rendering,
-    │   │                      tool-call rows, markdown, config sheet, status strip,
-    │   │                      workflow cards + the live run strip
+    │   │                      DisconnectedScreen, project picker, rename/delete dialogs
+    │   ├── chat/              ChatScreen, composer, NewSessionScreen, transcript rows,
+    │   │                      tool-call rows, PromptDock, TodoList, markdown,
+    │   │                      config sheet, workflow cards + the live run strip
     │   ├── settings/          SettingsScreen, ProvidersScreen
-    │   └── sheets/            PermissionSheet, QuestionSheet
-    └── AppRoot.kt             routes on RemoteState; hosts global sheets
+    │   └── sheets/            PermissionSheet, QuestionSheet (prompts naming no chat)
+    └── AppRoot.kt             routes on RemoteState; the split shell on tablets;
+                               reconnecting pill, pairing-link prompt, global sheets
+
+app/src/debug/.../screenshots/ScreenshotActivity.kt
+                               the screenshot harness (see Building and running)
 ```
 
 The architecture contract the modules were built against lives in
@@ -157,22 +252,54 @@ by name has to spell it out in full rather than using the `.Foo` shorthand.
 `tools/playstore-screenshots.sh` already does. Release builds are untouched:
 still `to.eyed.spettro.mobile`, still labelled *Spettro*.
 
-To actually use the app you need the Spettro desktop app running on a computer on
-the same network with remote hosting enabled — scan its pairing QR code from
-the app's pairing screen (or paste the `spettro-pair://` URL manually). Each
-application id pairs separately, so the dev copy needs its own pairing.
+```bash
+./gradlew assembleRelease    # R8-minified and resource-shrunk; signed with the debug key
+```
+
+To actually use the app you need the Spettro desktop app running on a
+computer with sharing on (Settings › Remote). Pair on the same network as the
+computer — scan its QR code, paste or open its `spettro-pair://` link — unless
+it allows pairing over the internet; afterwards the phone also reaches it
+through its tunnel, if it has one. Each application id pairs separately, so
+the dev copy needs its own pairing.
+
+### The screenshot harness
+
+The debug build carries `ScreenshotActivity`, which renders one screen from
+the preview fixtures with no client and no network. It serves every surface:
+the chat and its tool rows and diffs, the prompt dock, the todo list, the
+workflow cards, the thinking slider (frozen meteor and smoulder frames
+included), the new-session view, every disconnected reason, reconnecting,
+Settings on either route, and the pairing-link prompt. The full scene list
+is at the top of `tools/playstore-screenshots.sh`; drive one with
+
+```bash
+adb shell am start -n \
+    to.eyed.spettro.mobile.dev/to.eyed.spettro.mobile.screenshots.ScreenshotActivity \
+    --es scene thinking_meteor --es theme dark --es form phone [--es accent mono]
+```
+
+`./tools/playstore-screenshots.sh [phone|tablet]` captures the Play listing
+from it (boot the emulator with `./tools/start.sh`).
 
 ## Testing
 
 JVM unit tests (`app/src/test`) cover the parts that must not drift:
 
-- **Pairing** — HMAC-SHA256 proof vector, `spettro-pair://` QR payload parse
+- **Pairing and connection** — HMAC-SHA256 proof vector, `spettro-pair://`
+  parse (with `r` and hostname normalisation), the endpoint plan, the
+  staggered race, offline reasons, credential prefs, notification parsing
 - **JSON-RPC** — framing and round-trips in `JsonRpcPeer` (MockWebServer)
 - **ACP parsing** — both config-option wire shapes (ACP-native and the
   Swift-synthesized `StoredSession` shape), `StoredSession` decode, session
   updates, permission/question requests, extension types
 - **Model** — `ChatSession` transcript mutation and replay suppression,
-  `ToolCallItem` title parsing
+  `ToolCallItem` title parsing, tool groups and diffs, orchestration
+  folding, prompts and questions, todos, mentions, the thinking dial, its
+  moves and commit queue, the meteor's plan
+- **UI logic** — disconnect reasons, transient drops, config summary,
+  permission copy, session groups, theme prefs, and `ContrastTest`, which
+  checks every text token for WCAG AA over (Lilac|Mono)×(light|dark)
 
 End-to-end verification is manual: the Spettro desktop app hosting on a computer
 plus this app on a device.
@@ -193,6 +320,7 @@ plus this app on a device.
 
 ## Related repositories
 
-- `../Spettro` — the desktop app (and iOS companion) this is a port of; its
-  `docs/` folder is the protocol and design-system reference
-- `../spettro-CLI` — the agent itself
+- `../Spettro-Desktop` — the desktop app this pairs with: the remote host,
+  the tunnel, and the design system (`src/renderer/src/design/`) this app
+  follows; its `ARCHITECTURE.md` documents the protocol
+- `../spettro` — the agent itself (the CLI)
