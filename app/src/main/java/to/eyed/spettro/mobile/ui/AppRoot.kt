@@ -735,7 +735,7 @@ private fun SettingsHost(
         diagnostics = diagnostics,
         appVersion = to.eyed.spettro.mobile.BuildConfig.VERSION_NAME,
         onDisconnect = onDisconnect,
-        onForget = { model.client.forget() },
+        onForget = model::forgetComputer,
         onSignIn = model::signIn,
         onSignOut = model::signOut,
         onCancelLogin = model::cancelLogin,

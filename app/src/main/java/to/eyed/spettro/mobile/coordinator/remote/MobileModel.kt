@@ -596,6 +596,17 @@ class MobileModel(
         kotlinx.coroutines.withTimeoutOrNull(3_000) { deleteCalls.toList().forEach { it.join() } }
     }
 
+    /**
+     * Forgets this computer, once any delete still in its Undo window has
+     * gone: the socket it would go on closes with the pairing.
+     */
+    fun forgetComputer() {
+        scope.launch {
+            flushDeletesAndWait()
+            client.forget()
+        }
+    }
+
     /** Whether the computer renames chats (`chats/rename`). */
     val canRename: Boolean
         get() = (client.state.value as? RemoteState.Connected)?.has(RemoteFeature.RENAME) == true
