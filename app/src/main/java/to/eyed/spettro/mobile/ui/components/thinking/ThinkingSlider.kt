@@ -286,7 +286,7 @@ fun ThinkingSlider(
     // Off — the stop, or a level the CLI doesn't list — fills nothing, not
     // even the end cap. It follows the stop the bar is drawn at, so in
     // flight it is the stop the meteor left from.
-    val atOff = at < 0 || stops.getOrNull(at)?.id == Thinking.OFF
+    val atOff = BarFill.isEmpty(at, stops)
     val fillFrac = frac(at)
     val showPaused = state.paused && shown == ultraIndex
     val litLook = shownStop?.ultra == true && !showPaused
@@ -572,7 +572,7 @@ fun ThinkingSlider(
                             width = w,
                             stops = stops.size,
                             ultraIndex = ultraIndex,
-                            fillEnd = CAP.value * (1 - e) + (w - 2 * CAP.value) * f,
+                            fillEnd = BarFill.end(CAP.value, w - 2 * CAP.value, f, e),
                             fillFrac = fillFrac,
                             shown = shown,
                             empty = atOff,
@@ -642,12 +642,7 @@ fun ThinkingSlider(
                         drawThumb(
                             colors = colors,
                             center = Offset(CAP.value + (w - 2 * CAP.value) * f + off, BAR_CENTER.value),
-                            look = when {
-                                at < 0 -> ThumbLook.Unset
-                                pausedLook -> ThumbLook.Paused
-                                litLook -> ThumbLook.Lit
-                                else -> ThumbLook.Normal
-                            },
+                            look = BarFill.thumbLook(at, pausedLook = pausedLook, litLook = litLook),
                             alpha = if (flying) 0f else thumbAlpha.value,
                             scale = if (dragging) 1.08f else 1f,
                             breath = breath,
@@ -869,7 +864,7 @@ private fun DrawScope.drawBar(
 
         // The stops: small dots set into the bar, lit only where the fill is.
         for (i in 0 until stops) {
-            val passed = i <= shown && frac(i) <= fillFrac && !empty
+            val passed = BarFill.passed(i, shown, frac(i), fillFrac, empty)
             val color = when {
                 !passed -> colors.textPrimary.copy(alpha = 0.26f)
                 // On the fire and on the paused grey a notch of shade reads on both.
@@ -881,8 +876,6 @@ private fun DrawScope.drawBar(
     }
 }
 
-/** Unset: a level that is none of the stops; the Off stop is Normal. */
-private enum class ThumbLook { Normal, Unset, Lit, Paused }
 
 /** The knob, riding on the bar, unclipped by it. */
 private fun DrawScope.drawThumb(

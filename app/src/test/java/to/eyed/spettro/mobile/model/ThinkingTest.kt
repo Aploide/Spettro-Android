@@ -121,6 +121,15 @@ class ThinkingTest {
     }
 
     @Test
+    fun `is a single Off stop when the CLI offers only off and no ultra`() {
+        val state = Thinking.state(listOf(thinking("off", listOf("off"))))!!
+        assertEquals(listOf("off"), state.stops.map { it.id })
+        assertEquals(0, state.index)
+        assertEquals("Off", state.label)
+        assertTrue(Thinking.isOff(state))
+    }
+
+    @Test
     fun `offers every level, Off included, when the CLI lists none`() {
         val state = Thinking.state(listOf(thinking("high", emptyList())))
         assertEquals(listOf("off", "low", "medium", "high", "x-high", "max"), state?.stops?.map { it.id })
@@ -217,7 +226,7 @@ class ThinkingTest {
     }
 
     @Test
-    fun `from Off to a level sends the level alone`() {
+    fun `a level sends the level alone, whatever stop it leaves, Off included`() {
         assertEquals(listOf(ConfigCall("thinking", ConfigValue.Str("low"))), Thinking.callsFor(false, stop("low")))
     }
 
