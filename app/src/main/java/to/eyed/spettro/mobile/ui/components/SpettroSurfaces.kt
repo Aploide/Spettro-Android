@@ -1,5 +1,9 @@
 package to.eyed.spettro.mobile.ui.components
 
+import android.view.WindowManager
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -254,6 +258,15 @@ fun SpettroDialog(
 ) {
     val colors = LocalSpettroColors.current
     Dialog(onDismissRequest = onDismiss) {
+        // The dialog window pans by default: the keyboard keeps the focused
+        // field in view and covers whatever is under it — on a phone on its
+        // side, the buttons. Resizing instead fits the dialog above the
+        // keyboard, where a dialog that scrolls its body keeps them in view.
+        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            @Suppress("DEPRECATION")
+            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
         val shape = RoundedCornerShape(Dimens.radiusMd)
         Surface(
             modifier = Modifier.widthIn(max = 400.dp).floatingShadow(Elevation.Large, shape),
