@@ -1,5 +1,7 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import to.eyed.spettro.mobile.ui.components.HideStatusBarWhile
+import to.eyed.spettro.mobile.ui.components.keyboardSqueezed
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -194,13 +196,16 @@ fun NewSessionScreen(
     onMention: (String) -> Unit = {},
 ) {
     val colors = LocalSpettroColors.current
+    // On its side with the keyboard up, the composer needs the bar's room.
+    val squeezed = keyboardSqueezed()
+    HideStatusBarWhile(squeezed)
     Column(
         modifier
             .fillMaxSize()
             .background(colors.canvas)
             .imePadding(),
     ) {
-        SpettroTopBar(title = "", onBack = onBack)
+        if (!squeezed) SpettroTopBar(title = "", onBack = onBack)
         var composerFocus by remember { mutableIntStateOf(0) }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val minHeight = maxHeight

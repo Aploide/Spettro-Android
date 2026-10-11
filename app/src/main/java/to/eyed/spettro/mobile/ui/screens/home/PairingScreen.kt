@@ -263,24 +263,28 @@ private fun ManualEntryDialog(
     val colors = LocalSpettroColors.current
     var text by rememberSaveable { mutableStateOf("") }
     SpettroDialog(onDismiss = onDismiss) {
-        Text("Paste a pairing link", style = MaterialTheme.typography.titleSmall, color = colors.textPrimary)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "On your computer choose Copy link, then paste it here — or open the link on this phone and it comes straight to Spettro.",
-            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
-            color = colors.textSecondary,
-        )
-        Spacer(Modifier.height(Dimens.spacingMd))
-        SpettroTextField(
-            value = text,
-            onValueChange = { text = it },
-            placeholder = "spettro-pair://pair?v=1&h=…",
-            mono = true,
-            singleLine = false,
-            minLines = 2,
-            maxLines = 4,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        // On a phone on its side the keyboard leaves the dialog less height
+        // than it needs: the words and the field scroll, the buttons stay.
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+            Text("Paste a pairing link", style = MaterialTheme.typography.titleSmall, color = colors.textPrimary)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "On your computer choose Copy link, then paste it here — or open the link on this phone and it comes straight to Spettro.",
+                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
+                color = colors.textSecondary,
+            )
+            Spacer(Modifier.height(Dimens.spacingMd))
+            SpettroTextField(
+                value = text,
+                onValueChange = { text = it },
+                placeholder = "spettro-pair://pair?v=1&h=…",
+                mono = true,
+                singleLine = false,
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Spacer(Modifier.height(20.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
             SpettroButton("Cancel", onClick = onDismiss)

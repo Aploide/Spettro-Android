@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.foundation.border
 import to.eyed.spettro.mobile.ui.components.StatusDot
 import to.eyed.spettro.mobile.ui.components.SpettroTopBar
+import to.eyed.spettro.mobile.ui.components.HideStatusBarWhile
+import to.eyed.spettro.mobile.ui.components.keyboardSqueezed
 import to.eyed.spettro.mobile.ui.components.SpettroMenuSeparator
 import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
 import to.eyed.spettro.mobile.ui.components.SpettroMenu
@@ -209,6 +211,11 @@ fun ChatScreen(
     }
 
     val anchors = remember(items, isBusy) { TranscriptAnchors.of(items, isBusy) }
+    // A phone on its side with the keyboard up has room for the composer
+    // and little else: the top bar, the status strip and the status bar
+    // step aside until the keyboard goes, or they push Send under it.
+    val squeezed = keyboardSqueezed()
+    HideStatusBarWhile(squeezed)
     CompositionLocalProvider(
         LocalProjectPath provides projectPath,
         LocalAwaitingTools provides awaitingToolIds,
@@ -225,7 +232,7 @@ fun ChatScreen(
         modifier = modifier,
         containerColor = colors.canvas,
         topBar = {
-            SpettroTopBar(
+            if (!squeezed) SpettroTopBar(
                 title = title.ifBlank { "Untitled chat" },
                 // In the tablet split shell the chat sits beside the list,
                 // so there is nowhere to go "back" to.
@@ -297,7 +304,7 @@ fun ChatScreen(
         // height than the composer, and the transcript keeps most of it.
         val tabMax = (maxHeight * 0.26f).coerceIn(72.dp, TabMaxHeight)
         Column(modifier = Modifier.fillMaxSize()) {
-            if (usage != null || modeName != null) {
+            if (!squeezed && (usage != null || modeName != null)) {
                 ReadableColumn {
                     ChatStatusStrip(
                         usage = usage,
