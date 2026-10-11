@@ -17,6 +17,16 @@ import to.eyed.spettro.mobile.core.acp.AcpConfigOption
  */
 data class ConfigSummary(val text: String, val warning: String? = null) {
 
+    /**
+     * Where the last part starts, its " · " included — the permission level
+     * whenever the chat reports one — or null for a single part. The chip
+     * shortens what comes before it and never this: cut from the end, a
+     * narrow chip (a larger font, a long model name) would drop the
+     * permission first, and with it the warning.
+     */
+    val tailStart: Int?
+        get() = text.lastIndexOf(SEPARATOR).takeIf { it > 0 }
+
     /** Where [warning] sits in [text], or null when nothing warns. */
     val warningRange: IntRange?
         get() {
@@ -26,6 +36,8 @@ data class ConfigSummary(val text: String, val warning: String? = null) {
         }
 
     companion object {
+        private const val SEPARATOR = " · "
+
         /** The option ids the chip names, in the desktop's toolbar order. */
         private val IDS = listOf("mode", "model", "permission")
 
@@ -73,7 +85,7 @@ data class ConfigSummary(val text: String, val warning: String? = null) {
                 }
             }
             if (parts.isEmpty()) return null
-            return ConfigSummary(parts.joinToString(" · "), warning)
+            return ConfigSummary(parts.joinToString(SEPARATOR), warning)
         }
     }
 }

@@ -428,14 +428,28 @@ private fun ConfigChip(
                 }
             }
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = colors.textSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
+        // The head gives way, the permission level never does: see
+        // [ConfigSummary.tailStart].
+        val tailStart = summary.tailStart
+        Row(modifier = Modifier.weight(1f, fill = false)) {
+            Text(
+                text = if (tailStart == null) label else label.subSequence(0, tailStart),
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (tailStart != null) {
+                Text(
+                    text = label.subSequence(tailStart, label.length),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
         Icon(
             imageVector = Icons.Outlined.KeyboardArrowDown,
             contentDescription = null,

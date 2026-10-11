@@ -28,6 +28,16 @@ class ConfigSummaryTest {
     }
 
     @Test
+    fun `the chip keeps the level whole and shortens what comes before it`() {
+        val unasked = ConfigSummary.of(options("yolo"))!!
+        val tail = unasked.text.substring(unasked.tailStart!!)
+        assertEquals(" · Don’t ask", tail)
+        // The warning sits wholly in the part that is never cut.
+        assertEquals(true, unasked.warningRange!!.first >= unasked.tailStart!!)
+        assertNull(ConfigSummary("Coding").tailStart)
+    }
+
+    @Test
     fun `a level this app doesn't know keeps the CLI's name and doesn't warn`() {
         val custom = ChatPreviewData.configOptions.map { option ->
             if (option.id != "permission") return@map option
