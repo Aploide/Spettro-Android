@@ -64,17 +64,15 @@ class DisconnectReasonTest {
         // The phone's real state with Wi-Fi off and no SIM: nothing on the
         // LAN can be found, and "make sure it's awake" sends the user to the
         // wrong device.
-        assertTrue(offNetworkHint(DisconnectReason.Searching, hasRemoteHost = false, onLocalNetwork = false))
-        assertTrue(offNetworkHint(DisconnectReason.HostAsleep, hasRemoteHost = false, onLocalNetwork = false))
-        // On Wi-Fi, or with a tunnel to go through, it isn't the advice.
-        assertFalse(offNetworkHint(DisconnectReason.Searching, hasRemoteHost = false, onLocalNetwork = true))
-        assertFalse(offNetworkHint(DisconnectReason.Searching, hasRemoteHost = true, onLocalNetwork = false))
+        assertTrue(offNetworkHint(DisconnectReason.Searching, onLocalNetwork = false))
+        assertTrue(offNetworkHint(DisconnectReason.HostAsleep, onLocalNetwork = false))
+        // On Wi-Fi it isn't the advice.
+        assertFalse(offNetworkHint(DisconnectReason.Searching, onLocalNetwork = true))
         // Paired over USB (adb reverse to 127.0.0.1): no network is needed,
         // and the client keeps trying that route, so Wi-Fi isn't the fix.
         assertFalse(
             offNetworkHint(
                 DisconnectReason.Searching,
-                hasRemoteHost = false,
                 onLocalNetwork = false,
                 lastAddressIsLoopback = true,
             ),
@@ -82,15 +80,14 @@ class DisconnectReasonTest {
         assertFalse(
             offNetworkHint(
                 DisconnectReason.HostAsleep,
-                hasRemoteHost = false,
                 onLocalNetwork = false,
                 lastAddressIsLoopback = true,
             ),
         )
         // Other stories keep their own words.
-        assertFalse(offNetworkHint(DisconnectReason.Disconnected, hasRemoteHost = false, onLocalNetwork = false))
-        assertFalse(offNetworkHint(DisconnectReason.SharingOff, hasRemoteHost = false, onLocalNetwork = false))
-        assertFalse(offNetworkHint(DisconnectReason.Revoked, hasRemoteHost = false, onLocalNetwork = false))
+        assertFalse(offNetworkHint(DisconnectReason.Disconnected, onLocalNetwork = false))
+        assertFalse(offNetworkHint(DisconnectReason.SharingOff, onLocalNetwork = false))
+        assertFalse(offNetworkHint(DisconnectReason.Revoked, onLocalNetwork = false))
     }
 
     @Test

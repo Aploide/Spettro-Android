@@ -156,10 +156,8 @@ private val LocalSliderExtras = staticCompositionLocalOf { SliderExtras() }
 
 @Composable
 private fun Scene(scene: String, tablet: Boolean) {
-    // disconnected_<reason>[_lan][_nolan][_repeated], e.g.
-    // disconnected_turnedaway — one per DisconnectReason, for a computer
-    // with an internet tunnel; "lan" for one without, "nolan" without the
-    // local-network permission, "repeated" after a run of refusals.
+    // disconnected_<reason>[_repeated], e.g. disconnected_turnedaway — one
+    // per DisconnectReason; "repeated" after a run of refusals.
     // disconnected_reconnecting is the drop the app rides out in place
     // instead (the "reconnecting" scene).
     if (scene.startsWith("disconnected") && scene != "disconnected_reconnecting") {
@@ -173,9 +171,7 @@ private fun Scene(scene: String, tablet: Boolean) {
             onRetry = {},
             onPairAgain = {},
             onForget = {},
-            hasRemoteHost = "lan" !in parts,
             onAllowLocalNetwork = {},
-            localNetworkMissing = "nolan" in parts,
             refusedRepeatedly = "repeated" in parts,
         )
         return
@@ -375,13 +371,6 @@ private fun Scene(scene: String, tablet: Boolean) {
             DesktopModal(onDismiss = {}) { Settings() }
         } else {
             Settings()
-        }
-        // Settings while connected through the computer's internet tunnel.
-        "tunnel" -> if (tablet) {
-            SplitShell(items = null)
-            DesktopModal(onDismiss = {}) { Settings(overInternet = true) }
-        } else {
-            Settings(overInternet = true)
         }
         "providers" -> ProvidersScreen(
             providers = previewProviders,
@@ -689,15 +678,14 @@ private fun ChatList(selectedChatId: String? = null, inSidebar: Boolean = false)
 }
 
 @Composable
-private fun Settings(overInternet: Boolean = false) {
+private fun Settings() {
     val theme = LocalSceneTheme.current
     SettingsScreen(
         appearance = if (theme.dark) Appearance.Dark else Appearance.Light,
         accent = theme.accent,
         hostName = "Carlo's MacBook Pro",
         hostKind = "mac",
-        connectionLabel = if (overInternet) "Connected over the internet" else "Connected over Wi-Fi",
-        remoteHost = if (overInternet) "spettro.example.com" else null,
+        connectionLabel = "Connected over Wi-Fi",
         agentReady = true,
         account = AcpAccountStatus(
             signedIn = true,
@@ -802,10 +790,10 @@ private val longPlan = listOf(
     AcpPlanEntry("Write the release note", status = "pending"),
 )
 
-/** A pairing link from a second computer, with its internet address. */
+/** A pairing link from a second computer, with its LAN address. */
 private const val pairingLink =
     "spettro-pair://pair?v=1&h=host-2&n=Studio%20iMac&k=mac&s=BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSY" +
-        "&a=192.168.1.30&p=51820&r=spettro.example.com"
+        "&a=192.168.1.30&p=51820"
 
 /** A project's files, for the @-mention menu. */
 private val mentionFixture = listOf(

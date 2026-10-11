@@ -202,17 +202,17 @@ class RaceStaggeredTest {
     fun `the first candidate gets its head start`() = runBlocking {
         val order = Collections.synchronizedList(mutableListOf<String>())
         val winner = raceStaggered(
-            candidates = listOf("lan", "tunnel"),
+            candidates = listOf("bonjour", "last address"),
             stagger = 200,
             attempt = { name ->
                 order.add(name)
-                if (name == "lan") delay(20)
+                if (name == "bonjour") delay(20)
                 name
             },
             discard = {},
         )
-        assertEquals("lan", winner)
-        assertEquals(listOf("lan"), order)
+        assertEquals("bonjour", winner)
+        assertEquals(listOf("bonjour"), order)
     }
 
     @Test

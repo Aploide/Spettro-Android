@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.PersonRemove
@@ -66,7 +65,6 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * Why the app can't reach the computer right now — each case is a different
  * thing to tell the user, mapped from `core.remote`'s state by [from]:
  * Searching (still looking / connecting), HostAsleep (not on this network),
- * Unreachable (not here, and its internet tunnel didn't answer either),
  * SharingOff (host said it stopped), HostQuit (the desktop app quit, with
  * sharing still on), NoLocalNetwork (Android withholds the
  * local network), TurnedAway (the host refused the handshake for now),
@@ -80,7 +78,6 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 enum class DisconnectReason {
     Searching,
     HostAsleep,
-    Unreachable,
     SharingOff,
     HostQuit,
     NoLocalNetwork,
@@ -114,27 +111,22 @@ enum class DisconnectReason {
 
 /**
  * Whether to say the phone isn't on Wi-Fi: only for the "can't find it"
- * stories, and only when the computer has no internet tunnel — with one,
- * mobile data is a fine way in and Wi-Fi isn't the advice. Nor is it when
- * the computer was last reached on a loopback address (a USB cable through
- * `adb reverse`): that route needs no network, and it's the one being tried.
+ * stories, and not when the computer was last reached on a loopback address
+ * (a USB cable through `adb reverse`): that route needs no network, and it's
+ * the one being tried.
  */
 internal fun offNetworkHint(
     reason: DisconnectReason,
-    hasRemoteHost: Boolean,
     onLocalNetwork: Boolean,
     lastAddressIsLoopback: Boolean = false,
 ): Boolean =
-    !onLocalNetwork && !hasRemoteHost && !lastAddressIsLoopback &&
+    !onLocalNetwork && !lastAddressIsLoopback &&
         (reason == DisconnectReason.Searching || reason == DisconnectReason.HostAsleep)
 
 /**
  * The resting screen whenever the computer isn't reachable — deliberately
  * calm, because the fix is usually on the other device. Port of the iOS
  * `DisconnectedView`, minus the router that decides when to show it.
- *
- * [hasRemoteHost] says the computer has an internet tunnel, so "be on the
- * same Wi-Fi" is no longer the advice.
  */
 @Composable
 fun DisconnectedScreen(
@@ -144,14 +136,8 @@ fun DisconnectedScreen(
     onPairAgain: () -> Unit,
     onForget: () -> Unit,
     modifier: Modifier = Modifier,
-    hasRemoteHost: Boolean = false,
-    /**
-     * Asks for the local-network permission: the main action for
-     * [DisconnectReason.NoLocalNetwork], and a second one when the tunnel
-     * didn't answer while [localNetworkMissing] kept the LAN out of reach.
-     */
+    /** Asks for the local-network permission: the main action for [DisconnectReason.NoLocalNetwork]. */
     onAllowLocalNetwork: (() -> Unit)? = null,
-    localNetworkMissing: Boolean = false,
     /** The host has turned down more than one handshake in a row. */
     refusedRepeatedly: Boolean = false,
     /** The phone is on Wi-Fi or Ethernet, where a computer on the LAN can be found. */
@@ -163,12 +149,11 @@ fun DisconnectedScreen(
     val host = hostName ?: "your computer"
     val isWorking = reason == DisconnectReason.Searching
     var confirmingForget by rememberSaveable { mutableStateOf(false) }
-    val offNetwork = offNetworkHint(reason, hasRemoteHost, onLocalNetwork, lastAddressIsLoopback)
+    val offNetwork = offNetworkHint(reason, onLocalNetwork, lastAddressIsLoopback)
 
     val icon: ImageVector = if (offNetwork) Icons.Outlined.WifiOff else when (reason) {
         DisconnectReason.Searching -> Icons.Outlined.Wifi
         DisconnectReason.HostAsleep, DisconnectReason.Transport, DisconnectReason.HostQuit -> Icons.Outlined.Computer
-        DisconnectReason.Unreachable -> Icons.Outlined.CloudOff
         DisconnectReason.SharingOff -> Icons.Outlined.Block
         DisconnectReason.NoLocalNetwork -> Icons.Outlined.WarningAmber
         DisconnectReason.TurnedAway -> Icons.Outlined.WarningAmber
@@ -178,7 +163,7 @@ fun DisconnectedScreen(
     }
     val title = when (reason) {
         DisconnectReason.Searching -> "Looking for $host…"
-        DisconnectReason.HostAsleep, DisconnectReason.Unreachable -> "Can’t reach $host"
+        DisconnectReason.HostAsleep -> "Can’t reach $host"
         DisconnectReason.Transport -> "Lost the connection to $host"
         DisconnectReason.SharingOff -> "Sharing is off"
         DisconnectReason.HostQuit -> "Spettro isn’t open on $host"
@@ -190,24 +175,19 @@ fun DisconnectedScreen(
     }
     val detail = if (offNetwork) {
         // Nothing on the LAN can be found from mobile data or with no network
-        // at all, and without a tunnel there is no other way to the computer.
+        // at all, and the LAN is the only way to the computer.
         "This phone isn’t on Wi-Fi. Join the same Wi-Fi as $host and it connects by itself."
     } else when (reason) {
         DisconnectReason.Searching ->
-            if (hasRemoteHost) "Make sure it’s awake and sharing is on."
-            else "Make sure it’s awake and on the same Wi-Fi as this phone."
+            "Make sure it’s awake and on the same Wi-Fi as this phone."
         DisconnectReason.HostAsleep ->
             "It isn’t on this network right now. This screen updates by itself the moment it’s back."
-        DisconnectReason.Unreachable ->
-            "It isn’t on this network, and it didn’t answer over the internet either. This screen updates by itself the moment it’s back."
         DisconnectReason.Transport ->
             "Spettro keeps trying, and this screen updates by itself the moment it’s back."
         DisconnectReason.SharingOff ->
             "Turn it back on in Settings › Remote on your computer. This screen updates by itself once it’s on."
         DisconnectReason.HostQuit ->
             "Sharing is still on. Open Spettro on $host and this screen updates by itself once it’s back."
-        // Only shown with no tunnel to try: one that was tried and failed
-        // reads as Unreachable, with the permission offered alongside.
         DisconnectReason.NoLocalNetwork ->
             "Spettro talks to $host directly over your Wi-Fi, and Android asks before an app can reach devices on your local network."
         // One refusal is usually passing. A run of them may well be a
@@ -295,11 +275,6 @@ fun DisconnectedScreen(
                         onClick = onRetry,
                     )
             }
-            // Over the internet it didn't answer, and the LAN was never
-            // tried: on the same Wi-Fi as the computer, this is the way in.
-            if (reason == DisconnectReason.Unreachable && localNetworkMissing && onAllowLocalNetwork != null) {
-                SpettroLink("On the same Wi-Fi? Allow local network access", onClick = onAllowLocalNetwork)
-            }
             // Settings is only reachable once connected, so this screen is
             // the sole way out of a stale pairing — offer it in every state,
             // even while retries run in the background.
@@ -313,7 +288,6 @@ fun DisconnectedScreen(
         // network, where the computer isn't the thing to fix.
         if (!offNetwork && (
                 reason == DisconnectReason.HostAsleep ||
-                    reason == DisconnectReason.Unreachable ||
                     reason == DisconnectReason.SharingOff ||
                     reason == DisconnectReason.HostQuit ||
                     reason == DisconnectReason.Transport
@@ -407,10 +381,6 @@ private fun NoLocalNetworkPreview() = DisconnectedPreview(DisconnectReason.NoLoc
 @Preview(name = "Revoked", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun RevokedPreview() = DisconnectedPreview(DisconnectReason.Revoked)
-
-@Preview(name = "Unreachable over the internet", showBackground = true, backgroundColor = 0xFF1C1C1E)
-@Composable
-private fun UnreachablePreview() = DisconnectedPreview(DisconnectReason.Unreachable)
 
 @Preview(name = "Turned away", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable

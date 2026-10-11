@@ -77,9 +77,8 @@ private val SectionGap = 22.dp
 
 /**
  * What the connection row says about a live connection: the way it actually
- * reaches the computer, in the desktop's words ("Connected over the
- * internet", "Connected on your network"). The tunnel's host isn't repeated
- * here: the "Internet address" row right below already names it.
+ * reaches the computer, in the desktop's words ("Connected over Wi-Fi",
+ * "Connected on your network").
  */
 internal fun connectionLabel(link: RemoteLink): String = when (link) {
     RemoteLink.WiFi -> "Connected over Wi-Fi"
@@ -118,8 +117,6 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     /** Whether [connectionLabel] describes a live connection (green) or a pending one. */
     isConnected: Boolean = true,
-    /** The computer's public hostname, when it can be reached over the internet. */
-    remoteHost: String? = null,
     appearance: Appearance = Appearance.System,
     accent: Accent = Accent.Lilac,
     onAppearanceChange: (Appearance) -> Unit = {},
@@ -143,7 +140,6 @@ fun SettingsScreen(
                 hostKind = hostKind,
                 connectionLabel = connectionLabel,
                 isConnected = isConnected,
-                remoteHost = remoteHost,
                 agentReady = agentReady,
                 onDisconnect = onDisconnect,
                 onForget = { confirmForget = true },
@@ -221,7 +217,6 @@ private fun ConnectionSection(
     hostKind: String?,
     connectionLabel: String,
     isConnected: Boolean,
-    remoteHost: String?,
     agentReady: Boolean,
     onDisconnect: () -> Unit,
     onForget: () -> Unit,
@@ -252,8 +247,8 @@ private fun ConnectionSection(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // The route on a line of its own: "Connected over the
-                // internet" doesn't fit beside a long computer name.
+                // The route on a line of its own: "Connected on your
+                // network" doesn't fit beside a long computer name.
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -271,10 +266,6 @@ private fun ConnectionSection(
                     )
                 }
             }
-        }
-        if (remoteHost != null) {
-            FormDivider()
-            FormRow("Internet address", value = remoteHost)
         }
         FormDivider()
         FormRow(
@@ -608,8 +599,7 @@ private fun SettingsPreviewSignedIn() {
         SettingsScreen(
             hostName = "Carlo's MacBook Pro",
             hostKind = "mac",
-            connectionLabel = "Connected over the internet",
-            remoteHost = "spettro.example.com",
+            connectionLabel = "Connected over Wi-Fi",
             agentReady = true,
             account = AcpAccountStatus(
                 signedIn = true,

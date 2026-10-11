@@ -157,7 +157,7 @@ fun PairingScreen(
             Spacer(Modifier.height(Dimens.spacingSm))
             Text(
                 "You only do this once. After that your phone reconnects on its own whenever your computer is " +
-                    "sharing. Pair on the same Wi-Fi as your computer, unless it allows pairing over the internet.",
+                    "sharing. Pair on the same Wi-Fi as your computer.",
                 style = MaterialTheme.typography.bodySmall.copy(lineHeight = 17.sp),
                 color = colors.textTertiary,
                 textAlign = TextAlign.Center,
