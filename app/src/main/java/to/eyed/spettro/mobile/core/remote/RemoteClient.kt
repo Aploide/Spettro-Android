@@ -124,15 +124,21 @@ class RemotePairingException(message: String) : Exception(message)
 /**
  * When a host that said goodbye ([OfflineReason.HostStopped]) is checked
  * on again. A full check runs every [RemoteClient.HOST_STOPPED_POLL_MS]; in
- * between, quiet quick checks of the same routes run at 3 s, then twice as
- * long each time up to 15 s, so sharing coming back on is noticed in
- * seconds: Android's NSD often misses the host's goodbye and so never
- * reports it coming back. A quick check differs from a full one only in
- * its cadence and in not logging its failures.
+ * between, quiet quick checks of the same routes run every
+ * [RemoteClient.GOODBYE_LAN_FAST_MS] for the first
+ * [RemoteClient.GOODBYE_LAN_FAST_FOR_MS] (a desktop quit and relaunched, or
+ * sharing switched off and on, is usually back within that), then at 3 s,
+ * twice as long each time up to 15 s. That is what notices the host coming
+ * back: Android's NSD ignores the desktop's Bonjour goodbye, keeps its
+ * record, and so never reports it coming back. A quick check is a TCP
+ * connect to the LAN address, refused at once while the app is closed, and
+ * the host doesn't count it; it differs from a full one only in its cadence
+ * and in not logging its failures. It never runs in the background grace.
  *
  * Not thread-safe; the connect loop is its only user.
  */
 internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
+    private val startedAt = now
     private var lanWait = RemoteClient.GOODBYE_LAN_FIRST_MS
     private var nextFullAt = if (fullFirst) now else now + RemoteClient.HOST_STOPPED_POLL_MS
 
@@ -154,6 +160,9 @@ internal class GoodbyeChecks(now: Long, fullFirst: Boolean = false) {
     fun nextWait(now: Long, lanToCheck: Boolean): Long {
         val untilFull = (nextFullAt - now).coerceAtLeast(0L)
         if (!lanToCheck) return untilFull
+        if (now - startedAt < RemoteClient.GOODBYE_LAN_FAST_FOR_MS) {
+            return minOf(RemoteClient.GOODBYE_LAN_FAST_MS, untilFull)
+        }
         val wait = minOf(lanWait, untilFull)
         lanWait = (lanWait * 2).coerceAtMost(RemoteClient.GOODBYE_LAN_MAX_MS)
         return wait
@@ -1308,7 +1317,13 @@ class RemoteClient(
         /** Between checks of every route on a host that said goodbye. */
         internal const val HOST_STOPPED_POLL_MS = 45_000L
 
-        /** The first quick LAN check after a goodbye; each next one waits twice as long… */
+        /** Quick LAN checks after a goodbye (or coming back to it) run this often… */
+        internal const val GOODBYE_LAN_FAST_MS = 2_000L
+
+        /** …for this long; then the first waits [GOODBYE_LAN_FIRST_MS], each next one twice as long… */
+        internal const val GOODBYE_LAN_FAST_FOR_MS = 120_000L
+
+        /** The first quick LAN check after the fast ones. */
         internal const val GOODBYE_LAN_FIRST_MS = 3_000L
 
         /** …up to this. */

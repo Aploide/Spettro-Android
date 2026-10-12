@@ -33,21 +33,47 @@ class GoodbyePollTest {
         assertFalse(RemoteClient.keepsCheckingAfterGoodbye(null))
     }
 
-    @Test
-    fun theLanIsCheckedQuicklyWithABackoffBetweenFullChecks() {
-        val checks = GoodbyeChecks(now = 0L)
-        var now = 0L
-        val waits = mutableListOf<Long>()
-        val full = mutableListOf<Boolean>()
-        repeat(8) {
+    /** Runs [checks] from [from] until [until]: each wait, and whether the check after it was full. */
+    private fun run(checks: GoodbyeChecks, from: Long, until: Long): List<Pair<Long, Boolean>> {
+        var now = from
+        val out = mutableListOf<Pair<Long, Boolean>>()
+        while (now < until) {
             val wait = checks.nextWait(now, lanToCheck = true)
-            waits += wait
             now += wait
-            full += checks.takeCheck(now)
+            out += wait to checks.takeCheck(now)
         }
-        // 3, 6, 12, then 15 s apart, cut short so every route is still checked at 45 s.
-        assertEquals(listOf(3_000L, 6_000L, 12_000L, 15_000L, 9_000L, 15_000L, 15_000L, 15_000L), waits)
-        assertEquals(listOf(false, false, false, false, true, false, false, true), full)
+        return out
+    }
+
+    @Test
+    fun theLanIsCheckedEveryTwoSecondsForTwoMinutesThenWithABackoff() {
+        val checks = GoodbyeChecks(now = 0L)
+        val steps = run(checks, from = 0L, until = 150_000L)
+        var at = 0L
+        val fullAt = mutableListOf<Long>()
+        val waitsAfterFast = mutableListOf<Long>()
+        for ((wait, full) in steps) {
+            // Never more than 2 s apart while fast, whatever falls due.
+            if (at < RemoteClient.GOODBYE_LAN_FAST_FOR_MS) assertTrue(wait <= 2_000L) else waitsAfterFast += wait
+            at += wait
+            if (full) fullAt += at
+        }
+        // A relaunched desktop is found within 2 s: the first check is at 2 s.
+        assertEquals(2_000L, steps.first().first)
+        // Every route is still checked every 45 s.
+        assertEquals(listOf(45_000L, 90_000L, 135_000L), fullAt)
+        // After two minutes: 3, 6, then 12 s apart (cut short for the 135 s full check), and so on.
+        assertEquals(listOf(3_000L, 6_000L, 6_000L), waitsAfterFast.take(3))
+    }
+
+    @Test
+    fun afterTheFastStretchTheBackoffCapsAtFifteenSeconds() {
+        val checks = GoodbyeChecks(now = 0L)
+        val steps = run(checks, from = 0L, until = 400_000L)
+        var at = 0L
+        val later = steps.filter { (wait, _) -> at += wait; at > 200_000L }.map { it.first }
+        assertTrue(later.all { it <= RemoteClient.GOODBYE_LAN_MAX_MS })
+        assertTrue(later.contains(RemoteClient.GOODBYE_LAN_MAX_MS))
     }
 
     @Test

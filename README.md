@@ -117,9 +117,14 @@ Bonjour sees the host reappear. Android's NSD often misses a desktop quitting
 and coming back, so while the host is away and the app is in sight the phone
 browses Bonjour afresh (`RemoteDiscovery.refresh`): 2 s after it went, then
 every 10 s, every 30 s after five minutes; never in the background or after
-Disconnect. A drop while a chat is open is ridden out in
-place for up to 20 s — the transcript and the draft stay, a "Reconnecting…"
-pill shows, and Send waits — before the disconnected screen takes over. That
+Disconnect. Some phones' NSD ignores the desktop's Bonjour goodbye outright
+and answers from its cache, so after a goodbye the phone also tries the
+computer's LAN address every 2 s for two minutes, then less and less often
+(a refused connect costs nothing, and the computer doesn't count it): a
+relaunched desktop is back within a couple of seconds. A drop while a chat
+is open is ridden out in place for up to 20 s — the transcript and the draft
+stay, a "Reconnecting…" pill shows, and Send waits — before the disconnected
+screen takes over. That
 screen says why in plain words (looking, can't reach, sharing off, not
 open, restarting for an update, turned away, removed, update needed, local
 network access) and always keeps a
