@@ -327,8 +327,12 @@ fun DisconnectedScreen(
         ConfirmDialog(
             title = "Forget “$host”?",
             // Not connected, so the computer can't be told: it keeps its
-            // row until it is removed there.
-            message = "You’ll scan a new pairing code to connect again. “$host” keeps it in its paired devices until you remove it there.",
+            // row until it is removed there — unless it already was.
+            message = if (reason == DisconnectReason.Revoked) {
+                "You’ll scan a new pairing code to connect again."
+            } else {
+                "You’ll scan a new pairing code to connect again. “$host” keeps it in its paired devices until you remove it there."
+            },
             confirmLabel = "Forget",
             onConfirm = {
                 confirmingForget = false
