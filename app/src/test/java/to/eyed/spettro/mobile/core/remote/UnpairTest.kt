@@ -77,9 +77,10 @@ class UnpairTest {
             detachClose = fake::detach,
             request = { fake.hostAnswersAndCloses() },
             forget = fake::forget,
+            told = { fake.steps += "told $it" },
         )
         assertEquals(true, removed)
-        assertEquals(listOf("detach", "request", "forget"), fake.steps)
+        assertEquals(listOf("detach", "request", "told true", "forget"), fake.steps)
     }
 
     @Test

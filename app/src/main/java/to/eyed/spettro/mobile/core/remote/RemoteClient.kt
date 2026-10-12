@@ -505,17 +505,17 @@ class RemoteClient(
     suspend fun unpairAndForget() {
         val current = active
         val hostName = (_state.value as? RemoteState.Connected)?.host?.hostName
-        val removed = unpairThenForget(
+        unpairThenForget(
             tellHost = current != null && unpairsOnHost(_state.value),
             // The host closes the socket once it has answered: that close
             // is the end of the pairing, not a drop to reconnect from.
             detachClose = { current?.peer?.onClose = null },
             request = { current?.peer?.request(RemoteMethod.DEVICES_UNPAIR) },
             forget = ::forget,
+            told = { removed ->
+                log(if (removed) "removed from $hostName" else "couldn't tell $hostName; forgetting here only")
+            },
         )
-        if (removed != null) {
-            log(if (removed) "removed from $hostName" else "couldn't tell $hostName; forgetting here only")
-        }
     }
 
     /** Forgets the host entirely. The only path that unpairs. */
@@ -1204,8 +1204,9 @@ class RemoteClient(
          * Forget's order, for [unpairAndForget]: when [tellHost], first
          * [detachClose] (so the host's close after its answer can't start a
          * reconnect into a host that no longer knows this phone), then
-         * [request] for at most [timeoutMs]; and in every case [forget] last.
-         * Returns whether the host confirmed, or null when it wasn't asked.
+         * [request] for at most [timeoutMs], and [told] whether the host
+         * confirmed; and in every case [forget] last. Returns whether the
+         * host confirmed, or null when it wasn't asked.
          */
         internal suspend fun unpairThenForget(
             tellHost: Boolean,
@@ -1213,6 +1214,7 @@ class RemoteClient(
             request: suspend () -> Unit,
             forget: () -> Unit,
             timeoutMs: Long = UNPAIR_TIMEOUT_MS,
+            told: (Boolean) -> Unit = {},
         ): Boolean? {
             val removed = if (tellHost) {
                 detachClose()
@@ -1229,6 +1231,7 @@ class RemoteClient(
             } else {
                 null
             }
+            removed?.let(told)
             forget()
             return removed
         }
