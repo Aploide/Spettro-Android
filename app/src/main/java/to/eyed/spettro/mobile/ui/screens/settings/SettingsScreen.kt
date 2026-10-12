@@ -189,7 +189,7 @@ fun SettingsScreen(
         ConfirmDialog(
             title = "Forget “${hostName ?: "this computer"}”?",
             message = if (forgetRemovesFromComputer) {
-                "This phone won’t connect to it again until you pair it again. It’s also removed from “${hostName ?: "the computer"}”’s paired devices."
+                "This phone won’t connect to it again until you pair it again. The computer also removes it from its paired devices."
             } else {
                 "This phone won’t connect to it again until you pair it again."
             },
