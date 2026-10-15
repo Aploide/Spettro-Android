@@ -8,15 +8,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import to.eyed.spettro.mobile.core.workflowActivationSpans
+import to.eyed.spettro.mobile.core.workflowInputSpans
+import to.eyed.spettro.mobile.core.workflowRequested
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 
@@ -30,59 +35,98 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * CSS; this is the Compose version, driven by the same matcher the CLI uses so
  * the highlight can never promise a mode the run will not enter.
  *
- * One surface, deliberately: [activationHighlight], a [VisualTransformation]
- * for the live composer. Compose can style a text field's contents directly,
- * so unlike the web there is no mirrored copy to keep in lockstep; the offsets
- * are unchanged by the transform, so the identity mapping is exact and the
- * caret keeps landing where the user put it.
+ * A "+500k" budget directive lights the same way, but only when it would be
+ * honoured — when workflows are on for the message (`budgetDirectivesLive`) —
+ * so the highlight never promises a budget nobody enforces. Under the "Ask
+ * first" permission level workflows do not run at all, so the phrase is still
+ * marked — it is still what the user asked for — but muted: the field's quiet
+ * ink, underlined, never the accent; the composer says why underneath
+ * (`WorkflowHint`).
  *
- * A sent message gets nothing. Two reasons, and the second is the one that
- * settles it. The highlight earns its place in the input because the phrase is
- * still yours to change; in scrollback the run itself is the evidence and a
- * mark would be decoration. And it cannot be done well there anyway: the user's
- * bubble is white on a saturated accent, so there is no headroom above the
- * text, and every "highlight" available — a brightness sweep especially — can
- * only push those words *darker* than the prose around them. That does not
- * read as emphasis, it reads as damage. Marking by adding a ground (a
- * highlighter capsule) or a rule (an underline) would both work; doing nothing
- * works better.
+ * The phrase is drawn in the desktop's glow ramp (`--glow-ramp`: violet →
+ * magenta → cyan, or a sweep of greys in Monochrome), at weight 600. Every
+ * stop passes AA on the composer and on the user bubble, both neutral greys,
+ * so a word stays readable whichever hue lands on it.
  *
- * There is no animation anywhere in here. A gradient sweeping through a
- * sentence re-shades each word independently as it passes, so at any instant
- * one half of a matched phrase is brighter than the other — which looks like a
- * rendering fault rather than a highlight, and looks like one forever, because
- * nothing in scrollback ever stops moving.
+ * Two surfaces: [activationHighlight], a [VisualTransformation] for the live
+ * composer — Compose styles a text field's contents directly, so there is no
+ * mirrored copy to keep in lockstep, and the offsets are unchanged so the
+ * caret keeps landing where the user put it — and [activationAnnotated] for a
+ * sent message, where the phrase stays lit: what armed the turn should still
+ * be visible in the turn it armed. (It used to get nothing, because the bubble
+ * was white on a saturated accent with no headroom for a highlight; the
+ * bubble is neutral now, like the desktop's.)
+ *
+ * The ramp holds still. The desktop drifts it once every 7s; here a gradient
+ * moving through a sentence re-shades each word independently as it passes,
+ * which reads as a rendering fault on a phone held at reading distance.
  */
+
+/** The ramp tiles every [RAMP_SPAN_DP], mirrored, so a short phrase still shows several hues. */
+private const val RAMP_SPAN_DP = 140f
+
+@Composable
+private fun rampStyle(muted: Boolean): SpanStyle {
+    val colors = LocalSpettroColors.current
+    val span = with(LocalDensity.current) { RAMP_SPAN_DP.dp.toPx() }
+    return remember(colors, muted, span) {
+        if (muted) {
+            SpanStyle(color = colors.textSecondary, fontWeight = FontWeight.SemiBold, textDecoration = TextDecoration.Underline)
+        } else {
+            SpanStyle(
+                brush = Brush.linearGradient(
+                    colors = colors.glowRamp,
+                    start = Offset.Zero,
+                    end = Offset(span, span * 0.18f),
+                    tileMode = TileMode.Mirror,
+                ),
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
 
 /**
  * Styles every activating phrase in the composer's text.
  *
- * @param tint the accent the phrase is drawn in; everything else keeps the
- *   field's own colour.
+ * @param budgets light "+500k" directives too (they would be honoured).
+ * @param muted workflows cannot run right now (Ask first): mark, but quietly.
  */
 @Composable
 fun activationHighlight(
-    tint: Color = LocalSpettroColors.current.accent,
+    budgets: Boolean = false,
+    muted: Boolean = false,
 ): VisualTransformation {
-    return remember(tint) {
+    val style = rampStyle(muted)
+    return remember(style, budgets) {
         VisualTransformation { text ->
-            val spans = workflowActivationSpans(text.text)
+            val spans = workflowInputSpans(text.text, budgets)
             if (spans.isEmpty()) {
                 return@VisualTransformation TransformedText(text, OffsetMapping.Identity)
             }
             val styled = AnnotatedString.Builder(text.text).apply {
-                for (span in spans) {
-                    addStyle(
-                        SpanStyle(color = tint, fontWeight = FontWeight.SemiBold),
-                        span.start,
-                        span.end,
-                    )
-                }
+                for (span in spans) addStyle(style, span.start, span.end)
             }.toAnnotatedString()
             // The transform only recolours: every character keeps its index, so
             // the identity mapping is exact and the caret cannot drift.
             TransformedText(styled, OffsetMapping.Identity)
         }
+    }
+}
+
+/**
+ * A sent message with its activating phrase lit. Budget directives light
+ * only alongside a phrase that asked for a workflow, as on the desktop.
+ */
+@Composable
+fun activationAnnotated(text: String): AnnotatedString {
+    val style = rampStyle(muted = false)
+    return remember(text, style) {
+        val spans = workflowInputSpans(text, budgets = workflowRequested(text))
+        if (spans.isEmpty()) return@remember AnnotatedString(text)
+        AnnotatedString.Builder(text).apply {
+            for (span in spans) addStyle(style, span.start, span.end)
+        }.toAnnotatedString()
     }
 }
 
@@ -94,7 +138,7 @@ private typealias OffsetMapping = androidx.compose.ui.text.input.OffsetMapping
 @Composable
 private fun ActivationHighlightPreview() {
     SpettroTheme(darkTheme = true) {
-        val transform = activationHighlight()
+        val transform = activationHighlight(budgets = true)
         Column(
             modifier = Modifier.padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -102,7 +146,7 @@ private fun ActivationHighlightPreview() {
             // What the composer draws: the matched phrase in the accent, the
             // rest in the field's own colour. The third line must stay quiet.
             listOf(
-                "ultracode — review the changes on this branch",
+                "ultracode +500k — review the changes on this branch",
                 "I'm testing the workflow tool, so use workflows",
                 "our deploy workflow is broken — check .github/workflows",
             ).forEach { line ->

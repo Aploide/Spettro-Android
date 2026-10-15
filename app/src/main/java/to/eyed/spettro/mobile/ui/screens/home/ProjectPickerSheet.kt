@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -29,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import to.eyed.spettro.mobile.core.remote.RemoteProject
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
+import to.eyed.spettro.mobile.ui.components.EmptyState
+import to.eyed.spettro.mobile.ui.components.Pill
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.MonoSmall
@@ -36,9 +40,13 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.TabularNums
 
 /**
- * Where should the new chat run? The phone can't browse the PC's
- * filesystem, so it picks from the folders the host already knows about.
+ * Where should the new chat run? The phone can't browse the computer's
+ * folders, so it picks from the ones the host already knows about — the
+ * desktop's "Working in ▸ folder" menu, as a sheet. Picking a folder only
+ * changes where the new-session view will start the chat; nothing is
+ * created until the first message is sent.
  *
+ * @param selectedPath the folder chosen now, ticked.
  * @param recentFirst true keeps the host's order (most recently active
  *   first); false re-sorts alphabetically by folder name.
  */
@@ -47,16 +55,15 @@ import to.eyed.spettro.mobile.ui.theme.TabularNums
 fun ProjectPickerSheet(
     projects: List<RemoteProject>,
     recentFirst: Boolean = true,
+    selectedPath: String? = null,
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = LocalSpettroColors.current.surfaceRaised,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         ProjectPickerContent(
             projects = projects,
             recentFirst = recentFirst,
+            selectedPath = selectedPath,
             onPick = onPick,
         )
     }
@@ -67,6 +74,7 @@ private fun ProjectPickerContent(
     projects: List<RemoteProject>,
     recentFirst: Boolean,
     onPick: (String) -> Unit,
+    selectedPath: String? = null,
 ) {
     val ordered = if (recentFirst) {
         projects
@@ -75,15 +83,15 @@ private fun ProjectPickerContent(
     }
     Column(Modifier.fillMaxWidth().padding(bottom = Dimens.spacingXl)) {
         Text(
-            "New Chat",
+            "Working in",
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
+            color = LocalSpettroColors.current.textPrimary,
             modifier = Modifier.padding(horizontal = Dimens.spacingLg),
         )
         Text(
-            "Pick the folder the chat should run in.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            "Choose where Spettro should work.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = LocalSpettroColors.current.textSecondary,
             modifier = Modifier.padding(
                 start = Dimens.spacingLg,
                 end = Dimens.spacingLg,
@@ -93,16 +101,20 @@ private fun ProjectPickerContent(
         )
         HairlineDivider()
         if (ordered.isEmpty()) {
-            Text(
-                "No folders yet — open a project on your PC first.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(Dimens.spacingXl).align(Alignment.CenterHorizontally),
+            EmptyState(
+                title = "No folders yet",
+                message = "Open a project in Spettro on your computer first.",
+                icon = Icons.Outlined.Folder,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         } else {
             LazyColumn(Modifier.weight(1f, fill = false)) {
                 items(ordered, key = { it.path }) { project ->
-                    ProjectRow(project = project, onClick = { onPick(project.path) })
+                    ProjectRow(
+                        project = project,
+                        selected = project.path == selectedPath,
+                        onClick = { onPick(project.path) },
+                    )
                 }
             }
         }
@@ -113,13 +125,13 @@ private val RemoteProject.displayName: String
     get() = name.ifBlank { path.trimEnd('/').substringAfterLast('/').ifEmpty { path } }
 
 @Composable
-private fun ProjectRow(project: RemoteProject, onClick: () -> Unit) {
+private fun ProjectRow(project: RemoteProject, selected: Boolean, onClick: () -> Unit) {
     val colors = LocalSpettroColors.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingMd),
+            .padding(horizontal = Dimens.spacingLg, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
     ) {
@@ -127,39 +139,35 @@ private fun ProjectRow(project: RemoteProject, onClick: () -> Unit) {
             Icons.Outlined.Folder,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
-            tint = colors.accent,
+            tint = colors.textSecondary,
         )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 project.displayName,
-                fontSize = 14.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
+                color = colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 project.path,
-                style = MonoSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MonoSmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
+                color = colors.textTertiary,
                 maxLines = 1,
                 overflow = TextOverflow.MiddleEllipsis,
             )
         }
         if (project.chatCount > 0) {
-            Box(
-                modifier = Modifier.background(
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
-                    RoundedCornerShape(10.dp),
-                ),
-            ) {
-                Text(
-                    "${project.chatCount}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                )
-            }
+            Pill("${project.chatCount}")
+        }
+        if (selected) {
+            Icon(
+                Icons.Default.Check,
+                contentDescription = "Chosen",
+                modifier = Modifier.size(18.dp),
+                tint = colors.accentText,
+            )
         }
     }
 }
@@ -173,11 +181,16 @@ internal fun previewProjects(): List<RemoteProject> = listOf(
     RemoteProject(path = "/Users/carlo/Documents/deep/nested/folder/experiments", name = "", chatCount = 0),
 )
 
-@Preview(name = "Project picker", showBackground = true, backgroundColor = 0xFF1C1C1C)
+@Preview(name = "Project picker", showBackground = true, backgroundColor = 0xFF2C2C2E)
 @Composable
 private fun ProjectPickerPreview() {
     SpettroTheme(darkTheme = true) {
-        ProjectPickerContent(projects = previewProjects(), recentFirst = true, onPick = {})
+        ProjectPickerContent(
+            projects = previewProjects(),
+            recentFirst = true,
+            onPick = {},
+            selectedPath = previewProjects().first().path,
+        )
     }
 }
 

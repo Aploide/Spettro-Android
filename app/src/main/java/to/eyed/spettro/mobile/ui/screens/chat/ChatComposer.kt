@@ -1,5 +1,15 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import to.eyed.spettro.mobile.model.Mentions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -20,22 +31,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.UnfoldMore
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -45,28 +52,57 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CompletableDeferred
 import to.eyed.spettro.mobile.core.acp.AcpCommand
+import to.eyed.spettro.mobile.model.CommandCopy
+import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.model.ImageAttachment
-import to.eyed.spettro.mobile.ui.components.HairlineDivider
+import to.eyed.spettro.mobile.ui.components.SpettroMenu
+import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
+import to.eyed.spettro.mobile.ui.components.SpettroTextField
 import to.eyed.spettro.mobile.ui.components.activationHighlight
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingChip
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingFrame
+import to.eyed.spettro.mobile.ui.theme.ComposerText
 import to.eyed.spettro.mobile.ui.theme.Dimens
+import to.eyed.spettro.mobile.ui.theme.Elevation
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.MonoBody
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
+import to.eyed.spettro.mobile.ui.theme.floatingShadow
+
 
 /**
- * The input bar (port of MobileComposerView.swift): an attachment thumbnail
- * strip, a one-line config summary that opens the settings sheet, and the
- * input row — a plus menu (photos, slash commands), a pill text field, and a
- * send button that becomes Stop mid-turn.
+ * The composer, as the desktop draws it: a floating card — raised, a
+ * hairline, 20dp corners, the composer shadow — with the text on top and a
+ * toolbar inside it: a plus menu (photos, slash commands), the thinking
+ * chip, the chat's other settings in one quiet chip, and the send button,
+ * an ink circle that becomes an ink Stop square mid-turn, with an ink Guide
+ * pill beside it once there is something to steer with. (The transcript's
+ * fade into it is drawn by ChatScreen, under the live strip rather than
+ * over it.)
  *
  * Stateless: text, attachments, and busy state are owned by the caller; only
  * ephemeral chrome (menus, the command sheet) lives here.
@@ -82,70 +118,180 @@ fun ChatComposer(
     onStop: () -> Unit,
     isBusy: Boolean,
     enabled: Boolean,
-    configSummary: String?,
+    configSummary: ConfigSummary?,
     onConfigTap: () -> Unit,
     commands: List<AcpCommand>,
     onCommandPick: (AcpCommand) -> Unit,
     modifier: Modifier = Modifier,
+    workflowGate: WorkflowGate = WorkflowGate(),
+    onSwitchPermission: (() -> Unit)? = null,
+    thinking: ThinkingControl? = null,
+    thinkingFrame: ThinkingFrame? = null,
+    placeholder: String = CHAT_PLACEHOLDER,
+    plan: List<AcpPlanEntry> = emptyList(),
+    planFolded: Boolean = false,
+    canSend: Boolean = true,
+    mentionFiles: (suspend () -> List<String>)? = null,
+    onMention: (String) -> Unit = {},
+    mentionScope: Any? = null,
+    /** Bumped to put the caret in the field and bring the keyboard up (Edit & resend). */
+    focusRequest: Int = 0,
+    /**
+     * The tallest the tab over the card (the task list, the @-mention menu)
+     * may grow. A phone on its side has little more height than the
+     * composer itself, and an open task list must leave the transcript room.
+     */
+    tabMaxHeight: Dp = TabMaxHeight,
 ) {
     val colors = LocalSpettroColors.current
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(focusRequest) {
+        if (focusRequest > 0) {
+            runCatching { focusRequester.requestFocus() }
+            keyboard?.show()
+        }
+    }
+    // The field's own value, caret and all, so an "@query" can be found under
+    // the caret; the caller owns only the text.
+    var field by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
+    if (field.text != text) field = TextFieldValue(text, TextRange(text.length))
+    val mention = if (mentionFiles != null && field.selection.collapsed) {
+        Mentions.at(field.text, field.selection.end)
+    } else {
+        null
+    }
+    // The folder's files, fetched the first time an "@" asks for them.
+    // ([mentionScope] names the folder: another folder, another list.)
+    var files by remember(mentionScope) { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(mention != null, mentionScope) {
+        if (mention != null && files == null && mentionFiles != null) {
+            files = runCatching { mentionFiles() }.getOrDefault(emptyList())
+        }
+    }
+    val pick: (String) -> Unit = { path ->
+        val query = Mentions.at(field.text, field.selection.end)
+        if (query != null) {
+            val inserted = Mentions.insert(field.text, query.start, field.selection.end, path)
+            field = TextFieldValue(inserted.text, TextRange(inserted.caret))
+            onMention(path)
+            onTextChange(inserted.text)
+        }
+    }
+    val workflow = remember(text, workflowGate) { workflowDraft(text, workflowGate) }
     var plusMenuOpen by remember { mutableStateOf(false) }
     var commandsOpen by rememberSaveable { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(Dimens.radiusLg)
 
-    Column(modifier = modifier.fillMaxWidth().background(colors.surfaceRaised)) {
-        HairlineDivider()
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(colors.canvas)
+            .padding(start = Dimens.spacingMd, end = Dimens.spacingMd, top = 2.dp, bottom = Dimens.spacingSm),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        TuckedUnder(
+            tuck = TodoTuck,
+            tab = {
+                if (mention != null) {
+                    MentionMenu(
+                        files = files?.let { Mentions.rank(it, mention.query) },
+                        query = mention.query,
+                        onPick = pick,
+                        maxHeight = tabMaxHeight,
+                        modifier = Modifier.padding(horizontal = Dimens.spacingSm),
+                    )
+                } else {
+                    TodoList(
+                        plan = plan,
+                        isBusy = isBusy,
+                        folded = planFolded,
+                        maxHeight = tabMaxHeight,
+                        modifier = Modifier.padding(horizontal = Dimens.spacingMd),
+                    )
+                }
+            },
+            card = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = Dimens.spacingSm),
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                .then(
+                    if (focused) {
+                        // The desktop's focus ring: 3dp of accent at 10% outside the card.
+                        Modifier.drawBehind {
+                            val ring = 3.dp.toPx()
+                            drawRoundRect(
+                                color = colors.accent.copy(alpha = 0.1f),
+                                topLeft = Offset(-ring / 2f, -ring / 2f),
+                                size = Size(size.width + ring, size.height + ring),
+                                cornerRadius = CornerRadius((Dimens.radiusLg + 1.5.dp).toPx()),
+                                style = Stroke(width = ring),
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
+                .floatingShadow(Elevation.Composer, shape)
+                .clip(shape)
+                .background(colors.surfaceRaised)
+                .border(
+                    Dimens.hairlineWidth,
+                    if (focused) colors.accent.copy(alpha = 0.4f).compositeOver(colors.surfaceRaised) else colors.hairline,
+                    shape,
+                ),
         ) {
             if (attachments.isNotEmpty()) {
                 AttachmentStrip(attachments = attachments, onRemove = onRemoveAttachment)
             }
-            if (configSummary != null) {
-                ConfigSummaryRow(
-                    summary = configSummary,
-                    enabled = enabled,
-                    onTap = onConfigTap,
-                )
-            }
+            ComposerTextField(
+                value = field,
+                onValueChange = {
+                    field = it
+                    if (it.text != text) onTextChange(it.text)
+                },
+                enabled = enabled,
+                budgets = workflow.budgets,
+                muted = workflow.muted,
+                interactionSource = interactionSource,
+                placeholder = placeholder,
+                focusRequester = focusRequester,
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Dimens.spacingLg),
-                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-                verticalAlignment = Alignment.Bottom,
+                    .padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box {
                     IconButton(
                         onClick = { plusMenuOpen = true },
                         enabled = enabled,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(36.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.AddCircle,
+                            imageVector = Icons.Outlined.Add,
                             contentDescription = "Attach",
-                            tint = if (enabled) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(26.dp),
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(22.dp),
                         )
                     }
-                    DropdownMenu(
-                        expanded = plusMenuOpen,
-                        onDismissRequest = { plusMenuOpen = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Photos") },
-                            leadingIcon = { Icon(Icons.Outlined.Photo, contentDescription = null) },
+                    SpettroMenu(expanded = plusMenuOpen, onDismissRequest = { plusMenuOpen = false }) {
+                        SpettroMenuItem(
+                            text = "Photos",
+                            icon = Icons.Outlined.Photo,
                             onClick = {
                                 plusMenuOpen = false
                                 onAddImages()
                             },
                         )
                         if (commands.isNotEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("Commands") },
-                                leadingIcon = { Icon(Icons.Outlined.Tag, contentDescription = null) },
+                            SpettroMenuItem(
+                                text = "Commands",
+                                icon = Icons.Outlined.Tag,
                                 onClick = {
                                     plusMenuOpen = false
                                     commandsOpen = true
@@ -154,22 +300,49 @@ fun ChatComposer(
                         }
                     }
                 }
-
-                ComposerTextField(
-                    text = text,
-                    onTextChange = onTextChange,
-                    enabled = enabled,
+                // The desktop's ConfigBar order: how hard the model thinks
+                // (its own chip, opening the slider), then the rest of the
+                // chat's settings in one chip. The settings chip keeps its
+                // own width and only shortens when the send buttons need the
+                // room.
+                Row(
                     modifier = Modifier.weight(1f),
-                )
-
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (thinking != null) {
+                        ThinkingChip(
+                            control = thinking,
+                            enabled = enabled,
+                            startOpen = thinkingFrame != null,
+                            frame = thinkingFrame,
+                        )
+                    }
+                    if (configSummary != null) {
+                        ConfigChip(
+                            summary = configSummary,
+                            enabled = enabled,
+                            onTap = onConfigTap,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                }
+                val hasContent = text.isNotBlank() || attachments.isNotEmpty()
                 SendButton(
                     isBusy = isBusy,
-                    canSend = enabled && (text.isNotBlank() || attachments.isNotEmpty()),
+                    hasContent = hasContent,
+                    canSend = enabled && canSend && hasContent,
                     onSend = onSend,
                     onStop = onStop,
                 )
             }
         }
+            },
+        )
+        WorkflowHint(
+            draft = workflow,
+            onSwitchPermission = onSwitchPermission?.takeIf { workflowGate.canRestrict },
+        )
     }
 
     if (commandsOpen) {
@@ -190,7 +363,11 @@ private fun AttachmentStrip(
     onRemove: (ImageAttachment) -> Unit,
 ) {
     LazyRow(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Dimens.spacingLg),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = Dimens.spacingMd,
+            end = Dimens.spacingMd,
+            top = Dimens.spacingMd,
+        ),
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
     ) {
         items(attachments, key = { it.id }) { attachment ->
@@ -199,7 +376,8 @@ private fun AttachmentStrip(
                 Icon(
                     imageVector = Icons.Filled.Cancel,
                     contentDescription = "Remove attachment",
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    // White on a dark disc: it sits on a photo, not on the theme.
+                    tint = Color.White,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(2.dp)
@@ -213,91 +391,121 @@ private fun AttachmentStrip(
     }
 }
 
-/** "Coding · GPT-5 · YOLO" — one tappable line standing in for the chips. */
+/**
+ * "Coding · GPT-5 · Don’t ask" in one toolbar chip (the desktop's
+ * `config-chip`): 32dp, 8dp corners, text-secondary, opening the settings
+ * sheet. Don’t ask is drawn in the warning ink, as the desktop's settings
+ * chip is (`settings-chip--warn`).
+ */
 @Composable
-private fun ConfigSummaryRow(
-    summary: String,
+private fun ConfigChip(
+    summary: ConfigSummary,
     enabled: Boolean,
     onTap: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    val tint = if (enabled) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(Dimens.radiusSm))
             .clickable(enabled = enabled, onClick = onTap)
-            .padding(horizontal = Dimens.spacingLg, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
+            .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = Icons.Outlined.Tune,
             contentDescription = "Chat settings",
-            tint = tint,
-            modifier = Modifier.size(14.dp),
+            tint = colors.textSecondary,
+            modifier = Modifier.size(15.dp),
         )
-        Text(
-            text = summary,
-            style = MaterialTheme.typography.labelLarge,
-            color = tint,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        val label = remember(summary, colors) {
+            buildAnnotatedString {
+                append(summary.text)
+                summary.warningRange?.let { range ->
+                    addStyle(SpanStyle(color = colors.warning), range.first, range.last + 1)
+                }
+            }
+        }
+        // The head gives way, the permission level never does: see
+        // [ConfigSummary.tailStart].
+        val tailStart = summary.tailStart
+        Row(modifier = Modifier.weight(1f, fill = false)) {
+            Text(
+                text = if (tailStart == null) label else label.subSequence(0, tailStart),
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (tailStart != null) {
+                Text(
+                    text = label.subSequence(tailStart, label.length),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    softWrap = false,
+                    // Only when the level alone is wider than the chip (a
+                    // very large font): an ellipsis, not a clipped glyph.
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         Icon(
-            imageVector = Icons.Outlined.UnfoldMore,
+            imageVector = Icons.Outlined.KeyboardArrowDown,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.size(12.dp),
+            tint = colors.textTertiary,
+            modifier = Modifier.size(14.dp),
         )
     }
 }
 
 @Composable
 private fun ComposerTextField(
-    text: String,
-    onTextChange: (String) -> Unit,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
     enabled: Boolean,
-    modifier: Modifier = Modifier,
+    budgets: Boolean,
+    muted: Boolean,
+    interactionSource: MutableInteractionSource,
+    placeholder: String,
+    focusRequester: FocusRequester,
 ) {
     val colors = LocalSpettroColors.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val focused by interactionSource.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(Dimens.radiusInputPill)
-    val borderColor = if (focused) colors.accent.copy(alpha = 0.5f) else colors.hairline
-
+    val text = value.text
     BasicTextField(
-        value = text,
-        onValueChange = onTextChange,
+        value = value,
+        onValueChange = onValueChange,
         enabled = enabled,
-        maxLines = 6,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(
-            color = MaterialTheme.colorScheme.onSurface,
-        ),
+        maxLines = 8,
+        textStyle = ComposerText.copy(color = colors.textPrimary),
         // "ultracode", or "use a workflow to …", silently arms multi-agent
         // orchestration for the next turn. Lighting the phrase as it is typed
         // is the only sign the user gets that the turn changed shape, and it is
-        // driven by the same matcher the CLI uses to decide.
-        visualTransformation = activationHighlight(tint = colors.accent),
+        // driven by the same matcher the CLI uses to decide. A "+500k" budget
+        // lights beside it when it would be honoured; under Ask first both are
+        // muted, since no workflow will run.
+        visualTransformation = activationHighlight(budgets = budgets, muted = muted),
         cursorBrush = SolidColor(colors.accent),
         interactionSource = interactionSource,
-        modifier = modifier
-            .heightIn(min = 40.dp)
-            .clip(shape)
-            .background(colors.surfaceRaised)
-            .border(Dimens.hairlineWidth, borderColor, shape),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .focusRequester(focusRequester),
         decorationBox = { innerTextField ->
             Box(
-                modifier = Modifier.padding(
-                    horizontal = Dimens.spacingMd,
-                    vertical = Dimens.spacingSm + 1.dp,
-                ),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 if (text.isEmpty()) {
                     Text(
-                        text = if (enabled) "Message Spettro…" else "Not connected",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        text = if (enabled) placeholder else "Waiting for your computer…",
+                        style = ComposerText,
+                        color = colors.textTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 innerTextField()
@@ -306,47 +514,178 @@ private fun ComposerTextField(
     )
 }
 
+/** The composer's hint in an open chat (the desktop's, word for word). */
+const val CHAT_PLACEHOLDER = "Ask Spettro to build, fix, or explain…"
+
+/** The hint while the link to the computer is coming back: the field stays usable, Send waits. */
+const val RECONNECTING_PLACEHOLDER = "Spettro is reconnecting — you can keep typing…"
+
+/** The hint while Spettro starts on the computer. */
+const val STARTING_PLACEHOLDER = "Starting Spettro…"
+
+/**
+ * The hint on the new-session view, which names the folder right under the
+ * field — so the hint says what to type rather than where.
+ */
+const val NEW_SESSION_PLACEHOLDER = "Describe a task, or ask about your code…"
+
+/** The size of the composer's round buttons: the desktop's 32px, grown for a thumb. */
+private val SendSize = 36.dp
+
 @Composable
 private fun SendButton(
     isBusy: Boolean,
+    hasContent: Boolean,
     canSend: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
     val colors = LocalSpettroColors.current
     if (isBusy) {
-        // Mid-turn the useful action is stopping, not queueing another
-        // message — so the same button becomes Stop.
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(colors.diffRemoved)
-                .clickable(onClick = onStop),
-            contentAlignment = Alignment.Center,
+        // Mid-turn there are two things to do: stop the turn, or guide it —
+        // a message sent now steers the running agent at its next step. The
+        // Guide pill only shows once there is something to send, and then
+        // Stop steps back to an outline so the two don't compete. While the
+        // link comes back Guide stays, dimmed: the steer is waiting to go.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Stop,
-                contentDescription = "Stop",
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(20.dp),
-            )
+            Box(
+                modifier = Modifier
+                    .size(SendSize)
+                    .clip(CircleShape)
+                    .then(
+                        if (hasContent) {
+                            Modifier.border(Dimens.hairlineWidth, colors.hairline, CircleShape)
+                        } else {
+                            Modifier.background(colors.ink)
+                        },
+                    )
+                    .clickable(onClick = onStop),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(11.dp)
+                        .background(if (hasContent) colors.ink else colors.onInk, RoundedCornerShape(2.dp))
+                        .semantics { contentDescription = "Stop" },
+                )
+            }
+            if (hasContent) {
+                Row(
+                    modifier = Modifier
+                        .height(SendSize)
+                        .alpha(if (canSend) 1f else 0.25f)
+                        .clip(CircleShape)
+                        .background(colors.ink)
+                        .clickable(enabled = canSend, onClick = onSend)
+                        .padding(start = 10.dp, end = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ArrowUpward,
+                        contentDescription = null,
+                        tint = colors.onInk,
+                        modifier = Modifier.size(17.dp),
+                    )
+                    Text(
+                        text = "Guide",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.onInk,
+                    )
+                }
+            }
         }
     } else {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(SendSize)
+                .alpha(if (canSend) 1f else 0.25f)
                 .clip(CircleShape)
-                .background(if (canSend) colors.accent else colors.accent.copy(alpha = 0.35f))
+                .background(colors.ink)
                 .clickable(enabled = canSend, onClick = onSend),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = Icons.Outlined.ArrowUpward,
                 contentDescription = "Send",
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(20.dp),
+                tint = colors.onInk,
+                modifier = Modifier.size(19.dp),
             )
+        }
+    }
+}
+
+/**
+ * The @-mention menu (the desktop's MentionMenu): the project's files that
+ * match what follows the "@", floating above the composer card. A row is the
+ * file's name first and its folder after, muted — people remember files by
+ * name. [files] is null while the folder is still being listed.
+ */
+@Composable
+private fun MentionMenu(
+    files: List<String>?,
+    query: String,
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    maxHeight: Dp = TabMaxHeight,
+) {
+    val colors = LocalSpettroColors.current
+    val shape = RoundedCornerShape(topStart = Dimens.radiusMd, topEnd = Dimens.radiusMd)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.surfaceRaised)
+            .border(Dimens.hairlineWidth, colors.hairline, shape)
+            .padding(bottom = TodoTuck)
+            .heightIn(max = maxHeight.coerceAtMost(220.dp))
+            .verticalScroll(rememberScrollState())
+            .padding(vertical = 4.dp),
+    ) {
+        if (files.isNullOrEmpty()) {
+            Text(
+                text = when {
+                    files == null -> "Looking through the project…"
+                    query.isEmpty() -> "No files in this folder"
+                    else -> "No file matches “$query”"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
+            )
+        } else {
+            files.forEach { path ->
+                val slash = path.lastIndexOf('/')
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(path) }
+                        .heightIn(min = 40.dp)
+                        .padding(horizontal = Dimens.spacingMd),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.Description, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(14.dp))
+                    Text(
+                        path.substring(slash + 1),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                    )
+                    if (slash > 0) {
+                        Text(
+                            path.substring(0, slash),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -355,7 +694,8 @@ private fun SendButton(
 
 /**
  * The slash-command picker: a searchable bottom sheet listing every command
- * the agent advertises. Filtering is a case-insensitive contains on the name.
+ * the agent advertises, in plain words, the developer ones last
+ * ([CommandCopy]). The search matches a name's start or the description.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -364,10 +704,7 @@ fun CommandPalette(
     onPick: (AcpCommand) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = LocalSpettroColors.current.surfaceRaised,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         CommandPaletteContent(commands = commands, onPick = onPick)
     }
 }
@@ -379,55 +716,21 @@ internal fun CommandPaletteContent(
 ) {
     val colors = LocalSpettroColors.current
     var search by rememberSaveable { mutableStateOf("") }
-    val filtered = if (search.isBlank()) {
-        commands
-    } else {
-        commands.filter { it.name.contains(search.trim(), ignoreCase = true) }
-    }
+    val filtered = remember(commands, search) { CommandCopy.matching(commands, search) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Search field.
-        val shape = RoundedCornerShape(Dimens.radiusInputPill)
-        BasicTextField(
+        SpettroTextField(
             value = search,
             onValueChange = { search = it },
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-            ),
-            cursorBrush = SolidColor(colors.accent),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.spacingLg)
-                .clip(shape)
-                .background(colors.canvas)
-                .border(Dimens.hairlineWidth, colors.hairline, shape),
-            decorationBox = { innerTextField ->
-                Row(
-                    modifier = Modifier.padding(
-                        horizontal = Dimens.spacingMd,
-                        vertical = Dimens.spacingSm,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (search.isEmpty()) {
-                            Text(
-                                text = "Find a command",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
+            placeholder = "Find a command",
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Dimens.spacingLg),
+            leading = {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = colors.textTertiary,
+                    modifier = Modifier.size(16.dp),
+                )
             },
         )
 
@@ -450,13 +753,14 @@ internal fun CommandPaletteContent(
                     Text(
                         text = "/${command.name}",
                         style = MonoBody.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = colors.textPrimary,
                     )
-                    if (command.description.isNotEmpty()) {
+                    val description = CommandCopy.description(command)
+                    if (description != null) {
                         Text(
-                            text = command.description,
+                            text = description,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.textSecondary,
                         )
                     }
                 }
@@ -467,7 +771,7 @@ internal fun CommandPaletteContent(
 
 // MARK: Previews
 
-@Preview(name = "Composer", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Composer", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun ChatComposerPreview() {
     SpettroTheme(darkTheme = true) {
@@ -486,11 +790,18 @@ private fun ChatComposerPreview() {
             onConfigTap = {},
             commands = ChatPreviewData.commands,
             onCommandPick = {},
+            thinking = ThinkingControl(
+                options = ChatPreviewData.configOptions,
+                reasons = null,
+                onCommit = { CompletableDeferred(true) },
+                onSwitchToRestricted = {},
+                onTurnOffUltra = {},
+            ),
         )
     }
 }
 
-@Preview(name = "Busy — stop", showBackground = true, backgroundColor = 0xFFF9F9F7, widthDp = 380)
+@Preview(name = "Busy — stop", showBackground = true, backgroundColor = 0xFFFAFAFA, widthDp = 380)
 @Composable
 private fun ChatComposerPreviewBusy() {
     SpettroTheme(darkTheme = false) {
@@ -512,7 +823,7 @@ private fun ChatComposerPreviewBusy() {
     }
 }
 
-@Preview(name = "Disconnected", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
+@Preview(name = "Disconnected", showBackground = true, backgroundColor = 0xFF1C1C1E, widthDp = 380)
 @Composable
 private fun ChatComposerPreviewDisabled() {
     SpettroTheme(darkTheme = true) {
@@ -534,7 +845,7 @@ private fun ChatComposerPreviewDisabled() {
     }
 }
 
-@Preview(name = "Command palette", showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 380)
+@Preview(name = "Command palette", showBackground = true, backgroundColor = 0xFF2C2C2E, widthDp = 380)
 @Composable
 private fun CommandPalettePreview() {
     SpettroTheme(darkTheme = true) {

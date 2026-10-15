@@ -168,4 +168,30 @@ class PairPayloadParseTest {
         assertNotNull(payload)
         assertTrue(payload!!.secret.contentEquals(secret))
     }
+
+    @Test
+    fun `an internet hostname from an older host is ignored`() {
+        val url = "spettro-pair://pair?v=1&h=HOST-123&n=Mac&k=app&s=$secretB64" +
+            "&a=192.168.1.24&p=7879&r=spettro.example.com"
+        val payload = RemotePairing.parse(url)
+        assertNotNull(payload)
+        // The LAN hint is all that's used; the code is the same one without r.
+        assertEquals("192.168.1.24", payload!!.address)
+        assertEquals(7879, payload.port)
+        assertEquals(
+            RemotePairing.parse("spettro-pair://pair?v=1&h=HOST-123&n=Mac&k=app&s=$secretB64&a=192.168.1.24&p=7879"),
+            payload,
+        )
+        assertFalse(payload.toString().contains("example.com"))
+    }
+
+    @Test
+    fun `an unusable r doesn't spoil the code`() {
+        for (r in listOf("", "not%20a%20host", "wss://x/%%", "%ZZ")) {
+            val payload = RemotePairing.parse("spettro-pair://pair?h=HOST-123&s=$secretB64&a=10.0.0.2&p=7000&r=$r")
+            assertNotNull(r, payload)
+            assertEquals("10.0.0.2", payload!!.address)
+            assertEquals(7000, payload.port)
+        }
+    }
 }

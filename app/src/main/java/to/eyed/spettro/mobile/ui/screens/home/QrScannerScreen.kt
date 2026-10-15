@@ -1,5 +1,6 @@
 package to.eyed.spettro.mobile.ui.screens.home
 
+import to.eyed.spettro.mobile.ui.components.SpettroButton
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,7 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -99,7 +99,7 @@ fun QrScannerScreen(
             CameraQrPreview(onResult = onResult)
             ScannerOverlay()
             Text(
-                "Point at the QR code on your PC",
+                "Point at the code on your computer",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
@@ -115,18 +115,17 @@ fun QrScannerScreen(
             ) {
                 Text(
                     if (permissionDenied) {
-                        "Camera access was denied. Allow it in system settings, or enter the code manually."
+                        "Camera access was turned down. Allow it in system settings, or paste a pairing link instead."
                     } else {
-                        "Camera access is needed to scan the pairing code."
+                        "Spettro needs the camera to scan the pairing code."
                     },
+                    // White on the viewfinder's black, in either appearance.
+                    color = Color.White,
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
                 )
                 if (permissionDenied) {
-                    Button(
-                        onClick = onClose,
-                        modifier = Modifier.padding(top = 16.dp),
-                    ) { Text("Back") }
+                    SpettroButton("Back", onClick = onClose, modifier = Modifier.padding(top = 16.dp))
                 }
             }
         }

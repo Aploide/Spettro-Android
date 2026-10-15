@@ -1,0 +1,299 @@
+package to.eyed.spettro.mobile.core.remote
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * The pieces of a connection attempt that don't touch a socket: where to
+ * try, in what order, how to pick a winner, and how to hold notifications
+ * that arrive before the client is ready for them. Kept free of Android and
+ * OkHttp so they can be checked on the JVM.
+ */
+
+// MARK: - Route
+
+/** The physical way a connection reaches the host — what Settings names. */
+enum class RemoteLink {
+    WiFi,
+    Ethernet,
+
+    /** A loopback address: a USB cable's port forward to the computer. */
+    Usb,
+
+    /** The LAN, over a network that didn't say what it is. */
+    LocalNetwork,
+}
+
+/** The kind of local network the phone is on, when it is on one. */
+enum class LocalTransport { WiFi, Ethernet }
+
+// MARK: - Endpoints
+
+/** One place the host might be listening. */
+sealed interface Endpoint {
+    val url: String
+
+    /** A short label for the connection log. */
+    val label: String
+
+    /** The host's own listener on the LAN: plain `ws://`, auth is the HMAC proof. */
+    data class Lan(val host: String, val port: Int) : Endpoint {
+        override val label: String get() = "$host:$port"
+
+        /** IPv6 literals need brackets; scope ids do not survive URLs. */
+        override val url: String
+            get() {
+                val cleaned = host.substringBefore('%')
+                return if (':' in cleaned) "ws://[$cleaned]:$port/" else "ws://$cleaned:$port/"
+            }
+    }
+}
+
+/** What the phone's network allows right now. */
+interface NetworkEnvironment {
+    /** On Wi-Fi or Ethernet — the only networks a LAN address can mean anything on. */
+    val onLocalNetwork: Boolean
+
+    /** Android 17's local-network permission is granted (always true before it). */
+    val localNetworkAllowed: Boolean
+
+    /** Which local network the phone is on, or null when it isn't on one. */
+    val localTransport: LocalTransport?
+        get() = if (onLocalNetwork) LocalTransport.WiFi else null
+
+    companion object {
+        /** For tests and previews: a phone on an open home network. */
+        val Unrestricted: NetworkEnvironment = object : NetworkEnvironment {
+            override val onLocalNetwork = true
+            override val localNetworkAllowed = true
+        }
+    }
+}
+
+object EndpointPlan {
+    /**
+     * Every endpoint worth trying for a paired host, best first:
+     *  1. where Bonjour sees it right now (survives the host changing address),
+     *  2. the last LAN address that worked — only on Wi-Fi or Ethernet, since
+     *     on mobile data a `192.168.x` address is at best someone else's;
+     *     a loopback address is this phone whatever the network (a USB
+     *     cable's port forward), so it is always worth a try.
+     *
+     * LAN routes are dropped entirely while the local-network permission is
+     * missing: the system would refuse the socket anyway.
+     */
+    fun candidates(
+        discovered: DiscoveredHost?,
+        lastAddress: String?,
+        lastPort: Int?,
+        environment: NetworkEnvironment,
+    ): List<Endpoint> = buildList {
+        if (environment.localNetworkAllowed) {
+            discovered?.let { add(Endpoint.Lan(it.host, it.port)) }
+            if (lastAddress != null && lastPort != null &&
+                (environment.onLocalNetwork || isLoopback(lastAddress))
+            ) {
+                add(Endpoint.Lan(lastAddress, lastPort))
+            }
+        }
+    }.distinct()
+
+    /**
+     * How a connection on [endpoint] reaches the host: a loopback address is
+     * a USB port forward, and any other LAN address goes over the network the
+     * phone is on ([transport]).
+     */
+    fun linkOf(endpoint: Endpoint, transport: LocalTransport?): RemoteLink = when {
+        endpoint is Endpoint.Lan && isLoopback(endpoint.host) -> RemoteLink.Usb
+        transport == LocalTransport.WiFi -> RemoteLink.WiFi
+        transport == LocalTransport.Ethernet -> RemoteLink.Ethernet
+        else -> RemoteLink.LocalNetwork
+    }
+
+    /** `127.x.x.x`, `::1` or `localhost`: an address on this phone itself. */
+    fun isLoopback(address: String): Boolean {
+        val plain = address.substringBefore('%').removePrefix("[").removeSuffix("]").lowercase()
+        return plain == "localhost" || plain == "::1" ||
+            Regex("""^(::ffff:)?127\.\d{1,3}\.\d{1,3}\.\d{1,3}$""").matches(plain)
+    }
+
+    /** The same order for a fresh QR scan: its address hint, then Bonjour. */
+    fun pairingCandidates(
+        payload: PairPayload,
+        discovered: DiscoveredHost?,
+        environment: NetworkEnvironment,
+    ): List<Endpoint> = buildList {
+        if (environment.localNetworkAllowed) {
+            val address = payload.address
+            val port = payload.port
+            if (address != null && port != null) add(Endpoint.Lan(address, port))
+            discovered?.let { add(Endpoint.Lan(it.host, it.port)) }
+        }
+    }.distinct()
+
+    /**
+     * What to tell the user when no route answered:
+     *  - Bonjour sees the host right now, so it's there and the socket
+     *    failed — a plain transport problem;
+     *  - nothing at all could be tried because the local-network
+     *    permission is missing;
+     *  - otherwise the host simply isn't on this network.
+     */
+    fun offlineReason(
+        hostDiscovered: Boolean,
+        environment: NetworkEnvironment,
+    ): OfflineReason = when {
+        hostDiscovered && environment.localNetworkAllowed -> OfflineReason.Transport
+        !environment.localNetworkAllowed -> OfflineReason.NoLocalNetwork
+        else -> OfflineReason.HostNotFound
+    }
+}
+
+// MARK: - Racing
+
+/** No candidate answered; [cause] is the last attempt's failure (null when there were none). */
+class RaceFailure(cause: Exception?) : Exception(cause?.message ?: "nothing to try", cause)
+
+/**
+ * Tries [candidates] in order with a head start each — "happy eyeballs":
+ * the first starts at once, each next one after [stagger] or as soon as the
+ * one before it fails, whichever comes first. The first success wins.
+ *
+ * Every other attempt is cancelled, and any that succeeded anyway is handed
+ * to [discard] before this returns. That matters here: the host closes an
+ * older socket of the same device once a newer one authenticates, so a
+ * losing socket must be gone before the winner sends `auth`.
+ *
+ * @throws RaceFailure when every candidate failed (or there were none).
+ */
+suspend fun <E, R> raceStaggered(
+    candidates: List<E>,
+    stagger: Long,
+    attempt: suspend (E) -> R,
+    discard: (R) -> Unit,
+): R {
+    if (candidates.isEmpty()) throw RaceFailure(null)
+    val results = Channel<Result<R>>(Channel.UNLIMITED)
+    // Outside the scope so a cancelled race can still give its winner back.
+    var winner: R? = null
+    var won = false
+    try {
+        return coroutineScope {
+            val gates = List(candidates.size) { CompletableDeferred<Unit>() }
+            gates[0].complete(Unit)
+            val jobs = candidates.mapIndexed { index, candidate ->
+                launch {
+                    gates[index].await()
+                    val next = gates.getOrNull(index + 1)
+                    val headStart = next?.let { gate -> launch { delay(stagger); gate.complete(Unit) } }
+                    val outcome = try {
+                        Result.success(attempt(candidate))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Result.failure(e)
+                    }
+                    if (outcome.isFailure) {
+                        headStart?.cancel()
+                        next?.complete(Unit)
+                    }
+                    // Never suspends (the channel is unbounded), so a success
+                    // can't be lost to a cancellation between here and there.
+                    results.trySend(outcome)
+                }
+            }
+
+            var lastError: Exception? = null
+            for (i in candidates.indices) {
+                val outcome = results.receive()
+                if (outcome.isSuccess) {
+                    winner = outcome.getOrNull()
+                    won = true
+                    break
+                }
+                lastError = outcome.exceptionOrNull() as? Exception
+            }
+            jobs.forEach { it.cancel() }
+            jobs.forEach { it.join() }
+            // Anything that finished between the win and the cancellation.
+            drainSuccesses(results, discard)
+            @Suppress("UNCHECKED_CAST")
+            if (won) winner as R else throw RaceFailure(lastError)
+        }
+    } catch (e: CancellationException) {
+        // The caller went away mid-race. The scope has waited for every
+        // attempt by now, so whatever succeeded is in hand: close it all
+        // rather than leave an open socket nobody holds.
+        @Suppress("UNCHECKED_CAST")
+        if (won) discard(winner as R)
+        drainSuccesses(results, discard)
+        throw e
+    } finally {
+        results.close()
+    }
+}
+
+private fun <R> drainSuccesses(results: Channel<Result<R>>, discard: (R) -> Unit) {
+    while (true) {
+        val late = results.tryReceive().getOrNull() ?: break
+        late.getOrNull()?.let(discard)
+    }
+}
+
+// MARK: - Notification ordering
+
+/** Where a notification sat on the wire: which connection, which frame. */
+data class FrameMark(val connection: Long, val frame: Long) {
+    /** True when this frame came after [other] on the same connection. */
+    fun isAfter(other: FrameMark): Boolean = connection == other.connection && frame > other.frame
+}
+
+/** A host notification with its place on the wire. */
+data class InboundNotification(val note: RemoteNotification, val mark: FrameMark)
+
+/**
+ * Holds notifications until [open], then passes them (and everything after)
+ * straight to [deliver], in arrival order.
+ *
+ * The host may push `host/state` — and, with pending-prompt replay, whole
+ * permission asks — the instant auth succeeds, before the client has
+ * processed the auth reply. Installing this before sending `auth` keeps
+ * those frames instead of dropping them on the hello-only handler.
+ */
+class NotificationGate<T>(private val deliver: (T) -> Unit) {
+    private val lock = Any()
+    private var held: MutableList<T>? = mutableListOf()
+
+    fun offer(item: T) {
+        synchronized(lock) {
+            val buffer = held
+            if (buffer != null) {
+                buffer.add(item)
+                return
+            }
+            deliver(item)
+        }
+    }
+
+    /**
+     * Flushes the held items and lets later ones through. Delivery happens
+     * under the lock, so a frame arriving mid-flush can't overtake one
+     * that was already held.
+     */
+    fun open() {
+        synchronized(lock) {
+            val buffer = held ?: return
+            held = null
+            buffer.forEach(deliver)
+        }
+    }
+
+    /** Drops everything held; the gate stays shut (the connection failed). */
+    fun discard() {
+        synchronized(lock) { held?.clear() }
+    }
+}

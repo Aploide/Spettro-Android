@@ -17,14 +17,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -45,11 +43,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import to.eyed.spettro.mobile.model.MemberCall
-import to.eyed.spettro.mobile.model.OrchRun
 import to.eyed.spettro.mobile.model.OrchStatus
 import to.eyed.spettro.mobile.model.PhaseState
+import to.eyed.spettro.mobile.model.RunStatus
 import to.eyed.spettro.mobile.model.TranscriptRow
+import to.eyed.spettro.mobile.model.WorkflowRun
 import to.eyed.spettro.mobile.model.activeRuns
+import to.eyed.spettro.mobile.model.runSettledNote
 import to.eyed.spettro.mobile.model.stripInstance
 import to.eyed.spettro.mobile.model.truncateInstance
 import to.eyed.spettro.mobile.ui.components.GlareText
@@ -80,10 +80,12 @@ import to.eyed.spettro.mobile.ui.theme.TabularNums
  * Three behaviours are load-bearing:
  *
  *  1. A finished run does not blink out. `activeRuns` drops it the instant its
- *     status flips, which in a fast workflow means the line you were reading
- *     vanishes mid-sentence. Instead the strip holds the last snapshot for a
- *     beat, shows it settled, and only then lets it go — so the eye always
- *     lands on an answer.
+ *     status flips — or the moment it pauses at a checkpoint, or is stopped —
+ *     which in a fast workflow means the line you were reading vanishes
+ *     mid-sentence. Instead the strip holds the run for a beat, shows it
+ *     settled *as it now stands* ("Waiting — fix which?", "Stopped — …",
+ *     the CLI's own conclusion), and only then lets it go — so the eye always
+ *     lands on an answer, and never on a "done" for a run that is waiting.
  *  2. A running member's detail is its *latest tool call*, not the task it was
  *     launched with. In a twenty-member fan-out the launch items are
  *     near-identical and say nothing about progress; the live detail is the
@@ -99,6 +101,10 @@ import to.eyed.spettro.mobile.ui.theme.TabularNums
  *  becomes a log. */
 private const val HOLD_MILLIS = 4_000L
 
+/** The widest the run's name gets on the strip before it ellipsizes: room for
+ *  a typical name, while the meter, ratio and live detail keep their line. */
+private val STRIP_TITLE_MAX = 160.dp
+
 @Composable
 fun OrchestrationLiveStrip(
     rows: List<TranscriptRow>,
@@ -108,7 +114,7 @@ fun OrchestrationLiveStrip(
     // The last run we showed, kept past its own death so the strip can settle
     // rather than disappear. Keyed by tool id: a *different* run starting is a
     // new thing to show, not a continuation of the old one.
-    var held by remember { mutableStateOf<OrchRun?>(null) }
+    var held by remember { mutableStateOf<WorkflowRun?>(null) }
     var holding by remember { mutableStateOf(false) }
 
     LaunchedEffect(live.firstOrNull()?.tool?.id, live.isEmpty()) {
@@ -157,7 +163,7 @@ fun OrchestrationLiveStrip(
 }
 
 /** The settled version of a run, once its status has flipped. */
-private fun settledRun(rows: List<TranscriptRow>, toolId: String?): OrchRun? {
+private fun settledRun(rows: List<TranscriptRow>, toolId: String?): WorkflowRun? {
     if (toolId == null) return null
     return rows.filterIsInstance<TranscriptRow.Run>()
         .map { it.run }
@@ -170,17 +176,21 @@ private fun settledRun(rows: List<TranscriptRow>, toolId: String?): OrchRun? {
 
 @Composable
 private fun StripLine(
-    run: OrchRun,
+    run: WorkflowRun,
     extraRuns: Int,
     settled: Boolean,
     onTap: () -> Unit,
 ) {
     val colors = LocalSpettroColors.current
     val accent = when {
-        settled && run.status == OrchStatus.FAILED -> colors.dangerInk
-        settled -> colors.successInk
-        run is OrchRun.Swarm -> colors.agentInk
-        else -> colors.accentInk
+        !settled -> colors.accentText
+        run.status == RunStatus.FAILED -> colors.danger
+        run.status == RunStatus.PAUSED -> colors.warning
+        run.status == RunStatus.STOPPED -> MaterialTheme.colorScheme.onSurfaceVariant
+        // A run that merely vanished from the live list without a final word
+        // is reported from what its last snapshot knew.
+        run.status == RunStatus.RUNNING && run.counts.failed > 0 -> colors.danger
+        else -> colors.success
     }
     val latest = latestActivity(run)
 
@@ -194,23 +204,21 @@ private fun StripLine(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (run is OrchRun.Swarm) {
-                Icon(
-                    imageVector = Icons.Outlined.Bolt,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(13.dp),
-                )
-            } else {
-                WorkflowMark(tint = accent, size = 12.dp)
-            }
+            WorkflowMark(tint = accent, size = 12.dp)
             GlareText(
-                text = if (run is OrchRun.Swarm) "swarm" else run.displayTitle,
+                text = run.displayTitle,
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = FontWeight.SemiBold,
                 ),
                 color = accent,
                 isActive = !settled,
+                // One capped line: a long name ellipsizes rather than pushing
+                // the meter off the row or wrapping the strip taller. A cap,
+                // not a weight — a second weight beside the detail's would
+                // halve the detail and leave the chevron floating.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = STRIP_TITLE_MAX),
             )
             if (extraRuns > 0) {
                 OrchPill(text = "+$extraRuns", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -220,7 +228,7 @@ private fun StripLine(
             // The live edge: whichever member moved most recently, and what it
             // is doing. Once the run is over this is the conclusion instead.
             Text(
-                text = if (settled) settledLine(run) else latest,
+                text = if (settled) runSettledNote(run) else latest,
                 style = MonoSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -235,13 +243,13 @@ private fun StripLine(
 /**
  * What the run is doing right now, in one line: the running member that most
  * recently produced a tool call, and that call. Falls back to the member's task
- * when it has not called anything yet, and to a count when nothing is running —
- * an Ultra swarm mid-ramp has members it has accepted but not launched.
+ * when it has not called anything yet, and to a word when nothing is running —
+ * a run between phases has members it lists but has not started.
  */
-private fun latestActivity(run: OrchRun): String {
+private fun latestActivity(run: WorkflowRun): String {
     val running = run.members.filter { it.status == OrchStatus.RUNNING }
     if (running.isEmpty()) {
-        return if (run.counts.total > run.members.size) "launching…" else "waiting…"
+        return if (run.counts.pending > 0) "Starting agents…" else "Waiting…"
     }
     val withWork = running.lastOrNull { it.children.isNotEmpty() } ?: running.first()
     val last = withWork.children.lastOrNull()
@@ -253,14 +261,6 @@ private fun latestActivity(run: OrchRun): String {
     val name = truncateInstance(withWork.instance, INSTANCE_MAX)
     val text = detail.replace("\n", " ")
     return if (text.isEmpty()) name else "$name  $text"
-}
-
-/** The one line a just-finished run leaves behind. */
-private fun settledLine(run: OrchRun): String = when {
-    run.counts.failed > 0 -> "${run.counts.done} done · ${run.counts.failed} failed"
-    run.counts.done > 0 -> "${run.counts.done} done"
-    run.status == OrchStatus.FAILED -> "failed"
-    else -> "finished"
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +280,7 @@ private fun settledLine(run: OrchRun): String = when {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LiveRunSheet(
-    runs: List<OrchRun>,
+    runs: List<WorkflowRun>,
     onDismiss: () -> Unit,
 ) {
     val colors = LocalSpettroColors.current
@@ -309,9 +309,9 @@ private fun LiveRunSheet(
 }
 
 @Composable
-private fun LiveRunSection(run: OrchRun) {
+private fun LiveRunSection(run: WorkflowRun) {
     val colors = LocalSpettroColors.current
-    val accent = if (run is OrchRun.Swarm) colors.agentInk else colors.accentInk
+    val accent = colors.accentText
 
     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
         Row(
@@ -319,16 +319,7 @@ private fun LiveRunSection(run: OrchRun) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            if (run is OrchRun.Swarm) {
-                Icon(
-                    imageVector = Icons.Outlined.Bolt,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(14.dp),
-                )
-            } else {
-                WorkflowMark(tint = accent, size = 13.dp)
-            }
+            WorkflowMark(tint = accent, size = 13.dp)
             Text(
                 text = run.displayTitle,
                 style = MaterialTheme.typography.labelLarge.copy(
@@ -350,17 +341,13 @@ private fun LiveRunSection(run: OrchRun) {
         )
         OrchCountsLabel(counts = run.counts)
 
-        val pending = (run as? OrchRun.Swarm)?.pending?.size ?: 0
-        if (run.members.isNotEmpty() || pending > 0) {
-            AgentCellStrip(members = run.members, pending = pending, cell = 9.dp)
+        if (run.members.isNotEmpty()) {
+            AgentCellStrip(members = run.members, cell = 9.dp)
         }
 
-        when (run) {
-            is OrchRun.Workflow -> run.phases
-                .filter { it.title.isNotEmpty() || it.members.isNotEmpty() }
-                .forEach { phase -> LivePhase(phase.title, phase.state, phase.members) }
-            is OrchRun.Swarm -> LiveMembers(run.members)
-        }
+        run.phases
+            .filter { it.title.isNotEmpty() || it.members.isNotEmpty() }
+            .forEach { phase -> LivePhase(phase.title, phase.liveState, phase.members) }
     }
 }
 
@@ -372,9 +359,9 @@ private fun LivePhase(
 ) {
     val colors = LocalSpettroColors.current
     val tint = when (state) {
-        PhaseState.RUNNING -> colors.accentMark
-        PhaseState.FAILED -> colors.dangerMark
-        PhaseState.DONE -> colors.successMark
+        PhaseState.RUNNING -> colors.accent
+        PhaseState.FAILED -> colors.danger
+        PhaseState.DONE -> colors.success
         PhaseState.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
     }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -384,7 +371,7 @@ private fun LivePhase(
         ) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(tint))
             Text(
-                text = title.ifEmpty { "no phase" },
+                text = title.ifEmpty { "No phase" },
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = FontWeight.SemiBold,
                 ),
@@ -396,9 +383,9 @@ private fun LivePhase(
             )
             Text(
                 text = when (state) {
-                    PhaseState.PENDING -> "pending"
-                    PhaseState.DONE -> "done"
-                    PhaseState.FAILED -> "failed"
+                    PhaseState.PENDING -> "Pending"
+                    PhaseState.DONE -> "Done"
+                    PhaseState.FAILED -> "Failed"
                     PhaseState.RUNNING -> "${members.count { it.status == OrchStatus.RUNNING }} running"
                 },
                 style = MaterialTheme.typography.labelSmall.copy(
@@ -470,7 +457,6 @@ private fun LiveStripPreview() {
     SpettroTheme(darkTheme = true) {
         Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg)) {
             OrchestrationLiveStrip(rows = OrchestrationPreviewData.liveWorkflowRows)
-            OrchestrationLiveStrip(rows = OrchestrationPreviewData.liveSwarmRows)
         }
     }
 }

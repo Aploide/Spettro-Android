@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The canvas token (bg-canvas), dark (SpettroColors). -->
+    <color name="canvas">#1C1C1E</color>
+</resources>

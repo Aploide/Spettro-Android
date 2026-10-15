@@ -25,9 +25,19 @@ object AcpQuestionMeta {
 
 // MARK: - Permission request (agent -> client)
 
-/** A `session/request_permission` put to this client. */
+/**
+ * A `session/request_permission` put to this client.
+ *
+ * The CLI attaches a request to the card it is already drawing and then
+ * sends only the card's id, the pending status and the content — no title,
+ * no kind — so [title] is often empty and [toolKind] null here; the
+ * coordinator fills them in from that card (see `describedBy`). A request
+ * with no card to attach to names a fresh `perm-N` id and describes itself
+ * in full.
+ */
 data class AcpPermissionRequest(
     val sessionId: String,
+    /** The tool call's own title; empty when the request leaves it to its card. */
     val title: String,
     val toolKind: String? = null,
     val rawInput: JsonElement? = null,
@@ -37,6 +47,21 @@ data class AcpPermissionRequest(
      * is putting an agent question through this transport.
      */
     val meta: JsonObject? = null,
+    /** The card the request approves, as the agent numbers it (`call-3`, `perm-1`). */
+    val toolCallId: String? = null,
+    /**
+     * The approval's text content, in order: the command or URL in a fenced
+     * block, the reason, sometimes what "Always allow" would remember.
+     */
+    val texts: List<String> = emptyList(),
+    /** The file change being approved. */
+    val diffs: List<AcpToolContent.Diff> = emptyList(),
+    val locations: List<AcpToolLocation> = emptyList(),
+    /**
+     * The "context nearly full — compact now?" prompt, which approves no tool:
+     * its id is `compact-N`, or one of its options is `compact`.
+     */
+    val isCompact: Boolean = false,
 ) {
     data class Option(
         val optionId: String,
@@ -53,7 +78,9 @@ data class AcpPermissionRequest(
          * question — not one of the agent's answers.
          */
         val isCustomInput: Boolean = false,
-    )
+    ) {
+        val isReject: Boolean get() = kind.startsWith("reject")
+    }
 
     /** True when this request is really a question walked over the permission transport. */
     val isQuestion: Boolean get() = meta?.get(AcpQuestionMeta.QUESTION).asObj != null
@@ -75,13 +102,21 @@ data class AcpPermissionRequest(
                     isCustomInput = optMeta?.get("spettro.app/isCustomInput").asBool ?: false,
                 )
             }
+            val content = (toolCall["content"].asArr ?: emptyList()).mapNotNull(AcpToolContent::parse)
+            val toolCallId = toolCall["toolCallId"].asString
             return AcpPermissionRequest(
                 sessionId = sessionId,
-                title = toolCall["title"].asString ?: "Permission requested",
+                title = toolCall["title"].asString.trimmedOrNull() ?: "",
                 toolKind = toolCall["kind"].asString,
                 rawInput = toolCall["rawInput"],
                 options = options,
                 meta = params["_meta"].asObj,
+                toolCallId = toolCallId,
+                texts = content.filterIsInstance<AcpToolContent.Text>().map { it.text },
+                diffs = content.filterIsInstance<AcpToolContent.Diff>(),
+                locations = (toolCall["locations"].asArr ?: emptyList()).mapNotNull(AcpToolLocation::parse),
+                isCompact = toolCallId?.startsWith("compact-") == true ||
+                    options.any { it.optionId == "compact" },
             )
         }
     }
@@ -179,14 +214,19 @@ data class AcpQuestionRequest(
             val payload = permission.meta?.get(AcpQuestionMeta.QUESTION).asObj ?: return null
             val custom = permission.options.firstOrNull { it.isCustomInput }?.optionId
                 ?: if (payload["allowCustomInput"].asBool == true) AcpQuestionMeta.CUSTOM_OPTION_ID else null
-            return fromPayload(payload, Transport.Permission(custom))
+            // The payload names its session when it can; the request always does.
+            return fromPayload(payload, Transport.Permission(custom), fallbackSessionId = permission.sessionId)
         }
 
-        private fun fromPayload(payload: JsonObject, transport: Transport): AcpQuestionRequest? {
+        private fun fromPayload(
+            payload: JsonObject,
+            transport: Transport,
+            fallbackSessionId: String = "",
+        ): AcpQuestionRequest? {
             val questions = questionsFrom(payload)
             if (questions.isEmpty()) return null
             return AcpQuestionRequest(
-                sessionId = payload["sessionId"].asString ?: "",
+                sessionId = payload["sessionId"].asString.trimmedOrNull() ?: fallbackSessionId,
                 context = payload["context"].asString.trimmedOrNull(),
                 questions = questions,
                 transport = transport,
@@ -211,10 +251,9 @@ data class AcpQuestionRequest(
 // MARK: - Answer
 
 /**
- * One question's answer, in the plain synthesized shape the Spettro Remote
- * host reads (`RemoteProtocol.swift`); the host translates it to the
- * kind-tagged ACP reply. A question with no answer is left out of the reply
- * entirely.
+ * One question's answer, as the user gave it: the options they chose and
+ * the words they typed. [toJson] puts it in the shape the host reads.
+ * A question with no answer is left out of the reply entirely.
  */
 data class AcpQuestionAnswer(
     val questionId: String,
@@ -225,10 +264,29 @@ data class AcpQuestionAnswer(
     /** A free-text annotation on the answer, not an answer itself. */
     val notes: String? = null,
 ) {
+    /**
+     * The `question/reply` entry. The desktop host reads a `text` with no
+     * `kind` as a custom answer and drops the options, and ignores `text`
+     * on an option answer — so the kind is always said, and words typed
+     * beside a choice travel as `notes`, which both kinds keep (as the
+     * desktop's own question card sends them). Words alone are a custom
+     * answer.
+     */
     fun toJson(): JsonObject = buildJsonObject {
         put("questionId", questionId)
         put("optionIds", buildJsonArray { optionIds.forEach { add(it) } })
-        text?.let { put("text", it) }
-        notes?.let { put("notes", it) }
+        val words = text?.trim().orEmpty()
+        val note = notes?.trim().orEmpty()
+        if (optionIds.isNotEmpty()) {
+            put("kind", "option")
+            if (optionIds.size == 1) put("optionId", optionIds[0])
+            listOf(words, note).filter { it.isNotEmpty() }.joinToString("\n\n")
+                .takeIf { it.isNotEmpty() }
+                ?.let { put("notes", it) }
+        } else {
+            put("kind", "custom")
+            put("text", words)
+            if (note.isNotEmpty()) put("notes", note)
+        }
     }
 }

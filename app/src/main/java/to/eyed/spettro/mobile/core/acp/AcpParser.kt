@@ -32,6 +32,9 @@ object AcpParser {
             "config_option_update" -> AcpSessionUpdate.ConfigUpdate(
                 (update["configOptions"].asArr ?: emptyList()).mapNotNull(AcpConfigOption::parseAcp)
             )
+            "current_mode_update" -> update["currentModeId"].asString
+                ?.takeIf { it.isNotEmpty() }
+                ?.let(AcpSessionUpdate::ModeUpdate)
             "plan" -> AcpSessionUpdate.Plan(
                 (update["entries"].asArr ?: emptyList()).mapNotNull(AcpPlanEntry::parse)
             )

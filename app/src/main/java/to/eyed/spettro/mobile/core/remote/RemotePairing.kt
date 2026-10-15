@@ -111,6 +111,9 @@ object RemoteCrypto {
 /**
  * What the QR code encodes:
  * `spettro-pair://pair?v=1&h=<hostID>&n=<hostName>&k=<kind>&s=<secret>&a=<addr>&p=<port>`
+ *
+ * Unknown keys are ignored, so a link from an older host that still carries
+ * `r` (its old internet hostname) parses the same as one without it.
  */
 class PairPayload(
     val protocolVersion: Int,
@@ -217,7 +220,7 @@ class RemoteCredential(
     val deviceKey: ByteArray,
     /** ISO-8601. */
     val pairedAt: String,
-    /** Last address the host was reachable at — a hint while discovery runs. */
+    /** Last LAN address the host was reachable at — a hint while discovery runs. */
     val lastAddress: String? = null,
     val lastPort: Int? = null,
 ) {
@@ -239,5 +242,6 @@ class RemoteCredential(
     override fun hashCode(): Int = hostID.hashCode() * 31 + deviceKey.contentHashCode()
 
     override fun toString(): String =
-        "RemoteCredential(hostID=$hostID, hostName=$hostName, kind=$hostKind, lastAddress=$lastAddress, lastPort=$lastPort)"
+        "RemoteCredential(hostID=$hostID, hostName=$hostName, kind=$hostKind, " +
+            "lastAddress=$lastAddress, lastPort=$lastPort)"
 }

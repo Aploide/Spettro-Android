@@ -14,6 +14,7 @@ import to.eyed.spettro.mobile.core.SpettroJson
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /** A JSON-RPC error surfaced to a caller awaiting a request. */
 class RpcException(val code: Int, message: String) : Exception(message) {
@@ -27,6 +28,13 @@ class RpcException(val code: Int, message: String) : Exception(message) {
             RpcException(CONNECTION_CLOSED, reason)
     }
 }
+
+/**
+ * A response together with the index of the inbound frame that carried it,
+ * so a caller can tell which notifications the peer saw before the reply and
+ * which after (see [JsonRpcPeer.currentFrame]).
+ */
+class FramedResult(val result: JsonElement, val frame: Long)
 
 /**
  * What [JsonRpcPeer] writes to. In production this is an OkHttp WebSocket
@@ -75,7 +83,18 @@ class JsonRpcPeer(
     var onLog: ((String) -> Unit)? = null
 
     private val nextId = AtomicInteger(1)
-    private val pending = ConcurrentHashMap<Int, CompletableDeferred<JsonElement>>()
+    private val pending = ConcurrentHashMap<Int, CompletableDeferred<FramedResult>>()
+    private val frameCounter = AtomicLong(0)
+
+    /**
+     * 1-based index of the inbound frame being dispatched right now. Frames
+     * are handled one at a time, in wire order, so a notification handler
+     * that reads this gets the position of its own frame — comparable with
+     * [FramedResult.frame] to order it against a response.
+     */
+    @Volatile
+    var currentFrame: Long = 0
+        private set
     private val closed = AtomicBoolean(false)
     private val closeDelivered = AtomicBoolean(false)
 
@@ -88,10 +107,14 @@ class JsonRpcPeer(
      * @throws RpcException with the peer's error code/message on an error
      *         response, or [RpcException.CONNECTION_CLOSED] when the socket dies.
      */
-    suspend fun request(method: String, params: JsonObject = EMPTY_PARAMS): JsonElement {
+    suspend fun request(method: String, params: JsonObject = EMPTY_PARAMS): JsonElement =
+        requestFramed(method, params).result
+
+    /** [request], also reporting which inbound frame carried the response. */
+    suspend fun requestFramed(method: String, params: JsonObject = EMPTY_PARAMS): FramedResult {
         if (closed.get()) throw RpcException.closed()
         val id = nextId.getAndIncrement()
-        val waiter = CompletableDeferred<JsonElement>()
+        val waiter = CompletableDeferred<FramedResult>()
         pending[id] = waiter
         val frame = buildJsonObject {
             put("jsonrpc", "2.0")
@@ -145,6 +168,8 @@ class JsonRpcPeer(
 
     /** Feed one inbound text frame. */
     fun handleMessage(text: String) {
+        val frame = frameCounter.incrementAndGet()
+        currentFrame = frame
         val root = try {
             json.parseToJsonElement(text)
         } catch (_: Exception) {
@@ -178,7 +203,7 @@ class JsonRpcPeer(
             val message = (error["message"] as? JsonPrimitive)?.contentOrNull ?: "unknown error"
             waiter.completeExceptionally(RpcException(code, message))
         } else {
-            waiter.complete(obj["result"] ?: JsonNull)
+            waiter.complete(FramedResult(obj["result"] ?: JsonNull, frame))
         }
     }
 

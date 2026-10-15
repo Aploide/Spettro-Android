@@ -12,6 +12,8 @@ import to.eyed.spettro.mobile.core.SpettroJson
 import to.eyed.spettro.mobile.core.acp.AcpParser
 import to.eyed.spettro.mobile.core.acp.AcpQuestionAnswer
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
+import to.eyed.spettro.mobile.core.acp.AcpToolContent
+import to.eyed.spettro.mobile.core.acp.AcpToolLocation
 
 private fun obj(text: String): JsonObject = SpettroJson.parseToJsonElement(text).jsonObject
 
@@ -52,11 +54,57 @@ class AcpPermissionQuestionTest {
     }
 
     @Test
-    fun permissionRequestMissingTitleFallsBack() {
+    fun permissionRequestMissingTitleLeavesItToTheCard() {
+        // The coordinator fills it in from the card, or writes a sentence.
         val req = AcpParser.parsePermissionRequest(
-            obj("""{"sessionId":"s","toolCall":{}}""")
+            obj("""{"sessionId":"s","toolCall":{"title":"  "}}""")
         )
-        assertEquals("Permission requested", req!!.title)
+        assertEquals("", req!!.title)
+        assertNull(req.toolCallId)
+        assertFalse(req.isCompact)
+    }
+
+    @Test
+    fun permissionAttachedToACardCarriesItsIdContentAndLocations() {
+        // permission.go requestApproval: only the card's id, the pending
+        // status and the content — no title, no kind.
+        val req = AcpParser.parsePermissionRequest(
+            obj(
+                """
+                {"sessionId":"s1",
+                 "toolCall":{"toolCallId":"call-3","status":"pending",
+                   "content":[
+                     {"type":"diff","path":"/p/src/a.ts","oldText":"a","newText":"b"},
+                     {"type":"content","content":{"type":"text","text":"outside the sandbox"}}],
+                   "locations":[{"path":"/p/src/a.ts","line":12}]},
+                 "options":[{"optionId":"allow-once","name":"Allow","kind":"allow_once"},
+                            {"optionId":"deny","name":"Deny","kind":"reject_once"}]}
+                """.trimIndent()
+            )
+        )!!
+        assertEquals("call-3", req.toolCallId)
+        assertEquals("", req.title)
+        assertNull(req.toolKind)
+        assertEquals(listOf(AcpToolContent.Diff("/p/src/a.ts", "a", "b")), req.diffs)
+        assertEquals(listOf("outside the sandbox"), req.texts)
+        assertEquals(listOf(AcpToolLocation("/p/src/a.ts", 12)), req.locations)
+        assertTrue(req.options[1].isReject)
+        assertFalse(req.options[0].isReject)
+    }
+
+    @Test
+    fun theCompactionPromptIsMarked() {
+        val byId = AcpParser.parsePermissionRequest(
+            obj("""{"sessionId":"s","toolCall":{"toolCallId":"compact-1","title":"Context nearly full"}}""")
+        )!!
+        assertTrue(byId.isCompact)
+        val byOption = AcpParser.parsePermissionRequest(
+            obj(
+                """{"sessionId":"s","toolCall":{"toolCallId":"x"},
+                    "options":[{"optionId":"compact","name":"Compact now","kind":"allow_once"}]}"""
+            )
+        )!!
+        assertTrue(byOption.isCompact)
     }
 
     @Test
@@ -206,22 +254,56 @@ class AcpPermissionQuestionTest {
     // MARK: Answers
 
     @Test
-    fun answerEncodesPlainSynthesizedShape() {
+    fun anOptionWithWordsBesideItSendsTheWordsAsNotes() {
+        // The desktop host drops `text` on an option answer, and turns a
+        // `text` with no kind into a custom answer that drops the options:
+        // only `notes` survives beside a choice.
         val json = AcpQuestionAnswer(
             questionId = "db",
             optionIds = listOf("pg"),
             text = "prefer managed",
         ).toJson()
         assertEquals("db", json["questionId"]!!.toString().trim('"'))
+        assertEquals("\"option\"", json["kind"].toString())
         assertEquals("""["pg"]""", json["optionIds"].toString())
-        assertEquals("\"prefer managed\"", json["text"].toString())
-        assertNull(json["notes"])
-        assertNull(json["kind"]) // the host adds the kind tag, not us
+        assertEquals("\"pg\"", json["optionId"].toString())
+        assertEquals("\"prefer managed\"", json["notes"].toString())
+        assertNull(json["text"])
     }
 
     @Test
-    fun answerWithNoSelectionKeepsEmptyOptionIds() {
-        val json = AcpQuestionAnswer(questionId = "q-0", text = "my own words").toJson()
+    fun severalOptionsKeepTheirNotesAndTheTypedWordsTogether() {
+        val json = AcpQuestionAnswer(
+            questionId = "q",
+            optionIds = listOf("a", "b"),
+            text = "and c",
+            notes = "only on weekdays",
+        ).toJson()
+        assertEquals("""["a","b"]""", json["optionIds"].toString())
+        assertNull(json["optionId"])
+        assertEquals("\"and c\\n\\nonly on weekdays\"", json["notes"].toString())
+    }
+
+    @Test
+    fun wordsAloneAreACustomAnswer() {
+        val json = AcpQuestionAnswer(questionId = "q-0", text = " my own words ").toJson()
+        assertEquals("\"custom\"", json["kind"].toString())
+        assertEquals("\"my own words\"", json["text"].toString())
         assertEquals("[]", json["optionIds"].toString())
+        assertNull(json["notes"])
+    }
+
+    @Test
+    fun aQuestionOverThePermissionTransportNamesTheRequestsSession() {
+        val req = AcpParser.parsePermissionRequest(
+            obj(
+                """
+                {"sessionId":"sess-9","toolCall":{"toolCallId":"call-2","title":"Question"},
+                 "options":[{"optionId":"a","name":"A","kind":"allow_once"}],
+                 "_meta":{"spettro.app/question":{"question":"Pick","options":[{"id":"a","label":"A"}]}}}
+                """.trimIndent()
+            )
+        )!!
+        assertEquals("sess-9", AcpParser.parseQuestionFromPermission(req)!!.sessionId)
     }
 }

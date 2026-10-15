@@ -1,8 +1,46 @@
 package to.eyed.spettro.mobile.ui.screens.chat
 
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingControl
+import to.eyed.spettro.mobile.ui.components.thinking.ThinkingFrame
+import androidx.compose.foundation.layout.height
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import to.eyed.spettro.mobile.ui.theme.Elevation
+import to.eyed.spettro.mobile.ui.theme.floatingShadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.foundation.border
+import to.eyed.spettro.mobile.ui.components.StatusDot
+import to.eyed.spettro.mobile.ui.components.SpettroTopBar
+import to.eyed.spettro.mobile.ui.components.HideStatusBarWhile
+import to.eyed.spettro.mobile.ui.components.keyboardSqueezed
+import to.eyed.spettro.mobile.ui.components.SpettroMenuSeparator
+import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
+import to.eyed.spettro.mobile.ui.components.SpettroMenu
+import to.eyed.spettro.mobile.ui.components.SpettroButton
+import to.eyed.spettro.mobile.ui.screens.home.DeleteChatDialog
+import to.eyed.spettro.mobile.ui.screens.home.RenameChatDialog
+import androidx.compose.material.icons.outlined.Edit
+import to.eyed.spettro.mobile.ui.components.ButtonSize
+import to.eyed.spettro.mobile.ui.components.BarIconButton
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +51,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Archive
@@ -35,11 +75,15 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -49,7 +93,16 @@ import to.eyed.spettro.mobile.core.acp.AcpCommand
 import to.eyed.spettro.mobile.core.acp.AcpPlanEntry
 import to.eyed.spettro.mobile.core.acp.AcpUsage
 import to.eyed.spettro.mobile.model.ImageAttachment
+import to.eyed.spettro.mobile.model.RunPhase
+import to.eyed.spettro.mobile.model.TranscriptAnchors
+import to.eyed.spettro.mobile.model.DisplayRow
+import to.eyed.spettro.mobile.model.ToolGroups
+import to.eyed.spettro.mobile.model.newestUserMessageId
+import androidx.compose.runtime.CompositionLocalProvider
 import to.eyed.spettro.mobile.model.TranscriptItem
+import to.eyed.spettro.mobile.model.ChatMessage
+import androidx.compose.foundation.layout.BoxWithConstraints
+import to.eyed.spettro.mobile.ui.components.RunTicker
 import to.eyed.spettro.mobile.model.TranscriptRow
 import to.eyed.spettro.mobile.model.groupTranscript
 import to.eyed.spettro.mobile.ui.components.AppIconImage
@@ -62,6 +115,16 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * Android counterpart of MobileChatView.swift. Fully stateless: every piece
  * of state arrives as a parameter and every interaction leaves through a
  * callback, so the integrator wires it to the session and the transport.
+ *
+ * @param waitingFor what a prompt the user swiped away is waiting for
+ *   ("Spettro is waiting for your approval"), shown above the composer with
+ *   a way back to it; null when nothing is set aside.
+ * @param awaitingApproval a permission of this chat's is waiting, and
+ *   [awaitingAnswer] a question: the run ticker at the transcript's tail
+ *   says the turn is waiting on the user.
+ * @param workflowGate what the chat's options say about workflows, so the
+ *   composer can light a "+500k" budget and say when Ask first holds a
+ *   workflow back; [onSwitchPermission] is that hint's way out.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,7 +148,7 @@ fun ChatScreen(
     onSend: () -> Unit,
     onStop: () -> Unit,
     enabled: Boolean,
-    configSummary: String?,
+    configSummary: ConfigSummary?,
     onConfigTap: () -> Unit,
     commands: List<AcpCommand>,
     onCommandPick: (AcpCommand) -> Unit,
@@ -95,14 +158,43 @@ fun ChatScreen(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     showBack: Boolean = true,
+    waitingFor: String? = null,
+    onReviewPrompt: () -> Unit = {},
+    workflowGate: WorkflowGate = WorkflowGate(),
+    onSwitchPermission: (() -> Unit)? = null,
+    thinking: ThinkingControl? = null,
+    thinkingFrame: ThinkingFrame? = null,
+    awaitingApproval: Boolean = false,
+    awaitingAnswer: Boolean = false,
+    projectPath: String? = null,
+    awaitingToolIds: Set<String> = emptySet(),
+    prompts: List<DockPrompt> = emptyList(),
+    onPromptReply: (DockReply) -> Unit = {},
+    onDeniedFeedback: (String) -> Boolean = { false },
+    onEditMessage: ((String, List<String>) -> Unit)? = null,
+    onRetry: (() -> Unit)? = null,
+    onOpenProviders: (() -> Unit)? = null,
+    /** Whether no model is connected on the computer (null while unknown): a Connect error is fixed once one is. */
+    noModel: Boolean? = null,
+    /** Bumped to focus the composer and bring the keyboard up (Edit & resend). */
+    composerFocus: Int = 0,
+    sendReady: Boolean = true,
+    composerPlaceholder: String = CHAT_PLACEHOLDER,
+    mentionFiles: (suspend () -> List<String>)? = null,
+    onMention: (String) -> Unit = {},
+    onRename: ((String) -> Unit)? = null,
+    otherChatNeedsYou: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
     var menuOpen by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
+    // A starter prompt's own focus request, on top of the caller's.
+    var starterFocus by remember { mutableIntStateOf(0) }
 
-    // The wire delivers a workflow or an Ultra swarm as a flat run of tool
-    // calls — a lifecycle call, one call per sub-agent, and every tool each of
-    // them runs, interleaved. Rendered literally, a twenty-agent fan-out is a
+    // The wire delivers a workflow as a flat run of tool calls — a lifecycle
+    // card, one call per sub-agent, and every tool each of them runs,
+    // interleaved. Rendered literally, a twenty-agent fan-out is a
     // wall of rows that drowns the conversation, so `groupTranscript` rebuilds
     // the shape the run actually had.
     //
@@ -110,81 +202,82 @@ fun ChatScreen(
     // strip needs the same answer, and the fold walks the whole transcript
     // twice: doing it per surface would double that on every streamed chunk.
     val rows = remember(items) { groupTranscript(items) }
+    // Then runs of finished reads and searches fold to one line ("Read 5
+    // files, searched 2 patterns"); the live strip keeps the unfolded rows.
+    val display = remember(rows) { ToolGroups.fold(rows) }
+    val lastUserMessageId = remember(items) {
+        items.lastOrNull { it is TranscriptItem.Message && it.message.role == ChatMessage.Role.User }
+            ?.let { (it as TranscriptItem.Message).message.id }
+    }
 
+    val anchors = remember(items, isBusy) { TranscriptAnchors.of(items, isBusy) }
+    // A phone on its side with the keyboard up has room for the composer
+    // and little else: the top bar, the status strip and the status bar
+    // step aside until the keyboard goes, or they push Send under it.
+    val squeezed = keyboardSqueezed()
+    HideStatusBarWhile(squeezed)
+    CompositionLocalProvider(
+        LocalProjectPath provides projectPath,
+        LocalAwaitingTools provides awaitingToolIds,
+        LocalTranscriptActions provides TranscriptActions(
+            editMessage = onEditMessage,
+            retry = onRetry,
+            openProviders = onOpenProviders,
+            lastUserMessageId = anchors.lastUserMessageId,
+            retryNoticeId = anchors.retryNoticeId,
+            noModel = noModel,
+        ),
+    ) {
     Scaffold(
         modifier = modifier,
         containerColor = colors.canvas,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = title,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    // In the tablet split shell the chat sits beside the list,
-                    // so there is nowhere to go "back" to.
-                    if (showBack) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = "Back",
-                            )
-                        }
-                    }
-                },
+            if (!squeezed) SpettroTopBar(
+                title = title.ifBlank { "Untitled chat" },
+                // In the tablet split shell the chat sits beside the list,
+                // so there is nowhere to go "back" to.
+                onBack = onBack.takeIf { showBack },
+                // Another chat's prompt waits: amber on the way back to the list.
+                backBadge = colors.warning.takeIf { otherChatNeedsYou },
                 actions = {
                     Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(
-                                imageVector = Icons.Outlined.MoreVert,
-                                contentDescription = "Chat menu",
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = menuOpen,
-                            onDismissRequest = { menuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(if (isPinned) "Unpin" else "Pin") },
-                                leadingIcon = {
-                                    Icon(Icons.Outlined.PushPin, contentDescription = null)
-                                },
+                        BarIconButton(
+                            icon = Icons.Outlined.MoreVert,
+                            contentDescription = "Chat menu",
+                            onClick = { menuOpen = true },
+                        )
+                        SpettroMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (onRename != null) {
+                                SpettroMenuItem(
+                                    text = "Rename…",
+                                    icon = Icons.Outlined.Edit,
+                                    onClick = {
+                                        menuOpen = false
+                                        renaming = true
+                                    },
+                                )
+                            }
+                            SpettroMenuItem(
+                                text = if (isPinned) "Unpin" else "Pin",
+                                icon = Icons.Outlined.PushPin,
                                 onClick = {
                                     menuOpen = false
                                     onTogglePinned()
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text(if (isArchived) "Unarchive" else "Archive") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = if (isArchived) {
-                                            Icons.Outlined.Unarchive
-                                        } else {
-                                            Icons.Outlined.Archive
-                                        },
-                                        contentDescription = null,
-                                    )
-                                },
+                            SpettroMenuItem(
+                                text = if (isArchived) "Unarchive" else "Archive",
+                                icon = if (isArchived) Icons.Outlined.Unarchive else Icons.Outlined.Archive,
                                 onClick = {
                                     menuOpen = false
                                     onToggleArchived()
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text("Delete Chat", color = colors.diffRemoved) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.DeleteOutline,
-                                        contentDescription = null,
-                                        tint = colors.diffRemoved,
-                                    )
-                                },
+                            SpettroMenuSeparator()
+                            SpettroMenuItem(
+                                text = "Delete…",
+                                icon = Icons.Outlined.DeleteOutline,
+                                destructive = true,
                                 onClick = {
                                     menuOpen = false
                                     confirmingDelete = true
@@ -193,27 +286,27 @@ fun ChatScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = colors.canvas,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
             )
         },
     ) { padding ->
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .consumeWindowInsets(padding)
                 .imePadding(),
         ) {
-            if (isBusy || plan.isNotEmpty() || usage != null || modeName != null) {
+        // The prompt card's cap: the desktop's min(56vh, 520px), of what is
+        // left once the keyboard is up, so the composer always stays in view.
+        val dockMax = minOf(maxHeight * 0.56f, 520.dp)
+        // The task list's: the desktop's 188px of rows wherever that fits,
+        // but a phone on its side (or under the keyboard) has barely more
+        // height than the composer, and the transcript keeps most of it.
+        val tabMax = (maxHeight * 0.26f).coerceIn(72.dp, TabMaxHeight)
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (!squeezed && (usage != null || modeName != null)) {
                 ReadableColumn {
                     ChatStatusStrip(
-                        isBusy = isBusy,
-                        runStartedAt = runStartedAt,
-                        liveTokens = liveTokens,
-                        plan = plan,
                         usage = usage,
                         modeName = modeName,
                         modeColorName = modeColorName,
@@ -222,9 +315,44 @@ fun ChatScreen(
             }
 
             if (items.isEmpty()) {
-                EmptyTranscript(modifier = Modifier.weight(1f))
+                EmptyTranscript(
+                    onPrompt = {
+                        onComposerTextChange(it)
+                        starterFocus++
+                    },
+                    modifier = Modifier.weight(1f),
+                    projectPath = projectPath,
+                )
             } else {
-                Transcript(rows = rows, modifier = Modifier.weight(1f))
+                Box(Modifier.weight(1f)) {
+                    Transcript(
+                        rows = display,
+                        modifier = Modifier.fillMaxSize(),
+                        ticker = if (isBusy && runStartedAt != null) {
+                            {
+                                RunTicker(
+                                    startedAt = runStartedAt,
+                                    tokens = liveTokens,
+                                    phase = RunPhase.of(items, awaitingApproval, awaitingAnswer),
+                                    color = colors.modeColor(modeColorName ?: modeName),
+                                    modifier = Modifier.padding(horizontal = 2.dp),
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                    // The transcript fades out above the composer rather than
+                    // meeting a hard edge (the desktop's 28px fade above
+                    // .composer-wrap).
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(28.dp)
+                            .background(Brush.verticalGradient(listOf(colors.canvas.copy(alpha = 0f), colors.canvas))),
+                    )
+                }
             }
 
             // The live edge of an in-flight run, pinned where the transcript
@@ -232,6 +360,24 @@ fun ChatScreen(
             // orchestrating, which is almost always.
             ReadableColumn {
                 OrchestrationLiveStrip(rows = rows)
+            }
+
+            if (waitingFor != null) {
+                ReadableColumn {
+                    PromptWaitingBar(text = waitingFor, onReview = onReviewPrompt)
+                }
+            }
+
+            // The open chat's approvals and questions, inline above the
+            // composer — never dismissed by a swipe.
+            ReadableColumn {
+                PromptDock(
+                    prompts = prompts,
+                    onReply = onPromptReply,
+                    onDeniedFeedback = onDeniedFeedback,
+                    maxHeight = dockMax,
+                    lastUserMessageId = lastUserMessageId,
+                )
             }
 
             ReadableColumn {
@@ -249,32 +395,47 @@ fun ChatScreen(
                     onConfigTap = onConfigTap,
                     commands = commands,
                     onCommandPick = onCommandPick,
+                    workflowGate = workflowGate,
+                    onSwitchPermission = onSwitchPermission,
+                    thinking = thinking,
+                    thinkingFrame = thinkingFrame,
+                    plan = plan,
+                    planFolded = awaitingApproval || awaitingAnswer || prompts.isNotEmpty(),
+                    canSend = sendReady,
+                    placeholder = composerPlaceholder,
+                    mentionFiles = mentionFiles,
+                    onMention = onMention,
+                    mentionScope = projectPath,
+                    focusRequest = composerFocus + starterFocus,
+                    tabMaxHeight = tabMax,
                 )
             }
         }
+        }
+    }
+
+    }
+
+    if (renaming && onRename != null) {
+        RenameChatDialog(
+            title = title,
+            onRename = {
+                renaming = false
+                onRename(it)
+            },
+            onDismiss = { renaming = false },
+        )
     }
 
     if (confirmingDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmingDelete = false },
-            title = { Text("Delete this chat?") },
-            text = { Text("The conversation is removed from the host. This cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmingDelete = false
-                        onDelete()
-                    },
-                ) {
-                    Text("Delete", color = colors.diffRemoved)
-                }
+        DeleteChatDialog(
+            title = title,
+            isBusy = isBusy,
+            onConfirm = {
+                confirmingDelete = false
+                onDelete()
             },
-            dismissButton = {
-                TextButton(onClick = { confirmingDelete = false }) {
-                    Text("Cancel")
-                }
-            },
-            containerColor = colors.surfaceRaised,
+            onDismiss = { confirmingDelete = false },
         )
     }
 }
@@ -282,10 +443,10 @@ fun ChatScreen(
 /**
  * Desktop-style readable measure: on wide screens the transcript, status
  * strip and composer cap out and recenter instead of stretching edge to
- * edge — the same 820px cap the PC app puts on its transcript column. On
- * phones the cap never engages.
+ * edge — the desktop's 760px reading measure. On phones the cap never
+ * engages.
  */
-private val ContentMaxWidth = 820.dp
+private val ContentMaxWidth = Dimens.measure
 
 @Composable
 private fun ReadableColumn(content: @Composable () -> Unit) {
@@ -299,66 +460,195 @@ private fun ReadableColumn(content: @Composable () -> Unit) {
 /**
  * The conversation, folded.
  *
- * The wire delivers a workflow or an Ultra swarm as a flat run of tool calls —
- * a lifecycle call, one call per sub-agent, and every tool each of them runs,
- * interleaved. Rendered literally, a twenty-agent fan-out is a wall of rows
- * that drowns the conversation, so [groupTranscript] rebuilds the shape the run
- * actually had and the list renders *rows* rather than items.
+ * The wire delivers a workflow as a flat run of tool calls — a lifecycle card,
+ * one call per sub-agent, and every tool each of them runs, interleaved.
+ * Rendered literally, a twenty-agent fan-out is a wall of rows that drowns the
+ * conversation, so [groupTranscript] rebuilds the shape the run actually had
+ * and the list renders *rows* rather than items.
  *
  * The fold is memoised on [items] because it walks the whole transcript twice
  * and this recomposes on every streamed chunk; recomputing it per frame is what
  * makes a long session crawl.
  */
 @Composable
-private fun Transcript(rows: List<TranscriptRow>, modifier: Modifier) {
+private fun Transcript(
+    rows: List<DisplayRow>,
+    modifier: Modifier,
+    ticker: (@Composable () -> Unit)? = null,
+) {
+    // The run ticker, while a turn runs, is the list's last item.
+    val count = rows.size + if (ticker != null) 1 else 0
     // A chat opens at its newest message: seed the list state at the end so
     // the first frame is already at the bottom — no visible jump.
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = (rows.size - 1).coerceAtLeast(0),
+        initialFirstVisibleItemIndex = (count - 1).coerceAtLeast(0),
     )
 
-    // Auto-scroll: follow the conversation only while the reader is already
-    // near the bottom, so scrolling back through history isn't hijacked.
-    // Keyed on the rows themselves rather than their count: a swarm absorbing
-    // twenty members leaves the count flat while the run is very much moving,
-    // and the view would stop following it.
-    LaunchedEffect(rows) {
-        if (rows.isEmpty()) return@LaunchedEffect
-        val info = listState.layoutInfo
-        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (lastVisible >= rows.size - 2) {
-            listState.animateScrollToItem(rows.size - 1)
+    // Who is reading at the end, layout by layout (see [EndFollower]).
+    val follower = remember { EndFollower(openedAt = System.currentTimeMillis()) }
+
+    // Auto-scroll: follow the conversation only while the reader is at its
+    // end, so scrolling back — through history, or up a reply still being
+    // written — isn't hijacked. (It used to follow anyone within three rows
+    // of the end, and a streaming reply is one row: scrolling up to read its
+    // start was undone on the next token.) Keyed on the rows themselves
+    // rather than their count: a workflow absorbing twenty members leaves the
+    // count flat while the run is very much moving.
+    LaunchedEffect(rows, ticker != null) {
+        if (count == 0) return@LaunchedEffect
+        if (follower.following) listState.animateToEnd()
+    }
+
+    // The user's own message: whatever they were reading, they want to see
+    // what they just sent and the answer to it (the desktop re-pins on it).
+    // The rule above only follows a reader already near the end.
+    val newestUser = remember(rows) { newestUserMessageId(rows) }
+    var seenUser by remember { mutableStateOf(newestUser) }
+    LaunchedEffect(newestUser) {
+        if (newestUser != null && newestUser != seenUser && count > 0) {
+            listState.animateToEnd()
+        }
+        seenUser = newestUser
+    }
+
+    // Stay at the end when the layout, not the reader, moves it away. The
+    // space above the composer shrinks when the prompt dock slides in, the
+    // todo tab opens or the keyboard comes up; the last item grows as it
+    // fills in; and a chat just opened settles as its rows measure. The list
+    // keeps its first item where it was through all of that, which would
+    // leave the conversation's end (and the ticker saying what it waits for)
+    // under the dock. A reader who was at the end is taken back to it — once
+    // any scroll in flight has finished (see [EndFollower]); one who
+    // scrolled away, or opened a row higher up, is left alone.
+    val endSlackPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    LaunchedEffect(listState) {
+        launch {
+            listState.interactionSource.interactions.collect {
+                if (it is DragInteraction.Start) follower.onDrag()
+            }
+        }
+        snapshotFlow { FollowFrame.of(listState.layoutInfo, endSlackPx, listState.isScrollInProgress) }.collect { frame ->
+            if (follower.onFrame(frame, System.currentTimeMillis())) {
+                // Past the last item's top by its own height: the list
+                // clamps that to the very end of the content.
+                listState.scrollToItem(frame.total - 1, frame.tailSize.coerceAtLeast(0))
+            }
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(Dimens.spacingLg),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-    ) {
-        items(rows, key = { it.id }) { row ->
-            ReadableColumn {
-                TranscriptRowView(row = row)
+    // Away from the end, the desktop's "Latest message" pill takes the
+    // reader back. Shown a beat after the end leaves the view, so the
+    // follow rule catching up with a growing reply never flashes it.
+    val awayPx = with(LocalDensity.current) { JumpThreshold.roundToPx() }
+    var away by remember { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        snapshotFlow { awayFromEnd(EndScroll.of(listState.layoutInfo), awayPx) }
+            .distinctUntilChanged()
+            .collectLatest { isAway ->
+                if (isAway) delay(JUMP_DELAY_MS)
+                away = isAway
             }
+    }
+    val scope = rememberCoroutineScope()
+
+    Box(modifier) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(Dimens.spacingLg),
+            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        ) {
+            items(rows, key = { it.id }) { row ->
+                ReadableColumn {
+                    when (row) {
+                        is DisplayRow.Row -> TranscriptRowView(row = row.row)
+                        is DisplayRow.Tools -> ToolGroupRow(group = row)
+                    }
+                }
+            }
+            if (ticker != null) {
+                item(key = "run-ticker") {
+                    ReadableColumn { ticker() }
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = away,
+            enter = fadeIn(tween(140)) + slideInVertically(tween(140)) { it / 3 },
+            exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 3 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = Dimens.spacingMd),
+        ) {
+            JumpToLatest(onClick = { scope.launch { listState.animateToEnd() } })
         }
     }
 }
 
+/** How far below the view the end may be before the pill shows (the desktop's 64px). */
+private val JumpThreshold = 64.dp
+private const val JUMP_DELAY_MS = 180L
+
+/** The desktop's `.chat-jump-latest`: a raised pill, ⌄ Latest message. */
 @Composable
-private fun EmptyTranscript(modifier: Modifier) {
+private fun JumpToLatest(onClick: () -> Unit) {
+    val colors = LocalSpettroColors.current
+    Row(
+        modifier = Modifier
+            .floatingShadow(Elevation.Medium, CircleShape)
+            .clip(CircleShape)
+            .background(colors.surfaceRaised)
+            .border(Dimens.hairlineWidth, colors.accent.copy(alpha = 0.45f).compositeOver(colors.hairline), CircleShape)
+            .clickable(onClickLabel = "Jump to latest message", onClick = onClick)
+            .heightIn(min = 36.dp)
+            .padding(horizontal = 13.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Outlined.KeyboardArrowDown,
+            contentDescription = null,
+            tint = colors.textPrimary,
+            modifier = Modifier.size(15.dp),
+        )
+        Text(
+            "Latest message",
+            color = colors.textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+/**
+ * A chat with nothing in it yet: the desktop's greeting over its starter
+ * prompts, each of which only fills the composer.
+ */
+@Composable
+private fun EmptyTranscript(onPrompt: (String) -> Unit, modifier: Modifier, projectPath: String? = null) {
+    val colors = LocalSpettroColors.current
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(Dimens.spacingLg),
+            modifier = Modifier.padding(Dimens.spacingXl),
         ) {
-            AppIconImage(size = 48.dp)
-            Text(
-                text = "Start the conversation",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "What should we build?",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = colors.textPrimary,
+                )
+                projectPath?.let { path ->
+                    to.eyed.spettro.mobile.ui.screens.home.SessionGroups.folderName(path).takeIf { it.isNotEmpty() }?.let {
+                        Text("Working in $it", style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
+                    }
+                }
+            }
+            StarterPrompts(onPrompt = onPrompt, fresh = isBroadFolder(projectPath))
         }
     }
 }
@@ -381,8 +671,8 @@ private fun ChatScreenPreviewHost(
             liveTokens = if (isBusy) 9_400L else null,
             plan = if (items.isEmpty()) emptyList() else ChatPreviewData.plan,
             usage = if (items.isEmpty()) null else ChatPreviewData.usage,
-            modeName = "coding",
-            modeColorName = "green",
+            modeName = "Coding",
+            modeColorName = "coding",
             isPinned = false,
             isArchived = false,
             composerText = text,
@@ -433,4 +723,38 @@ private fun ChatScreenPreviewEmpty() {
         isBusy = false,
         darkTheme = false,
     )
+}
+
+/**
+ * A prompt of this chat's the user swiped away: it is still waiting —
+ * a swipe answers nothing — so it stays in sight, amber like "Needs you",
+ * with a way back to it.
+ */
+@Composable
+private fun PromptWaitingBar(text: String, onReview: () -> Unit) {
+    val colors = LocalSpettroColors.current
+    val shape = RoundedCornerShape(Dimens.radiusMd)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Dimens.spacingMd, vertical = Dimens.spacingXs)
+            .clip(shape)
+            .background(colors.warning.copy(alpha = 0.12f).compositeOver(colors.surfaceRaised))
+            .border(1.dp, colors.warning.copy(alpha = 0.35f), shape)
+            .clickable(onClick = onReview)
+            .padding(start = Dimens.spacingMd, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusDot(color = colors.warning)
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        SpettroButton("Review", onClick = onReview, size = ButtonSize.Small)
+    }
 }

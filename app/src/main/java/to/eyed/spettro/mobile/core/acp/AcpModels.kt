@@ -273,6 +273,42 @@ sealed class AcpToolContent {
     }
 }
 
+/** A file a tool call touches, with the line when the agent names one. */
+@Immutable
+data class AcpToolLocation(val path: String, val line: Int? = null) {
+    companion object {
+        fun parse(element: JsonElement?): AcpToolLocation? {
+            val obj = element.asObj ?: return null
+            val path = obj["path"].asString ?: return null
+            return AcpToolLocation(path, obj["line"].asInt?.takeIf { it > 0 })
+        }
+    }
+}
+
+/** An image a tool returned (a screenshot, a viewed picture), base64-encoded. */
+@Immutable
+data class AcpToolImage(val data: String, val mimeType: String) {
+    companion object {
+        /**
+         * At most this many images are kept per tool call: a screenshot loop
+         * can return one per step.
+         */
+        const val MAX_PER_CALL = 4
+
+        /** An image whose base64 is longer than this is dropped, not kept. */
+        const val MAX_CHARS = 4_000_000
+
+        /** The image in a `{type:"content", content:{type:"image",…}}` item. */
+        fun parse(element: JsonElement?): AcpToolImage? {
+            val inner = element.asObj?.get("content").asObj ?: return null
+            if (inner["type"].asString != "image") return null
+            val data = inner["data"].asString?.takeIf { it.isNotEmpty() } ?: return null
+            val mimeType = inner["mimeType"].asString ?: return null
+            return AcpToolImage(data, mimeType)
+        }
+    }
+}
+
 /**
  * A tool-call update parsed from either a `tool_call` (start) or
  * `tool_call_update` session notification.
@@ -286,14 +322,26 @@ data class AcpToolCallEvent(
     val status: AcpToolStatus? = null,
     val rawInput: JsonElement? = null,
     val content: List<AcpToolContent> = emptyList(),
-    val locations: List<String> = emptyList(),
+    val locations: List<AcpToolLocation> = emptyList(),
+    /** Images among the content, at most [AcpToolImage.MAX_PER_CALL]. */
+    val images: List<AcpToolImage> = emptyList(),
+    /** The tool's whole output (`rawOutput`), when the agent sends it. */
+    val rawOutput: String? = null,
+    /**
+     * A workflow card's whole run state (`_meta["spettro.app/workflow"]`),
+     * sent on every update of the card; null on every other tool call.
+     */
+    val workflowMeta: JsonObject? = null,
 ) {
     companion object {
         fun parse(obj: JsonObject): AcpToolCallEvent? {
             val id = obj["toolCallId"].asString ?: return null
-            val content = (obj["content"].asArr ?: emptyList()).mapNotNull(AcpToolContent::parse)
-            val locations = (obj["locations"].asArr ?: emptyList())
-                .mapNotNull { it.asObj?.get("path").asString }
+            val items = obj["content"].asArr ?: emptyList()
+            val content = items.mapNotNull(AcpToolContent::parse)
+            val images = items.mapNotNull(AcpToolImage::parse)
+                .filter { it.data.length <= AcpToolImage.MAX_CHARS }
+                .take(AcpToolImage.MAX_PER_CALL)
+            val locations = (obj["locations"].asArr ?: emptyList()).mapNotNull(AcpToolLocation::parse)
             return AcpToolCallEvent(
                 toolCallId = id,
                 title = obj["title"].asString,
@@ -302,8 +350,18 @@ data class AcpToolCallEvent(
                 rawInput = obj["rawInput"],
                 content = content,
                 locations = locations,
+                images = images,
+                rawOutput = parseRawOutput(obj["rawOutput"]),
+                workflowMeta = obj["_meta"].asObj?.get(WORKFLOW_META).asObj,
             )
         }
+
+        /** The `_meta` key a workflow card's run state rides under. */
+        const val WORKFLOW_META = "spettro.app/workflow"
+
+        /** `rawOutput` is `{output}` from spettro; a bare string is taken as is. */
+        private fun parseRawOutput(element: JsonElement?): String? =
+            element.asString ?: element.asObj?.get("output").asString
     }
 }
 
@@ -317,6 +375,9 @@ sealed class AcpSessionUpdate {
     data class ToolCallUpdate(val event: AcpToolCallEvent) : AcpSessionUpdate()
     data class CommandsUpdate(val commands: List<AcpCommand>) : AcpSessionUpdate()
     data class ConfigUpdate(val options: List<AcpConfigOption>) : AcpSessionUpdate()
+
+    /** ACP's own `current_mode_update`: moves the `mode` option. */
+    data class ModeUpdate(val modeId: String) : AcpSessionUpdate()
     data class Plan(val entries: List<AcpPlanEntry>) : AcpSessionUpdate()
     data class Usage(val usage: AcpUsage) : AcpSessionUpdate()
 }

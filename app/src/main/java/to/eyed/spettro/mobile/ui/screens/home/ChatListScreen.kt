@@ -1,10 +1,17 @@
 package to.eyed.spettro.mobile.ui.screens.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
+import to.eyed.spettro.mobile.ui.components.SpettroMenu
+import to.eyed.spettro.mobile.ui.components.SpettroMenuItem
+import to.eyed.spettro.mobile.ui.components.SpettroMenuSeparator
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -16,44 +23,36 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFlexibleTopAppBar
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -64,12 +63,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -78,11 +82,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import to.eyed.spettro.mobile.core.remote.ChatSummary
-import to.eyed.spettro.mobile.ui.components.AppIconImage
+import to.eyed.spettro.mobile.ui.components.BarIconButton
+import to.eyed.spettro.mobile.ui.components.ButtonStyle
+import to.eyed.spettro.mobile.ui.components.EmptyState
+import to.eyed.spettro.mobile.ui.components.Pill
+import to.eyed.spettro.mobile.ui.components.PillTone
+import to.eyed.spettro.mobile.ui.components.SpettroButton
 import to.eyed.spettro.mobile.ui.components.SpettroSpinner
 import to.eyed.spettro.mobile.ui.components.StatusDot
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
+import to.eyed.spettro.mobile.ui.theme.SpettroMotion
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
 import to.eyed.spettro.mobile.ui.theme.TabularNums
 import java.text.ParseException
@@ -96,15 +106,24 @@ import kotlin.math.roundToInt
 
 /**
  * Every chat the host has, grouped by the project folder it runs in — the
- * Android port of `MobileChatListView`. Stateless apart from presentation
- * details (search text, collapsed folders, the open menu); all data flows in
- * and every mutation flows out through a callback.
+ * phone's version of the desktop's sidebar: quiet type, rows that are text
+ * until something about them matters (selected, running into a question),
+ * project captions in the tertiary ink. Stateless apart from presentation
+ * details (search text, collapsed folders); all data flows in and every
+ * mutation flows out through a callback.
+ *
+ * Rendered twice by AppRoot: full-screen on a phone, and as the split
+ * shell's sidebar on a tablet ([inSidebar]), where it takes the desktop's
+ * sidebar ground and shows the selected chat.
  *
  * @param chats visible (non-archived) chat summaries from `chats.list`;
  *   archived rows are filtered out defensively if present.
  * @param onPin `(chatID, pinned)`; @param onArchive `(chatID, archived)`.
+ * @param needsYou the chats a permission or question is waiting in.
+ * @param onRename `(chatID, title)`; null when the computer can't rename
+ *   chats (an older host), and Rename… isn't offered.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatListScreen(
     chats: List<ChatSummary>,
@@ -122,177 +141,286 @@ fun ChatListScreen(
     onOpenArchived: () -> Unit,
     modifier: Modifier = Modifier,
     selectedChatId: String? = null,
+    needsYou: Set<String> = emptySet(),
+    inSidebar: Boolean = false,
+    onRename: ((String, String) -> Unit)? = null,
+    /** The socket dropped and is being got back ("Reconnecting…"). */
+    reconnecting: Boolean = false,
 ) {
     val colors = LocalSpettroColors.current
+    val ground = if (inSidebar) colors.sidebar else colors.canvas
     var search by rememberSaveable { mutableStateOf("") }
     // Stored as the set of *collapsed* paths so a newly appearing project
     // starts open — what you want when a chat is created somewhere you
     // weren't already looking.
     var collapsed by remember { mutableStateOf(setOf<String>()) }
-    var menuOpen by remember { mutableStateOf(false) }
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    // The chat whose Delete was tapped, waiting on "Delete this chat?".
+    var confirmingDelete by remember { mutableStateOf<ChatSummary?>(null) }
 
-    val visible = chats.filter { !it.isArchived }
-    val filtered = if (search.isBlank()) {
-        visible
-    } else {
-        visible.filter {
-            it.title.contains(search, ignoreCase = true) ||
-                it.preview.contains(search, ignoreCase = true)
-        }
-    }
-    val groups = groupByProject(filtered)
+    // The chat whose long-press menu is open, and the one being renamed.
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    var renaming by remember { mutableStateOf<ChatSummary?>(null) }
+
+    val groups = SessionGroups.group(chats.filter { !it.isArchived }, search).groups
+    val filtered = groups.flatMap { it.chats }
     val now = System.currentTimeMillis()
 
-    Scaffold(
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = colors.canvas,
-        topBar = {
-            MediumFlexibleTopAppBar(
-                title = { Text("Chats", fontWeight = FontWeight.SemiBold) },
-                subtitle = {
-                    if (hostName != null) {
-                        Text(
-                            hostName,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
-                    }
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Outlined.Add, contentDescription = "New chat")
-                        }
-                        DropdownMenu(
-                            expanded = menuOpen,
-                            onDismissRequest = { menuOpen = false },
+    Column(modifier.fillMaxSize().background(ground)) {
+        ListHeader(
+            hostName = hostName,
+            agentReady = agentReady,
+            reconnecting = reconnecting,
+            compact = inSidebar,
+            onOpenSettings = onOpenSettings,
+            onNewChat = onNewChat,
+        )
+
+        if (!agentReady) {
+            AgentDownBanner(hostName)
+        }
+
+        SearchField(
+            value = search,
+            onValueChange = { search = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.spacingMd, vertical = Dimens.spacingXs),
+        )
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.weight(1f),
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = Dimens.spacingSm,
+                    end = Dimens.spacingSm,
+                    top = Dimens.spacingSm,
+                    bottom = Dimens.spacingXl,
+                ),
+            ) {
+                if (filtered.isEmpty()) {
+                    item(key = "empty") {
+                        Box(
+                            modifier = Modifier.fillParentMaxSize(),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("New Chat") },
-                                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                                onClick = {
-                                    menuOpen = false
-                                    onNewChat()
-                                },
-                            )
-                            if (archivedCount > 0) {
-                                DropdownMenuItem(
-                                    text = { Text("Archived ($archivedCount)") },
-                                    leadingIcon = { Icon(Icons.Outlined.Archive, contentDescription = null) },
-                                    onClick = {
-                                        menuOpen = false
-                                        onOpenArchived()
+                            if (search.isBlank()) {
+                                EmptyState(
+                                    title = "No chats yet",
+                                    message = "Start one here, or on your computer.",
+                                    action = {
+                                        SpettroButton("New chat", onClick = onNewChat, style = ButtonStyle.Prominent)
                                     },
                                 )
+                            } else {
+                                EmptyState(title = "No chats match “$search”", message = null)
                             }
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = colors.canvas,
-                    scrolledContainerColor = colors.canvas,
-                ),
-                scrollBehavior = scrollBehavior,
-            )
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            if (!agentReady) {
-                AgentDownBanner(hostName)
-            }
-
-            SearchField(
-                value = search,
-                onValueChange = { search = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingSm),
-            )
-
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = onRefresh,
-                modifier = Modifier.weight(1f),
-            ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = Dimens.spacingXl),
-                ) {
-                    if (filtered.isEmpty()) {
-                        item(key = "empty") {
-                            Box(
-                                modifier = Modifier.fillParentMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
+                }
+                groups.forEachIndexed { index, group ->
+                    // A search forces every folder open: a match hidden
+                    // inside a collapsed section reads as "no results".
+                    val isCollapsed = search.isBlank() && group.path in collapsed
+                    item(key = "header:${group.path}") {
+                        ProjectHeader(
+                            name = group.name,
+                            count = group.chats.size,
+                            collapsed = isCollapsed,
+                            // Folded away, a waiting chat still shows.
+                            waiting = isCollapsed && group.chats.any { it.id in needsYou },
+                            onToggle = {
                                 if (search.isBlank()) {
-                                    EmptyState(onNewChat = onNewChat)
-                                } else {
-                                    Text(
-                                        "No chats match “$search”",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    groups.forEach { group ->
-                        // A search forces every folder open: a match hidden
-                        // inside a collapsed section reads as "no results".
-                        val isCollapsed = search.isBlank() && group.path in collapsed
-                        item(key = "header:${group.path}") {
-                            ProjectHeader(
-                                name = group.name,
-                                count = group.chats.size,
-                                collapsed = isCollapsed,
-                                onToggle = {
-                                    if (search.isBlank()) {
-                                        collapsed = if (isCollapsed) {
-                                            collapsed - group.path
-                                        } else {
-                                            collapsed + group.path
-                                        }
+                                    collapsed = if (isCollapsed) {
+                                        collapsed - group.path
+                                    } else {
+                                        collapsed + group.path
                                     }
-                                },
+                                }
+                            },
+                            modifier = Modifier
+                                .animateItem()
+                                .padding(top = if (index == 0) 0.dp else Dimens.spacingMd),
+                        )
+                    }
+                    if (!isCollapsed) {
+                        items(group.chats, key = { it.id }) { chat ->
+                            SwipeRevealRow(
+                                isPinned = chat.isPinned,
+                                ground = ground,
+                                onPinToggle = { onPin(chat.id, !chat.isPinned) },
+                                onArchive = { onArchive(chat.id, true) },
+                                onDelete = { confirmingDelete = chat },
                                 modifier = Modifier.animateItem(),
-                            )
-                        }
-                        if (!isCollapsed) {
-                            items(group.chats, key = { it.id }) { chat ->
-                                SwipeRevealRow(
-                                    isPinned = chat.isPinned,
-                                    onPinToggle = { onPin(chat.id, !chat.isPinned) },
-                                    onArchive = { onArchive(chat.id, true) },
-                                    onDelete = { onDelete(chat.id) },
-                                    modifier = Modifier.animateItem(),
-                                ) {
+                            ) {
+                                Box {
                                     ChatRow(
                                         chat = chat,
                                         now = now,
                                         selected = chat.id == selectedChatId,
+                                        // The open chat's prompt is already in its
+                                        // dock beside the list (the desktop's
+                                        // `needsYou && !isSelected`).
+                                        needsYou = chat.id in needsYou && chat.id != selectedChatId,
                                         onClick = { onOpenChat(chat.id) },
+                                        onLongClick = { menuFor = chat.id },
+                                        ground = ground,
                                     )
+                                    // The desktop's row menu: Rename…, Pin,
+                                    // Archive, then Delete… apart.
+                                    SpettroMenu(expanded = menuFor == chat.id, onDismissRequest = { menuFor = null }) {
+                                        if (onRename != null) {
+                                            SpettroMenuItem("Rename…", icon = Icons.Outlined.Edit, onClick = {
+                                                menuFor = null
+                                                renaming = chat
+                                            })
+                                        }
+                                        SpettroMenuItem(if (chat.isPinned) "Unpin" else "Pin", icon = Icons.Outlined.PushPin, onClick = {
+                                            menuFor = null
+                                            onPin(chat.id, !chat.isPinned)
+                                        })
+                                        SpettroMenuItem("Archive", icon = Icons.Outlined.Archive, onClick = {
+                                            menuFor = null
+                                            onArchive(chat.id, true)
+                                        })
+                                        SpettroMenuSeparator()
+                                        SpettroMenuItem("Delete…", icon = Icons.Outlined.DeleteOutline, destructive = true, onClick = {
+                                            menuFor = null
+                                            confirmingDelete = chat
+                                        })
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                if (archivedCount > 0 && search.isBlank()) {
+                    item(key = "archived") {
+                        ArchivedRow(
+                            count = archivedCount,
+                            onClick = onOpenArchived,
+                            modifier = Modifier.animateItem().padding(top = Dimens.spacingMd),
+                        )
+                    }
+                }
             }
         }
+    }
+
+    renaming?.let { chat ->
+        if (onRename != null) {
+            RenameChatDialog(
+                title = chat.title,
+                onRename = { title ->
+                    renaming = null
+                    onRename(chat.id, title)
+                },
+                onDismiss = { renaming = null },
+            )
+        }
+    }
+
+    confirmingDelete?.let { chat ->
+        DeleteChatDialog(
+            title = chat.title,
+            isBusy = chat.isBusy,
+            onConfirm = {
+                confirmingDelete = null
+                onDelete(chat.id)
+            },
+            onDismiss = { confirmingDelete = null },
+        )
+    }
+}
+
+/** What the dot by the computer's name in the list's head says. */
+internal enum class HeaderDot {
+    /** Attached, and the agent is up: green. */
+    Connected,
+
+    /** The socket dropped and is being got back: amber, pulsing, like the desktop's reconnecting dot. */
+    Reconnecting,
+
+    /** Attached, but the agent isn't up yet: amber, still. */
+    AgentDown,
+}
+
+/**
+ * The header dot for the connection's state. Reconnecting wins: while the
+ * socket is down the agent flag is only what it was before the drop.
+ */
+internal fun headerDot(reconnecting: Boolean, agentReady: Boolean): HeaderDot = when {
+    reconnecting -> HeaderDot.Reconnecting
+    !agentReady -> HeaderDot.AgentDown
+    else -> HeaderDot.Connected
+}
+
+/**
+ * The list's head: "Chats", the computer it mirrors with a status dot, and
+ * the two actions. In the sidebar it is the desktop's compact top row.
+ */
+@Composable
+private fun ListHeader(
+    hostName: String?,
+    agentReady: Boolean,
+    reconnecting: Boolean,
+    compact: Boolean,
+    onOpenSettings: () -> Unit,
+    onNewChat: () -> Unit,
+) {
+    val colors = LocalSpettroColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = Dimens.spacingLg, end = Dimens.spacingXs, top = if (compact) 4.dp else 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "Chats",
+                style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
+                color = colors.textPrimary,
+            )
+            if (hostName != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val dot = headerDot(reconnecting, agentReady)
+                    StatusDot(
+                        color = if (dot == HeaderDot.Connected) colors.success else colors.warning,
+                        pulsing = dot == HeaderDot.Reconnecting,
+                        size = 6.dp,
+                    )
+                    Text(
+                        hostName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        BarIconButton(Icons.Outlined.Settings, contentDescription = "Settings", onClick = onOpenSettings)
+        BarIconButton(Icons.Outlined.Add, contentDescription = "New chat", onClick = onNewChat, tint = colors.textPrimary)
     }
 }
 
 // MARK: - Row
 
 /**
- * One chat summary line: pinned marker, title, busy spinner or relative
- * time, then the preview with a subtle message count.
+ * One chat: pinned marker, title, then "Needs you", a spinner while running,
+ * or the relative time; the preview under it with a quiet message count.
+ * At rest the title is in the secondary ink, as in the desktop's sidebar; it
+ * comes forward (primary, 500) when selected or waiting on you.
+ *
+ * @param needsYou a permission or question is waiting in this chat.
+ * @param ground the list's background (the sidebar's, in the split shell).
  */
 @Composable
 fun ChatRow(
@@ -300,48 +428,70 @@ fun ChatRow(
     modifier: Modifier = Modifier,
     now: Long = System.currentTimeMillis(),
     selected: Boolean = false,
+    needsYou: Boolean = false,
     onClick: (() -> Unit)? = null,
+    ground: Color = LocalSpettroColors.current.canvas,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = LocalSpettroColors.current
-    val tertiary = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    val forward = selected || needsYou
+    // The selected fill darkens a light sidebar just enough to take the
+    // tertiary ink under AA; nudge it back over the row's real ground.
+    val rowGround = if (selected) colors.selectedFill.compositeOver(ground) else ground
+    val quiet = colors.readable(colors.textTertiary, on = rowGround)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .background(if (selected) colors.accent.copy(alpha = 0.14f) else Color.Transparent)
-            .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingMd),
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
+            .clip(RoundedCornerShape(Dimens.radiusSm))
+            .background(if (selected) colors.selectedFill else Color.Transparent)
+            .then(
+                if (onClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Chat actions")
+                } else {
+                    Modifier
+                },
+            )
+            .defaultMinSize(minHeight = Dimens.minTouch)
+            .padding(horizontal = Dimens.spacingSm, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (chat.isPinned) {
                 Icon(
                     Icons.Filled.PushPin,
                     contentDescription = "Pinned",
-                    modifier = Modifier.size(10.dp),
-                    tint = colors.accent,
+                    modifier = Modifier.size(11.dp),
+                    tint = quiet,
                 )
             }
             Text(
                 chat.title.ifBlank { "Untitled chat" },
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                style = TextStyle(fontSize = 15.sp, lineHeight = 20.sp),
+                fontWeight = if (forward) FontWeight.Medium else FontWeight.Normal,
+                color = if (forward) colors.textPrimary else colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            // Running beats a timestamp: while a turn is in flight, when the
-            // chat last changed is both wrong and the less useful fact.
-            if (chat.isBusy) {
+            // Waiting on the user outranks everything: the chat is stuck
+            // until someone answers. Then running beats a timestamp: while a
+            // turn is in flight, when the chat last changed is both wrong
+            // and the less useful fact.
+            if (needsYou) {
+                Pill("Needs you", tone = PillTone.Warning, ground = rowGround)
+            } else if (chat.isBusy) {
                 SpettroSpinner(size = 12.dp)
             } else {
                 Text(
                     relativeTimeLabel(chat.updatedAt, now),
-                    fontSize = 11.sp,
-                    color = tertiary,
-                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+                    color = quiet,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Normal,
+                        fontFeatureSettings = TabularNums,
+                    ),
                 )
             }
         }
@@ -351,8 +501,8 @@ fun ChatRow(
         ) {
             Text(
                 chat.preview.ifBlank { "No messages yet" },
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                color = quiet,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -360,9 +510,11 @@ fun ChatRow(
             if (chat.messageCount > 0) {
                 Text(
                     "${chat.messageCount}",
-                    fontSize = 11.sp,
-                    color = tertiary,
-                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+                    color = quiet,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Normal,
+                        fontFeatureSettings = TabularNums,
+                    ),
                 )
             }
         }
@@ -371,35 +523,12 @@ fun ChatRow(
 
 // MARK: - Sections
 
-private data class ProjectGroup(
-    val path: String,
-    val name: String,
-    val chats: List<ChatSummary>,
-)
-
 /**
- * Buckets chats by folder, mirroring the PC's sidebar. Folder order follows
- * the chats' own recency — the project you're working in floats to the top —
- * and within a folder pinned chats lead, then most recently updated.
+ * A project caption (`.section-header`): the folder's name small and muted
+ * in the tertiary ink, its count, and a chevron that turns as it opens
+ * (120ms, no bounce). A collapsed group with a chat waiting on you shows an
+ * amber dot.
  */
-private fun groupByProject(chats: List<ChatSummary>): List<ProjectGroup> {
-    val byRecency = chats.sortedByDescending { parseIsoMillis(it.updatedAt) ?: 0L }
-    val buckets = LinkedHashMap<String, MutableList<ChatSummary>>()
-    for (chat in byRecency) {
-        buckets.getOrPut(chat.projectPath) { mutableListOf() }.add(chat)
-    }
-    return buckets.map { (path, group) ->
-        ProjectGroup(
-            path = path,
-            name = path.trimEnd('/').substringAfterLast('/').ifEmpty { "No project" },
-            chats = group.sortedWith(
-                compareByDescending<ChatSummary> { it.isPinned }
-                    .thenByDescending { parseIsoMillis(it.updatedAt) ?: 0L },
-            ),
-        )
-    }
-}
-
 @Composable
 private fun ProjectHeader(
     name: String,
@@ -407,74 +536,109 @@ private fun ProjectHeader(
     collapsed: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    waiting: Boolean = false,
 ) {
-    val secondary = MaterialTheme.colorScheme.onSurfaceVariant
+    val colors = LocalSpettroColors.current
     val rotation by animateFloatAsState(
-        targetValue = if (collapsed) -90f else 0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        targetValue = if (collapsed) 0f else 90f,
+        animationSpec = tween(SpettroMotion.QUICK_MS),
         label = "chevron",
     )
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(Dimens.radiusXs))
             .clickable(onClick = onToggle)
-            .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingSm),
+            .height(34.dp)
+            .padding(horizontal = Dimens.spacingXs),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingXs),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Icon(
-            Icons.Outlined.Folder,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = secondary,
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = if (collapsed) "Expand" else "Collapse",
+            modifier = Modifier.size(15.dp).rotate(rotation),
+            tint = colors.textTertiary,
         )
         Text(
             name,
             style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = secondary,
+            color = colors.textTertiary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
         Text(
             "$count",
-            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
-            color = secondary.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal, fontFeatureSettings = TabularNums),
+            color = colors.textTertiary,
         )
-        Spacer(Modifier.weight(1f))
-        Icon(
-            Icons.Outlined.ExpandMore,
-            contentDescription = if (collapsed) "Expand" else "Collapse",
-            modifier = Modifier.size(16.dp).rotate(rotation),
-            tint = secondary.copy(alpha = 0.7f),
+        if (waiting) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(colors.warning, CircleShape)
+                    .semantics { contentDescription = "A chat here needs you" },
+            )
+        }
+    }
+}
+
+/** The way into the archive, at the foot of the list. */
+@Composable
+private fun ArchivedRow(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = LocalSpettroColors.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dimens.radiusSm))
+            .clickable(onClick = onClick)
+            .defaultMinSize(minHeight = 44.dp)
+            .padding(horizontal = Dimens.spacingSm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+    ) {
+        Icon(Icons.Outlined.Archive, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(16.dp))
+        Text("Archived", style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary, modifier = Modifier.weight(1f))
+        Text(
+            "$count",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal, fontFeatureSettings = TabularNums),
+            color = colors.textTertiary,
         )
     }
 }
 
 // MARK: - Chrome
 
-/** The PC is attached but its agent isn't up: chats read-only for now. */
+/**
+ * The computer is attached but Spettro isn't running on it yet: chats are
+ * read-only for now. The desktop's no-model bar look: amber at 12% on the
+ * raised surface, an amber 35% border.
+ */
 @Composable
 private fun AgentDownBanner(hostName: String?) {
     val colors = LocalSpettroColors.current
-    val amber = colors.modeColor("yellow")
+    val shape = RoundedCornerShape(Dimens.radiusMd)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(amber.copy(alpha = 0.12f))
-            .padding(horizontal = Dimens.spacingLg, vertical = Dimens.spacingSm),
+            .padding(horizontal = Dimens.spacingMd, vertical = Dimens.spacingXs)
+            .background(colors.warning.copy(alpha = 0.12f).compositeOver(colors.surfaceRaised), shape)
+            .border(1.dp, colors.warning.copy(alpha = 0.35f), shape)
+            .padding(horizontal = Dimens.spacingMd, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
     ) {
-        StatusDot(color = amber, pulsing = true)
+        StatusDot(color = colors.warning, pulsing = true)
         Text(
-            "Agent starting on ${hostName ?: "your PC"}… you can read chats but not send yet.",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            "Spettro is starting on ${hostName ?: "your computer"}. You can read chats; sending waits until it’s ready.",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.textPrimary,
         )
     }
 }
 
+/** The desktop's sidebar search: a quiet 40dp field on the hover fill, 8dp corners. */
 @Composable
 private fun SearchField(
     value: String,
@@ -482,74 +646,49 @@ private fun SearchField(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalSpettroColors.current
-    TextField(
+    BasicTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,
-        placeholder = { Text("Search chats", fontSize = 14.sp) },
-        leadingIcon = {
-            Icon(
-                Icons.Outlined.Search,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        trailingIcon = if (value.isNotEmpty()) {
-            {
-                IconButton(onClick = { onValueChange("") }) {
+        singleLine = true,
+        textStyle = TextStyle(fontSize = 14.sp, color = colors.textPrimary),
+        cursorBrush = SolidColor(colors.accent),
+        decorationBox = { inner ->
+            Row(
+                modifier = Modifier
+                    .background(colors.hoverFill, RoundedCornerShape(Dimens.radiusSm))
+                    .height(40.dp)
+                    .padding(start = 10.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            ) {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(17.dp),
+                    tint = colors.textTertiary,
+                )
+                Box(Modifier.weight(1f)) {
+                    if (value.isEmpty()) {
+                        Text("Search chats", style = TextStyle(fontSize = 14.sp), color = colors.textSecondary)
+                    }
+                    inner()
+                }
+                if (value.isNotEmpty()) {
                     Icon(
                         Icons.Outlined.Close,
                         contentDescription = "Clear search",
-                        modifier = Modifier.size(16.dp),
+                        tint = colors.textTertiary,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .clickable { onValueChange("") }
+                            .padding(8.dp),
                     )
                 }
             }
-        } else {
-            null
         },
-        singleLine = true,
-        shape = RoundedCornerShape(Dimens.radiusInputPill),
-        textStyle = MaterialTheme.typography.bodyMedium,
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = colors.surfaceRaised,
-            unfocusedContainerColor = colors.surfaceRaised,
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-            disabledIndicatorColor = Color.Transparent,
-        ),
     )
-}
-
-@Composable
-private fun EmptyState(onNewChat: () -> Unit) {
-    val colors = LocalSpettroColors.current
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
-    ) {
-        AppIconImage(size = 56.dp)
-        Text(
-            "No chats yet",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            "Start one here, or on your PC.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Button(
-            onClick = onNewChat,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.accent,
-                contentColor = Color.White,
-            ),
-            shape = RoundedCornerShape(Dimens.radiusLg),
-        ) {
-            Text("New Chat", fontWeight = FontWeight.SemiBold)
-        }
-    }
 }
 
 // MARK: - Swipe actions
@@ -560,11 +699,13 @@ private val ActionWidth = 76.dp
  * Horizontal-reveal swipe actions: drag right for Pin/Unpin, drag left for
  * Archive + Delete. Hand-rolled on `draggable` + an [Animatable] rather than
  * `SwipeToDismissBox` because the trailing edge carries *two* tappable
- * actions, which dismiss-style swiping can't express.
+ * actions, which dismiss-style swiping can't express. Settles with a short
+ * ease-out, never a spring.
  */
 @Composable
 private fun SwipeRevealRow(
     isPinned: Boolean,
+    ground: Color,
     onPinToggle: () -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit,
@@ -575,17 +716,17 @@ private fun SwipeRevealRow(
     val scope = rememberCoroutineScope()
     val actionPx = with(LocalDensity.current) { ActionWidth.toPx() }
     val offset = remember { Animatable(0f) }
+    val settleSpec = tween<Float>(SpettroMotion.PROMPT_MS, easing = SpettroMotion.PromptEasing)
 
     fun settle(target: Float) {
-        scope.launch {
-            offset.animateTo(target, spring(stiffness = Spring.StiffnessMediumLow))
-        }
+        scope.launch { offset.animateTo(target, settleSpec) }
     }
 
     Box(
         modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(Dimens.radiusSm))
             .clipToBounds(),
     ) {
         if (offset.value > 0.5f) {
@@ -593,6 +734,7 @@ private fun SwipeRevealRow(
                 label = if (isPinned) "Unpin" else "Pin",
                 icon = Icons.Outlined.PushPin,
                 background = colors.accent,
+                content = colors.accentContrast,
                 onClick = {
                     onPinToggle()
                     settle(0f)
@@ -605,7 +747,8 @@ private fun SwipeRevealRow(
                 SwipeAction(
                     label = "Archive",
                     icon = Icons.Outlined.Archive,
-                    background = Color(0xFF8E8E93),
+                    background = colors.textTertiary,
+                    content = colors.canvas,
                     onClick = {
                         onArchive()
                         settle(0f)
@@ -615,7 +758,8 @@ private fun SwipeRevealRow(
                 SwipeAction(
                     label = "Delete",
                     icon = Icons.Outlined.Delete,
-                    background = colors.diffRemoved,
+                    background = colors.dangerFill,
+                    content = colors.dangerContrast,
                     onClick = {
                         onDelete()
                         settle(0f)
@@ -627,7 +771,7 @@ private fun SwipeRevealRow(
         Box(
             Modifier
                 .offset { IntOffset(offset.value.roundToInt(), 0) }
-                .background(colors.canvas)
+                .background(ground)
                 .draggable(
                     state = rememberDraggableState { delta ->
                         scope.launch {
@@ -646,7 +790,7 @@ private fun SwipeRevealRow(
                                 -2f * actionPx
                             else -> 0f
                         }
-                        offset.animateTo(target, spring(stiffness = Spring.StiffnessMediumLow))
+                        offset.animateTo(target, settleSpec)
                     },
                 ),
         ) {
@@ -660,6 +804,7 @@ private fun SwipeAction(
     label: String,
     icon: ImageVector,
     background: Color,
+    content: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -671,9 +816,9 @@ private fun SwipeAction(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(18.dp))
         Spacer(Modifier.height(2.dp))
-        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = content, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -770,7 +915,7 @@ internal fun previewChats(): List<ChatSummary> = listOf(
     ),
 )
 
-@Preview(name = "Chat list dark", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Chat list dark", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun ChatListPreview() {
     SpettroTheme(darkTheme = true) {
@@ -792,7 +937,7 @@ private fun ChatListPreview() {
     }
 }
 
-@Preview(name = "Agent down — light", showBackground = true, backgroundColor = 0xFFF9F9F7)
+@Preview(name = "Agent down — light", showBackground = true, backgroundColor = 0xFFFAFAFA)
 @Composable
 private fun ChatListAgentDownPreview() {
     SpettroTheme(darkTheme = false) {
@@ -814,7 +959,7 @@ private fun ChatListAgentDownPreview() {
     }
 }
 
-@Preview(name = "Empty", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Empty", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun ChatListEmptyPreview() {
     SpettroTheme(darkTheme = true) {

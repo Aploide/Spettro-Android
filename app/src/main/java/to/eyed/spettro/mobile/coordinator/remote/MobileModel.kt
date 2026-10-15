@@ -1,11 +1,16 @@
 package to.eyed.spettro.mobile.coordinator.remote
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -13,6 +18,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import to.eyed.spettro.mobile.core.ErrorActionKind
+import to.eyed.spettro.mobile.core.humanizeError
+import to.eyed.spettro.mobile.core.humanSentence
 import to.eyed.spettro.mobile.core.acp.AcpAccountStatus
 import to.eyed.spettro.mobile.core.acp.AcpExtensionMethod
 import to.eyed.spettro.mobile.core.acp.AcpLocalProbeResult
@@ -23,23 +31,41 @@ import to.eyed.spettro.mobile.core.acp.AcpPermissionRequest
 import to.eyed.spettro.mobile.core.acp.AcpProvidersList
 import to.eyed.spettro.mobile.core.acp.AcpQuestionAnswer
 import to.eyed.spettro.mobile.core.acp.AcpQuestionRequest
+import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 import to.eyed.spettro.mobile.core.remote.ChatSummary
+import to.eyed.spettro.mobile.core.remote.InboundNotification
 import to.eyed.spettro.mobile.core.remote.RemoteApi
 import to.eyed.spettro.mobile.core.remote.RemoteClient
+import to.eyed.spettro.mobile.core.remote.RemoteFeature
 import to.eyed.spettro.mobile.core.remote.RemoteNotification
 import to.eyed.spettro.mobile.core.remote.RemoteProject
 import to.eyed.spettro.mobile.core.remote.RemoteState
 import to.eyed.spettro.mobile.core.rpc.RpcException
+import to.eyed.spettro.mobile.model.ChatMessage
 import to.eyed.spettro.mobile.model.ChatSession
+import to.eyed.spettro.mobile.model.ConfigCall
+import to.eyed.spettro.mobile.model.ConfigValue
 import to.eyed.spettro.mobile.model.ImageAttachment
+import to.eyed.spettro.mobile.model.Thinking
+import to.eyed.spettro.mobile.model.ThinkingCommitter
+import to.eyed.spettro.mobile.model.ThinkingStop
+import to.eyed.spettro.mobile.model.Prompts.describedBy
 
 /** A permission or question the host is waiting on, addressed by prompt id. */
 data class PendingPermission(
     val promptID: String,
     val chatID: String?,
+    /**
+     * The request as the prompt shows it: the title and kind it left to its
+     * card filled in (see `Prompts.describedBy`).
+     */
     val request: AcpPermissionRequest,
     /** Non-null when the permission transport actually carries a question form. */
     val questionForm: AcpQuestionRequest?,
+    /** The open chat's card this request marked "pending", to put back once it is answered. */
+    val card: ChatSession.ApprovalCard? = null,
+    /** The request as it arrived, before its card filled anything in. */
+    val received: AcpPermissionRequest = request,
 )
 
 data class PendingQuestion(
@@ -48,8 +74,85 @@ data class PendingQuestion(
     val request: AcpQuestionRequest,
 )
 
-/** A transient, dismissible message shown above the chat UI. */
-data class Banner(val text: String, val isError: Boolean = false)
+/**
+ * The prompts to show with the chat on screen ([openChatID], null for none),
+ * oldest first: its own, and any that names no chat — or a chat the list
+ * doesn't know ([knownChatIDs]), which would otherwise be shown nowhere. A
+ * prompt for another chat waits there, as "Needs you".
+ */
+fun promptsShownWith(
+    openChatID: String?,
+    knownChatIDs: Collection<String>,
+    permissions: List<PendingPermission>,
+    questions: List<PendingQuestion>,
+): Pair<List<PendingPermission>, List<PendingQuestion>> {
+    val known = knownChatIDs.map { it.lowercase() }.toSet()
+    fun here(chatID: String?) = chatID == null ||
+        chatID.equals(openChatID, ignoreCase = true) ||
+        chatID.lowercase() !in known
+    return permissions.filter { here(it.chatID) } to questions.filter { here(it.chatID) }
+}
+
+/**
+ * Where each prompt [promptsShownWith] gives the chat on screen is shown:
+ * the open chat's own go in the dock above its composer, inline, the way
+ * the desktop asks; the rest — one that names no chat, or a chat the list
+ * doesn't know — still need answering somewhere, so they get a sheet.
+ */
+data class PromptRoutes(
+    val dockPermissions: List<PendingPermission>,
+    val dockQuestions: List<PendingQuestion>,
+    val sheetPermissions: List<PendingPermission>,
+    val sheetQuestions: List<PendingQuestion>,
+)
+
+fun promptRoutes(
+    openChatID: String?,
+    knownChatIDs: Collection<String>,
+    permissions: List<PendingPermission>,
+    questions: List<PendingQuestion>,
+): PromptRoutes {
+    val (shownPermissions, shownQuestions) = promptsShownWith(openChatID, knownChatIDs, permissions, questions)
+    fun docked(chatID: String?) = openChatID != null && chatID.equals(openChatID, ignoreCase = true)
+    return PromptRoutes(
+        dockPermissions = shownPermissions.filter { docked(it.chatID) },
+        dockQuestions = shownQuestions.filter { docked(it.chatID) },
+        sheetPermissions = shownPermissions.filterNot { docked(it.chatID) },
+        sheetQuestions = shownQuestions.filterNot { docked(it.chatID) },
+    )
+}
+
+/**
+ * A transient, dismissible message shown above the chat UI, as the desktop's
+ * toast: a short [text] title and, for errors, a [detail] sentence saying
+ * what to do, at most one [action], and the [raw] error behind "Show
+ * details".
+ */
+data class Banner(
+    val text: String,
+    val isError: Boolean = false,
+    val detail: String? = null,
+    val action: BannerAction? = null,
+    val raw: String? = null,
+) {
+    /** The desktop's toast timings: 8s with something to do, 6s for an error, 4s for news. */
+    val durationMs: Long
+        get() = when {
+            action != null -> 8_000
+            isError -> 6_000
+            else -> 4_000
+        }
+}
+
+/**
+ * A toast's one button. Either the model runs it ([run]: Undo, Try again),
+ * or it names a place the UI opens ([opens]: Models & providers).
+ */
+class BannerAction(
+    val label: String,
+    val opens: ErrorActionKind? = null,
+    val run: (() -> Unit)? = null,
+)
 
 /**
  * The Protocol B coordinator: owns the mirror of the PC host's state and
@@ -62,10 +165,24 @@ class MobileModel(
     private val scope: CoroutineScope,
 ) {
     constructor(client: RemoteClient, scope: CoroutineScope) :
-        this(client, RemoteApi(client::request), scope)
+        this(client, RemoteApi(client), scope)
 
     private val _chats = MutableStateFlow<List<ChatSummary>>(emptyList())
-    val chats: StateFlow<List<ChatSummary>> = _chats.asStateFlow()
+
+    /** Deleted chats still inside their Undo window ([deleteChat]). */
+    private val deletes = DeleteScheduler { delayMs, run ->
+        val job = scope.launch {
+            delay(delayMs)
+            run()
+        }
+        return@DeleteScheduler { job.cancel() }
+    }
+
+    /** Every chat on the computer, less those on their way out (see [deleteChat]). */
+    val chats: StateFlow<List<ChatSummary>> =
+        combine(_chats, deletes.pending) { chats, leaving ->
+            if (leaving.isEmpty()) chats else chats.filterNot { it.id in leaving }
+        }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     private val _projects = MutableStateFlow<List<RemoteProject>>(emptyList())
     val projects: StateFlow<List<RemoteProject>> = _projects.asStateFlow()
@@ -81,6 +198,21 @@ class MobileModel(
 
     private val _pendingQuestions = MutableStateFlow<List<PendingQuestion>>(emptyList())
     val pendingQuestions: StateFlow<List<PendingQuestion>> = _pendingQuestions.asStateFlow()
+
+    /**
+     * Prompts the user swiped away without answering. A swipe never answers
+     * — that would deny an approval, or decline a question, nobody chose to —
+     * so the prompt stays pending, out of the way, until the user asks for
+     * it back (see [bringBackPrompts]).
+     */
+    private val _promptsSetAside = MutableStateFlow<Set<String>>(emptySet())
+    val promptsSetAside: StateFlow<Set<String>> = _promptsSetAside.asStateFlow()
+
+    /** The chats a prompt is waiting in: the list's "Needs you". */
+    val chatsNeedingYou: StateFlow<Set<String>> =
+        combine(_pendingPermissions, _pendingQuestions) { permissions, questions ->
+            (permissions.mapNotNull { it.chatID } + questions.mapNotNull { it.chatID }).toSet()
+        }.stateIn(scope, SharingStarted.Eagerly, emptySet())
 
     private val _banner = MutableStateFlow<Banner?>(null)
     val banner: StateFlow<Banner?> = _banner.asStateFlow()
@@ -111,35 +243,71 @@ class MobileModel(
 
     private var loginPollJob: Job? = null
 
+    /** Holds the updates of a chat whose snapshot is still on its way. */
+    private val openBuffer = ChatOpenBuffer()
+
+    /** Whether the last state seen was Connected — to tell a reconnect from an agent flip. */
+    private var wasConnected = false
+
+    /** The host the last connection was to; a different one starts from nothing. */
+    private var lastHostID: String? = null
+
     /** Chats the list screen shows: non-archived, pinned first, newest first. */
     val visibleChats: List<ChatSummary>
-        get() = _chats.value.filter { !it.isArchived }
+        get() = chats.value.filter { !it.isArchived }
             .sortedWith(compareByDescending<ChatSummary> { it.isPinned }.thenByDescending { it.updatedAt })
 
     val archivedChats: List<ChatSummary>
-        get() = _chats.value.filter { it.isArchived }.sortedByDescending { it.updatedAt }
+        get() = chats.value.filter { it.isArchived }.sortedByDescending { it.updatedAt }
 
     init {
         scope.launch {
             client.state.collect { state ->
                 when (state) {
                     is RemoteState.Connected -> {
+                        if (lastHostID != null && lastHostID != state.host.hostID) forgetHostState()
+                        lastHostID = state.host.hostID
                         _agentReady.value = state.agentReady
                         refreshEverything()
+                        // Back after a drop: the open chat missed whatever
+                        // streamed meanwhile, so fetch it again rather than
+                        // carry on from a stale transcript.
+                        if (!wasConnected) reopenChat()
+                        wasConnected = true
                     }
                     else -> {
+                        wasConnected = false
                         // The socket owns pending prompts: a prompt can't
-                        // outlive the connection that delivered it.
+                        // outlive the connection that delivered it. (Hosts
+                        // with pendingReplay re-send the live ones on auth.)
                         _pendingPermissions.value = emptyList()
                         _pendingQuestions.value = emptyList()
+                        _promptsSetAside.value = emptySet()
+                        openBuffer.cancel()
                         loginPollJob?.cancel()
                     }
                 }
             }
         }
         scope.launch {
-            client.notifications.collect(::handle)
+            client.inbound.collect(::handle)
         }
+    }
+
+    /**
+     * Paired with another computer: the last one's chats and projects mean
+     * nothing here, and its open chat must not be "reopened" on this one.
+     */
+    private fun forgetHostState() {
+        deletes.cancelAll()
+        openBuffer.cancel()
+        thinkingQueues.clear()
+        _openChat.value = null
+        _chats.value = emptyList()
+        _projects.value = emptyList()
+        _providers.value = null
+        _models.value = null
+        _account.value = null
     }
 
     fun dismissBanner() {
@@ -148,28 +316,47 @@ class MobileModel(
 
     // MARK: Notification routing
 
-    private fun handle(notification: RemoteNotification) {
+    private fun handle(item: InboundNotification) {
+        val notification = item.note
+        // The list is the host's, open or not; only the session part waits.
+        if (notification is RemoteNotification.ChatState) upsertChat(notification.chat)
+        if (openBuffer.hold(item)) return
         when (notification) {
-            is RemoteNotification.Hello -> Unit
-            is RemoteNotification.ChatUpdate -> {
+            is RemoteNotification.ChatUpdate,
+            is RemoteNotification.ChatUser,
+            is RemoteNotification.ChatState,
+            -> {
                 val session = _openChat.value ?: return
+                applyToSession(session, notification)
+            }
+            else -> handleHostNotification(notification)
+        }
+    }
+
+    /** Applies a chat-level notification to [session], when it is about that chat. */
+    private fun applyToSession(session: ChatSession, notification: RemoteNotification) {
+        when (notification) {
+            is RemoteNotification.ChatUpdate -> {
                 if (session.chatId != notification.chatID) return
                 AcpParser.parseSessionUpdate(notification.update)?.let(session::apply)
             }
             is RemoteNotification.ChatUser -> {
                 // Another client submitted a prompt; the host already excludes
                 // us, so anything arriving here is genuinely someone else's.
-                val session = _openChat.value ?: return
                 if (session.chatId != notification.chatID) return
+                // chat/user carries no steering flag, but the host sends it
+                // before the chat/state that marks a fresh turn busy: a
+                // message that finds the chat already busy steers the
+                // running turn, which keeps its clock.
+                val steering = if (session.isBusy.value) ChatMessage.Steering.SENDING else null
                 session.appendUserMessage(
                     notification.text,
                     notification.attachments.map { ImageAttachment(base64Data = it.base64, mimeType = it.mimeType) },
+                    steering,
                 )
-                session.beginRun()
+                if (steering == null) session.beginRun()
             }
             is RemoteNotification.ChatState -> {
-                upsertChat(notification.chat)
-                val session = _openChat.value ?: return
                 if (session.chatId != notification.chat.id) return
                 session.setTitle(notification.chat.title)
                 session.setPinned(notification.chat.isPinned)
@@ -178,13 +365,26 @@ class MobileModel(
                 if (notification.stopReason != null) session.endRun(notification.stopReason)
                 if (!notification.chat.isBusy && notification.stopReason == null) session.setBusy(false)
                 notification.notice?.takeIf { it.text.isNotEmpty() }
-                    ?.let { session.appendNotice(it.text, it.isError) }
+                    ?.let { session.appendNotice(it.text, it.isError, endsTurn = notification.stopReason != null) }
             }
+            else -> Unit
+        }
+    }
+
+    private fun handleHostNotification(notification: RemoteNotification) {
+        when (notification) {
+            is RemoteNotification.Hello,
+            is RemoteNotification.ChatUpdate,
+            is RemoteNotification.ChatUser,
+            is RemoteNotification.ChatState,
+            -> Unit
             is RemoteNotification.ChatRemoved -> {
+                // Gone already: nothing left for a pending delete to do.
+                deletes.undo(notification.chatID)
                 _chats.value = _chats.value.filterNot { it.id == notification.chatID }
                 if (_openChat.value?.chatId == notification.chatID) {
                     _openChat.value = null
-                    _banner.value = Banner("This chat was deleted on the PC")
+                    _banner.value = Banner("This chat was deleted on your computer")
                 }
             }
             is RemoteNotification.HostState -> {
@@ -192,25 +392,47 @@ class MobileModel(
                 notification.message?.let { _banner.value = Banner(it) }
             }
             is RemoteNotification.PermissionAsk -> {
-                val request = AcpParser.parsePermissionRequest(notification.request) ?: return
-                val form = AcpParser.parseQuestionFromPermission(request)
-                val pending = PendingPermission(notification.promptID, notification.chatID, request, form)
+                val received = AcpParser.parsePermissionRequest(notification.request) ?: return
+                val form = AcpParser.parseQuestionFromPermission(received)
+                // A replayed ask (pendingReplay) is one we may already hold.
+                val known = _pendingPermissions.value.firstOrNull { it.promptID == notification.promptID }
+                val session = sessionFor(notification.chatID, received.sessionId)
+                val pending = adoptCard(
+                    PendingPermission(
+                        promptID = notification.promptID,
+                        chatID = notification.chatID ?: session?.chatId,
+                        request = received.describedBy(null),
+                        questionForm = form,
+                        card = known?.card,
+                        received = received,
+                    ),
+                    session,
+                )
                 _pendingPermissions.value =
                     _pendingPermissions.value.filterNot { it.promptID == pending.promptID } + pending
             }
             is RemoteNotification.PermissionResolved -> {
+                val pending = _pendingPermissions.value.firstOrNull { it.promptID == notification.promptID }
                 _pendingPermissions.value =
                     _pendingPermissions.value.filterNot { it.promptID == notification.promptID }
+                // Answered elsewhere, or withdrawn: whatever comes next for
+                // the card says what happened to it.
+                pending?.let { releaseCard(it, made = AcpToolStatus.IN_PROGRESS) }
+                _promptsSetAside.value -= notification.promptID
             }
             is RemoteNotification.QuestionAsk -> {
-                val request = AcpParser.parseQuestionRequest(notification.request) ?: return
-                val pending = PendingQuestion(notification.promptID, notification.chatID, request)
+                val request = questionFrom(notification.request) ?: return
+                // A question over the permission transport names its chat
+                // only through its session.
+                val chatID = notification.chatID ?: sessionFor(null, request.sessionId)?.chatId
+                val pending = PendingQuestion(notification.promptID, chatID, request)
                 _pendingQuestions.value =
                     _pendingQuestions.value.filterNot { it.promptID == pending.promptID } + pending
             }
             is RemoteNotification.QuestionResolved -> {
                 _pendingQuestions.value =
                     _pendingQuestions.value.filterNot { it.promptID == notification.promptID }
+                _promptsSetAside.value -= notification.promptID
             }
             is RemoteNotification.AgentNotification -> {
                 if (notification.method == AcpExtensionMethod.ACCOUNT_UPDATE) {
@@ -218,6 +440,20 @@ class MobileModel(
                 }
             }
         }
+    }
+
+    /**
+     * The question a `question/ask` carries: `_spettro/question/ask` params,
+     * or — from an older CLI walking the form over the permission transport —
+     * a `session/request_permission` with the form in its `_meta`. Either
+     * way it is answered with `question/reply`; the host turns that into the
+     * reply the transport needs.
+     */
+    private fun questionFrom(request: JsonObject): AcpQuestionRequest? {
+        if (request["toolCall"] is JsonObject) {
+            return AcpParser.parsePermissionRequest(request)?.let(AcpParser::parseQuestionFromPermission)
+        }
+        return AcpParser.parseQuestionRequest(request)
     }
 
     private fun upsertChat(chat: ChatSummary) {
@@ -235,40 +471,77 @@ class MobileModel(
         scope.launch {
             _isRefreshing.value = true
             runCatching { _chats.value = api.chatsList() }
-                .onFailure { note("Couldn't load chats: ${it.message}", isError = true) }
+                .onFailure { noteError("Couldn’t load your chats", it.message, retry = ::refreshEverything) }
             runCatching { _projects.value = api.projectsList() }
             runCatching { _account.value = AcpAccountStatus.parse(api.agentCall(AcpExtensionMethod.ACCOUNT_STATUS)) }
             _isRefreshing.value = false
         }
     }
 
-    suspend fun openChat(chatID: String): Boolean {
+    suspend fun openChat(chatID: String): Boolean = loadChat(chatID, isReopen = false)
+
+    /** Fetches the open chat again after a reconnect and swaps the fresh session in. */
+    private fun reopenChat() {
+        val current = _openChat.value ?: return
+        scope.launch { loadChat(current.chatId, isReopen = true) }
+    }
+
+    private suspend fun loadChat(chatID: String, isReopen: Boolean): Boolean {
+        openBuffer.begin(chatID)
         return try {
-            val result = api.chatsOpen(chatID)
+            val (result, mark) = api.chatsOpenMarked(chatID)
             // A long transcript is a lot of JSON; parsing it on Main janks
             // the open animation.
             val stored = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 AcpParser.parseStoredSession(result.chat)
             }
+            // Another chat was opened while this one loaded: that one wins.
+            if (openBuffer.opening != chatID) return false
+            // A reload that lands after the user left the chat has nothing to refresh.
+            if (isReopen && _openChat.value?.chatId != chatID) {
+                openBuffer.cancel()
+                return false
+            }
             val session = ChatSession(chatId = chatID)
-            session.restoreFrom(stored)
+            session.restoreFrom(stored, isBusy = result.isBusy)
             (result.configOptions as? JsonArray)?.let {
                 session.applyConfigUpdate(AcpParser.parseConfigOptionsStored(it))
             }
             (result.commands as? JsonArray)?.let { session.setCommands(AcpParser.parseCommands(it)) }
             (result.plan as? JsonArray)?.let { session.setPlan(AcpParser.parsePlan(it)) }
             session.setUsage(AcpParser.parseUsage(result.usage))
-            if (result.isBusy) session.beginRun()
+            // A turn already under way keeps its clock: opening the chat, or
+            // coming back after a dropped connection, isn't a new start.
+            if (result.isBusy) session.beginRun(startedAt = session.turnStartedAt())
+            // What streamed in after the snapshot was taken, before the
+            // session is visible — so it never shows a half-applied state.
+            openBuffer.finish(chatID, mark).forEach { applyToSession(session, it) }
+            // Prompts this chat asked while it wasn't open.
+            _pendingPermissions.value = _pendingPermissions.value.map {
+                if (it.chatID.equals(chatID, ignoreCase = true)) adoptCard(it.copy(card = null), session) else it
+            }
             _openChat.value = session
             true
         } catch (e: Exception) {
-            note("Couldn't open chat: ${e.message}", isError = true)
+            // Only this open's buffer: another chat may be opening by now.
+            openBuffer.cancel(chatID)
+            if (isReopen) {
+                if (e is RpcException && e.code == NO_SUCH_CHAT && _openChat.value?.chatId == chatID) {
+                    _openChat.value = null
+                    note("This chat is no longer on your computer")
+                }
+                // Otherwise keep the transcript on screen; the next
+                // reconnect tries again.
+            } else {
+                noteError("Couldn’t open the chat", e.message)
+            }
             false
         }
     }
 
     fun closeChat() {
         val id = _openChat.value?.chatId
+        openBuffer.cancel()
         _openChat.value = null
         if (id != null) scope.launch { runCatching { api.chatsClose(id) } }
     }
@@ -278,16 +551,88 @@ class MobileModel(
         upsertChat(summary)
         summary.id
     } catch (e: Exception) {
-        note("Couldn't create chat: ${e.message}", isError = true)
+        noteError("Couldn’t start a chat", e.message)
         null
     }
 
+    /**
+     * Deletes a chat the desktop's way (the UI has already asked): it leaves
+     * the list at once and a toast offers Undo for [UNDO_WINDOW_MS]; only
+     * then is the computer told. Undo puts it back — and back on screen, if
+     * it was on screen. A delete the computer refuses brings the row back.
+     */
     fun deleteChat(chatID: String) {
-        _chats.value = _chats.value.filterNot { it.id == chatID }
-        if (_openChat.value?.chatId == chatID) _openChat.value = null
+        val title = _chats.value.firstOrNull { it.id == chatID }?.title?.ifBlank { null } ?: "Untitled chat"
+        val wasOpen = _openChat.value?.chatId == chatID
+        if (wasOpen) closeChat()
+        val undo = BannerAction("Undo", run = {
+            if (deletes.undo(chatID) && wasOpen) scope.launch { openChat(chatID) }
+        })
+        deletes.schedule(chatID) {
+            // Once it has really happened, its Undo goes with it.
+            if (_banner.value?.action === undo) _banner.value = null
+            val call = scope.launch {
+                runCatching { api.chatsDelete(chatID) }
+                    .onSuccess { _chats.value = _chats.value.filterNot { it.id == chatID } }
+                    .onFailure { noteError("Couldn’t delete the chat", it.message) }
+            }
+            deleteCalls += call
+            call.invokeOnCompletion { deleteCalls -= call }
+        }
+        _banner.value = Banner("Deleted “$title”", action = undo)
+    }
+
+    /** The chats/delete calls still on their way. */
+    private val deleteCalls = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
+
+    /** Carries out every delete still in its Undo window: the app is going away. */
+    fun flushDeletes() = deletes.flush()
+
+    /**
+     * Carries out every delete still in its Undo window and waits (a few
+     * seconds at most) for the computer to take them — before a deliberate
+     * disconnect closes the socket they would go on.
+     */
+    suspend fun flushDeletesAndWait() {
+        deletes.flush()
+        kotlinx.coroutines.withTimeoutOrNull(3_000) { deleteCalls.toList().forEach { it.join() } }
+    }
+
+    /**
+     * Forgets this computer, once any delete still in its Undo window has
+     * gone: the socket it would go on closes with the pairing. A computer
+     * that can is asked to take this phone off its paired devices first.
+     */
+    fun forgetComputer() {
         scope.launch {
-            runCatching { api.chatsDelete(chatID) }
-                .onFailure { note("Couldn't delete chat: ${it.message}", isError = true) }
+            flushDeletesAndWait()
+            client.unpairAndForget()
+        }
+    }
+
+    /** Whether the computer renames chats (`chats/rename`). */
+    val canRename: Boolean
+        get() = (client.state.value as? RemoteState.Connected)?.has(RemoteFeature.RENAME) == true
+
+    /**
+     * Renames a chat, showing the new name at once. The computer tells every
+     * screen, this one too, as a chat/state; a refusal puts the old name back.
+     */
+    fun renameChat(chatID: String, title: String) {
+        val name = title.trim()
+        if (name.isEmpty() || !canRename) return
+        val before = _chats.value.firstOrNull { it.id == chatID }?.title ?: return
+        if (before == name) return
+        fun show(t: String) {
+            _chats.value = _chats.value.map { if (it.id == chatID) it.copy(title = t) else it }
+            _openChat.value?.takeIf { it.chatId == chatID }?.setTitle(t)
+        }
+        show(name)
+        scope.launch {
+            runCatching { api.chatsRename(chatID, name) }.onFailure {
+                show(before)
+                noteError("Couldn’t rename the chat", it.message)
+            }
         }
     }
 
@@ -309,21 +654,86 @@ class MobileModel(
 
     // MARK: Prompting
 
-    fun sendPrompt(text: String, attachments: List<ImageAttachment> = emptyList()) {
-        val session = _openChat.value ?: return
+    /**
+     * Sends a prompt to the open chat. Returns false — leaving the draft
+     * where it is — when there is no chat or no connection to send it on.
+     *
+     * While a turn runs, the message steers it: the host hands it to the
+     * running agent, which reads it at its next step. It is drawn as
+     * "sending" until the CLI's acknowledgement moves it along, and the
+     * turn keeps its clock.
+     *
+     * [mentions] are the project files the text @-mentions; they go only to
+     * a host with [RemoteFeature.MENTIONS], which hands each to the agent as
+     * a file to read. An older host gets the text alone, "@path" and all.
+     */
+    fun sendPrompt(
+        text: String,
+        attachments: List<ImageAttachment> = emptyList(),
+        mentions: List<String> = emptyList(),
+    ): Boolean {
+        val session = _openChat.value ?: return false
+        val connected = client.state.value as? RemoteState.Connected ?: return false
+        val sentMentions = if (connected.has(RemoteFeature.MENTIONS)) mentions.distinct() else emptyList()
         // Optimistic: we draw our own message; the host will not echo it back.
-        session.appendUserMessage(text, attachments)
-        session.beginRun()
+        val steering = if (session.isBusy.value) ChatMessage.Steering.SENDING else null
+        val message = session.appendUserMessage(text, attachments, steering, sentMentions)
+        if (steering == null) session.beginRun()
         val blocks = buildList {
             if (text.isNotBlank()) add(textBlock(text))
             attachments.forEach { add(imageBlock(it)) }
         }
         scope.launch {
-            runCatching { api.prompt(session.chatId, blocks) }
+            runCatching { api.prompt(session.chatId, blocks, sentMentions) }
                 .onFailure {
-                    session.endRun()
-                    session.appendNotice("Send failed: ${it.message}", isError = true)
+                    // A steer that didn't go is a plain message; the turn
+                    // it meant to steer carries on.
+                    if (steering != null) session.setSteering(message.id, null) else session.endRun()
+                    session.appendNotice(
+                        "Your message didn’t go. ${humanSentence(it.message)}",
+                        isError = true,
+                        endsTurn = steering == null,
+                    )
                 }
+        }
+        return true
+    }
+
+    /**
+     * Sends the open chat's last message again — Try again on the error a
+     * turn ended on (the desktop's retryLast). False when there is nothing
+     * to resend, or no connection to send it on.
+     */
+    fun retryLast(): Boolean {
+        val session = _openChat.value ?: return false
+        if (session.isBusy.value) return false
+        val last = session.items.value.lastOrNull {
+            it is to.eyed.spettro.mobile.model.TranscriptItem.Message && it.message.role == ChatMessage.Role.User
+        } as? to.eyed.spettro.mobile.model.TranscriptItem.Message ?: return false
+        return sendPrompt(last.message.text, last.message.attachments, last.message.mentions)
+    }
+
+    /** Whether the host lists a folder's files for the composer's @-mention menu. */
+    val canMentionFiles: Boolean
+        get() = (client.state.value as? RemoteState.Connected)?.has(RemoteFeature.PROJECT_FILES) == true
+
+    private data class FileList(val at: Long, val files: List<String>)
+
+    private val fileLists = mutableMapOf<String, FileList>()
+
+    /**
+     * The files the @-mention menu searches for [projectPath], reused for
+     * 30 seconds so typing "@" twice doesn't list the repository twice (the
+     * desktop's projectFiles cache). A failed listing is not kept.
+     */
+    suspend fun projectFiles(projectPath: String): List<String> {
+        fileLists[projectPath]?.takeIf { System.currentTimeMillis() - it.at < FILE_LIST_FRESH_MS }?.let { return it.files }
+        if (!canMentionFiles) return emptyList()
+        return try {
+            api.projectFiles(projectPath).also { fileLists[projectPath] = FileList(System.currentTimeMillis(), it) }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            emptyList()
         }
     }
 
@@ -334,27 +744,186 @@ class MobileModel(
 
     fun setConfigValue(configID: String, value: String) {
         val session = _openChat.value ?: return
-        session.applyLocalConfigValue(configID, value)
-        scope.launch {
-            runCatching { api.config(session.chatId, configID, stringValue = value) }
-                .onFailure { note("Couldn't change setting: ${it.message}", isError = true) }
-        }
+        scope.launch { applyConfig(session, configID, ConfigValue.Str(value)) }
     }
 
     fun setConfigValue(configID: String, value: Boolean) {
         val session = _openChat.value ?: return
+        scope.launch { applyConfig(session, configID, ConfigValue.Bool(value)) }
+    }
+
+    /** One move queue per chat, whichever session of it is open when a call goes. */
+    private val thinkingQueues = mutableMapOf<String, ThinkingCommitter>()
+
+    /**
+     * Moves the open chat's thinking slider to [stop]: the level, Ultra (two
+     * calls, thinking high and then ultracode on), or away from Ultra
+     * (ultracode off first). The calls go one at a time, each after the
+     * last is answered, and moves made meanwhile collapse into the latest
+     * (ThinkingCommitter). The queue belongs to the chat, not the sheet or
+     * the session: a slider closed mid-move still sends where it had got
+     * to, and one opened again — after leaving the chat and coming back,
+     * which builds a new session — joins the run already going rather than
+     * racing it. Completes true for the move the queue drains on.
+     */
+    fun commitThinking(stop: ThinkingStop): Deferred<Boolean> {
+        val chatID = _openChat.value?.chatId ?: return CompletableDeferred(false)
+        val queue = thinkingQueues.getOrPut(chatID) {
+            ThinkingCommitter(
+                scope = scope,
+                ultraOnNow = {
+                    val options = openSession(chatID)?.configOptions?.value.orEmpty()
+                    Thinking.state(options)?.ultraOn == true
+                },
+                send = { call -> sendThinkingCall(chatID, call) },
+                // A host that answers before the set is done can't be
+                // waited on; it gets the pair a beat apart instead.
+                spacingMs = {
+                    val connected = client.state.value as? RemoteState.Connected
+                    if (connected?.has(RemoteFeature.CONFIG_RESULT) == true) 0L else OLD_HOST_CONFIG_SPACING_MS
+                },
+            )
+        }
+        return queue.commit(stop)
+    }
+
+    private fun openSession(chatID: String): ChatSession? = _openChat.value?.takeIf { it.chatId == chatID }
+
+    /**
+     * One of a slider move's calls, against the session of [chatID] open as
+     * it goes. With the chat closed meanwhile it still goes; there is just
+     * no screen to show it on.
+     */
+    private suspend fun sendThinkingCall(chatID: String, call: ConfigCall) {
+        val session = openSession(chatID)
+        if (session != null) {
+            applyConfig(session, call.configId, call.value)
+            return
+        }
+        runCatching {
+            api.config(
+                chatID,
+                call.configId,
+                stringValue = (call.value as? ConfigValue.Str)?.value,
+                boolValue = (call.value as? ConfigValue.Bool)?.value,
+            )
+        }
+    }
+
+    /**
+     * Sets one option, showing it at once. A host with
+     * [RemoteFeature.CONFIG_RESULT] answers when the set is done: success
+     * carries the options as they now are (other options can move with
+     * it), and a refusal means it already rolled back, so the phone does
+     * too. An older host answers before trying, so the optimistic value is
+     * all there is. Returns whether the host took it — sequenced changes
+     * (thinking, then Ultra) wait on this.
+     */
+    suspend fun applyConfig(session: ChatSession, configID: String, value: ConfigValue): Boolean {
+        val connected = client.state.value as? RemoteState.Connected
+        val awaitsResult = connected?.has(RemoteFeature.CONFIG_RESULT) == true
+        val before = session.configOptions.value
         session.applyLocalConfigValue(configID, value)
-        scope.launch {
-            runCatching { api.config(session.chatId, configID, boolValue = value) }
-                .onFailure { note("Couldn't change setting: ${it.message}", isError = true) }
+        return try {
+            val result = api.config(
+                session.chatId,
+                configID,
+                stringValue = (value as? ConfigValue.Str)?.value,
+                boolValue = (value as? ConfigValue.Bool)?.value,
+            )
+            if (awaitsResult) {
+                (result.configOptions as? JsonArray)?.let {
+                    session.applyConfigUpdate(AcpParser.parseConfigOptionsStored(it))
+                }
+            }
+            true
+        } catch (e: RpcException) {
+            if (awaitsResult && e.code != RpcException.CONNECTION_CLOSED) {
+                session.applyConfigUpdate(before)
+                // With notices the same sentence lands in the transcript.
+                if (connected?.has(RemoteFeature.NOTICES) != true) {
+                    note(e.message ?: "Couldn't change that setting.", isError = true)
+                }
+            } else {
+                noteError("Couldn’t change that setting", e.message)
+            }
+            false
+        } catch (e: Exception) {
+            noteError("Couldn’t change that setting", e.message)
+            false
         }
     }
 
     // MARK: Prompts (permissions & questions)
 
+    /**
+     * Answers a permission; a null option dismisses it, which the CLI reads
+     * as a denial. A reject marks the card as the user's own answer, so its
+     * failure reads as that rather than as something going wrong.
+     */
     fun replyToPermission(promptID: String, selectedOptionID: String?) {
+        val pending = _pendingPermissions.value.firstOrNull { it.promptID == promptID }
         _pendingPermissions.value = _pendingPermissions.value.filterNot { it.promptID == promptID }
+        if (pending != null) {
+            val option = pending.request.options.firstOrNull { it.optionId == selectedOptionID }
+            val allowed = option != null && !option.isReject
+            val card = pending.card
+            if (card != null && option?.isReject == true) {
+                sessionFor(pending.chatID, pending.request.sessionId)?.markDenied(card.toolCallId)
+            }
+            releaseCard(pending, made = if (allowed) AcpToolStatus.IN_PROGRESS else AcpToolStatus.FAILED)
+        }
+        _promptsSetAside.value -= promptID
         scope.launch { runCatching { api.permissionReply(promptID, selectedOptionID) } }
+    }
+
+    /** Puts a prompt out of the way without answering it (a swipe). */
+    fun setPromptAside(promptID: String) {
+        val pending = _pendingPermissions.value.any { it.promptID == promptID } ||
+            _pendingQuestions.value.any { it.promptID == promptID }
+        if (pending) _promptsSetAside.value += promptID
+    }
+
+    /** Shows again the prompts set aside that [promptsShownWith] gives [openChatID]. */
+    fun bringBackPrompts(openChatID: String?) {
+        val (permissions, questions) = promptsShownWith(
+            openChatID, _chats.value.map { it.id }, _pendingPermissions.value, _pendingQuestions.value,
+        )
+        _promptsSetAside.value -= (permissions.map { it.promptID } + questions.map { it.promptID }).toSet()
+    }
+
+    /**
+     * [pending] with what its card in [session] gives it. The host relays
+     * the raw request, without the title, kind and card the desktop gives
+     * it, so they come from the open chat's card here, as they do there —
+     * and the card is marked as waiting on the user. Unchanged when
+     * [session] isn't the chat that asked, or the card is already adopted.
+     */
+    private fun adoptCard(pending: PendingPermission, session: ChatSession?): PendingPermission {
+        if (session == null || pending.card != null) return pending
+        val wireId = pending.received.toolCallId
+        val request = pending.received.describedBy(wireId?.let(session::toolById))
+        val card = if (pending.questionForm == null) session.adoptPermission(request) else null
+        return pending.copy(request = request, card = card)
+    }
+
+    /** Puts back the "pending" [pending] put on its card in the open chat. */
+    private fun releaseCard(pending: PendingPermission, made: AcpToolStatus) {
+        val card = pending.card ?: return
+        sessionFor(pending.chatID, pending.request.sessionId)?.releaseApprovalCard(card, made)
+    }
+
+    /**
+     * The open chat, when it is the one [chatID] names — or, for a prompt
+     * that names no chat, the one whose ACP session is [sessionId].
+     */
+    private fun sessionFor(chatID: String?, sessionId: String?): ChatSession? {
+        val session = _openChat.value ?: return null
+        return when {
+            chatID != null -> session.takeIf { it.chatId.equals(chatID, ignoreCase = true) }
+            !sessionId.isNullOrEmpty() -> session.takeIf { it.acpSessionId.value == sessionId }
+            else -> null
+        }
     }
 
     /** Answers a question form that arrived over the permission transport. */
@@ -372,6 +941,7 @@ class MobileModel(
 
     fun replyToQuestion(promptID: String, answers: List<AcpQuestionAnswer>?) {
         _pendingQuestions.value = _pendingQuestions.value.filterNot { it.promptID == promptID }
+        _promptsSetAside.value -= promptID
         val payload: JsonElement? = answers?.let { list -> buildJsonArray { list.forEach { add(it.toJson()) } } }
         scope.launch { runCatching { api.questionReply(promptID, payload) } }
     }
@@ -395,10 +965,14 @@ class MobileModel(
                 }
             } catch (e: RpcException) {
                 _login.value = null
-                note(relayErrorText(e, "Sign-in failed"), isError = true)
+                if (e.code == RpcException.METHOD_NOT_FOUND) {
+                    note("Update Spettro on your computer to sign in from here", isError = true)
+                } else {
+                    noteError("Couldn’t sign in", e.message)
+                }
             } catch (e: Exception) {
                 _login.value = null
-                note("Sign-in failed: ${e.message}", isError = true)
+                noteError("Couldn’t sign in", e.message)
             }
         }
     }
@@ -413,11 +987,25 @@ class MobileModel(
     fun signOut() {
         scope.launch {
             runCatching { _account.value = AcpAccountStatus.parse(api.agentCall(AcpExtensionMethod.ACCOUNT_LOGOUT)) }
-                .onFailure { note("Sign-out failed: ${it.message}", isError = true) }
+                .onFailure { noteError("Couldn’t sign out", it.message) }
         }
     }
 
     // MARK: Providers & models
+
+    /**
+     * Fetches the models catalog once, quietly, if nothing has yet: the
+     * thinking slider reads from it whether the chat's model can think at
+     * all. Unknown (no catalog, an older host) leaves the slider usable.
+     */
+    fun loadModelsIfNeeded() {
+        if (_models.value != null) return
+        scope.launch {
+            runCatching { AcpModelsList.parse(api.agentCall(AcpExtensionMethod.MODELS_LIST)) }
+                .getOrNull()
+                ?.let { if (_models.value == null) _models.value = it }
+        }
+    }
 
     fun refreshProviders() {
         scope.launch {
@@ -429,7 +1017,7 @@ class MobileModel(
             } catch (e: RpcException) {
                 _lastProvidersRefreshFailed.value = true
                 if (e.code == RpcException.METHOD_NOT_FOUND) {
-                    note("Update the spettro CLI on your PC to manage providers from here")
+                    note("Update Spettro on your computer to manage providers from here")
                 }
             } catch (_: Exception) {
                 _lastProvidersRefreshFailed.value = true
@@ -451,7 +1039,7 @@ class MobileModel(
                     },
                 )
             }.onSuccess { refreshProviders() }
-                .onFailure { note("Couldn't connect provider: ${it.message}", isError = true) }
+                .onFailure { noteError("Couldn’t connect the provider", it.message) }
         }
     }
 
@@ -464,7 +1052,7 @@ class MobileModel(
                         buildJsonObject { put("providerId", providerId) },
                     ),
                 )
-            }.onFailure { note("Couldn't disconnect: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t disconnect the provider", it.message) }
         }
     }
 
@@ -484,7 +1072,7 @@ class MobileModel(
                         },
                     ),
                 )
-            }.onFailure { note("Probe failed: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t check that server", it.message) }
         }
     }
 
@@ -501,7 +1089,7 @@ class MobileModel(
                     ),
                 )
                 _probeResult.value = null
-            }.onFailure { note("Couldn't add server: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t add the server", it.message) }
         }
     }
 
@@ -514,7 +1102,7 @@ class MobileModel(
                         buildJsonObject { put("endpoint", endpoint) },
                     ),
                 )
-            }.onFailure { note("Couldn't remove server: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t remove the server", it.message) }
         }
     }
 
@@ -531,7 +1119,7 @@ class MobileModel(
                         },
                     ),
                 )
-            }.onFailure { note("Couldn't update favorite: ${it.message}", isError = true) }
+            }.onFailure { noteError("Couldn’t update your favorites", it.message) }
         }
     }
 
@@ -541,8 +1129,49 @@ class MobileModel(
         _banner.value = Banner(text, isError)
     }
 
-    private fun relayErrorText(e: RpcException, prefix: String): String =
-        if (e.code == RpcException.METHOD_NOT_FOUND) "Update the spettro CLI on your PC" else "$prefix: ${e.message}"
+    /**
+     * A failure, said the desktop's way (core/Humanize): a recognised error
+     * becomes its plain title, what to do and the one action that does it;
+     * anything else keeps [what] failed as the title, with the message as
+     * the detail. The raw text goes behind "Show details" whenever the
+     * toast hasn't already printed all of it. [retry] is what Try again
+     * runs; without one, a Try again action isn't offered.
+     */
+    private fun noteError(what: String, message: String?, retry: (() -> Unit)? = null) {
+        val human = humanizeError(message)
+        val action = human.action?.let { action ->
+            when (action.kind) {
+                ErrorActionKind.Retry -> retry?.let { BannerAction(action.label, run = it) }
+                ErrorActionKind.Connect, ErrorActionKind.Models -> BannerAction(action.label, opens = action.kind)
+                // Restarting, reinstalling or updating the engine happens on
+                // the computer, not from here.
+                else -> null
+            }
+        }
+        val raw = human.raw.takeIf { it.isNotBlank() && (human.known || '\n' in it || it.length > human.detail.length + 1) }
+        _banner.value = Banner(
+            text = if (human.known) human.title else what,
+            isError = true,
+            detail = human.detail,
+            action = action,
+            raw = raw,
+        )
+    }
+
+    private companion object {
+        /** `chats/open` for a chat the host doesn't have (deleted meanwhile). */
+        const val NO_SUCH_CHAT = -32001
+
+        /**
+         * Between the calls of one slider move on a host without
+         * [RemoteFeature.CONFIG_RESULT], whose `chats/config` returns before
+         * the CLI has the value.
+         */
+        const val OLD_HOST_CONFIG_SPACING_MS = 300L
+
+        /** How long a folder's file list serves the @-mention menu. */
+        const val FILE_LIST_FRESH_MS = 30_000L
+    }
 
     private fun textBlock(text: String): JsonObject = buildJsonObject {
         put("type", "text")

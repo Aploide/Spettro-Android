@@ -41,6 +41,7 @@ object RemoteMethod {
     const val CHATS_NEW = "_spettro/remote/chats/new"
     const val CHATS_DELETE = "_spettro/remote/chats/delete"
     const val CHATS_FLAG = "_spettro/remote/chats/flag"
+    const val CHATS_RENAME = "_spettro/remote/chats/rename"
 
     // Driving a turn.
     const val CHATS_PROMPT = "_spettro/remote/chats/prompt"
@@ -68,6 +69,46 @@ object RemoteMethod {
 
     // Projects.
     const val PROJECTS_LIST = "_spettro/remote/projects/list"
+    const val PROJECT_FILES = "_spettro/remote/projects/files"
+
+    // This device.
+    /** `{}` -> null: the host removes this (the signed-in) device and closes its socket ([RemoteFeature.UNPAIR]). */
+    const val DEVICES_UNPAIR = "_spettro/remote/devices/unpair"
+}
+
+/**
+ * Host capabilities, announced in `hello` and the auth result's `features`.
+ * The protocol version stays 1 — a different version is refused outright —
+ * so everything newer than the original surface is detected here instead.
+ * An old host sends no list at all, which reads as "none of these".
+ */
+object RemoteFeature {
+    /** `chats/config` waits for the set and answers `{configOptions}`, or an error after a rollback. */
+    const val CONFIG_RESULT = "configResult"
+
+    /** Local desktop notices arrive as `chat/state` with a notice and no stopReason. */
+    const val NOTICES = "notices"
+
+    /** Still-pending permission and question asks are re-sent right after auth. */
+    const val PENDING_REPLAY = "pendingReplay"
+
+    /** `chats/prompt` accepts `mentions`. */
+    const val MENTIONS = "mentions"
+
+    /** `chats/rename` exists. */
+    const val RENAME = "rename"
+
+    /** `projects/files` exists. */
+    const val PROJECT_FILES = "projectFiles"
+
+    /** `chats/open` snapshots carry the extra message and tool fields. */
+    const val SNAPSHOT_V2 = "snapshotV2"
+
+    /** `devices/unpair` exists: a phone that forgets the host can take itself off its list. */
+    const val UNPAIR = "unpair"
+
+    /** Every goodbye `host/state` says why in `reason` ([HostStateParams.reason]), and there is one per shutdown. */
+    const val GOODBYE_REASON = "goodbyeReason"
 }
 
 /**
@@ -95,6 +136,14 @@ object RemoteAuthError {
     /** True for verdicts that stay wrong no matter how often we retry. */
     fun isPermanent(code: Int): Boolean =
         code == NOT_PAIRED || code == VERSION_MISMATCH || code == REVOKED
+
+    /**
+     * The host no longer knows this device. The only verdicts that should
+     * ever invite the user to pair again — a bad proof, a closed pairing
+     * window or a version mismatch are not a lost pairing, and unpairing
+     * over one of them would throw away a credential that still works.
+     */
+    fun isRevocation(code: Int): Boolean = code == NOT_PAIRED || code == REVOKED
 }
 
 // MARK: - Handshake
@@ -112,6 +161,8 @@ data class RemoteHello(
     val challenge: String,
     /** True while the host is showing a pairing QR. */
     val pairingOpen: Boolean = false,
+    /** Host capabilities ([RemoteFeature]); empty from hosts that predate them. */
+    val features: List<String> = emptyList(),
 )
 
 /** Client -> host auth request. */
@@ -147,6 +198,8 @@ data class RemoteAuthResult(
     val hostKind: String = "app",
     /** Whether the host currently has a live agent behind it. */
     val agentReady: Boolean = false,
+    /** Host capabilities ([RemoteFeature]); authoritative over the hello's list. */
+    val features: List<String> = emptyList(),
 )
 
 // MARK: - Chats
@@ -254,7 +307,25 @@ data class HostStateParams(
     /** True when the host is going away deliberately. */
     val shuttingDown: Boolean = false,
     val message: String? = null,
+    /**
+     * Why it is going away, on a goodbye from a host with
+     * [RemoteFeature.GOODBYE_REASON]: [GoodbyeReason.QUIT],
+     * [GoodbyeReason.RESTART] or [GoodbyeReason.SHARING_OFF].
+     */
+    val reason: String? = null,
 )
+
+/** The `reason` values of a goodbye `host/state`. */
+object GoodbyeReason {
+    /** The desktop app is quitting; sharing stays on for its next launch. */
+    const val QUIT = "quit"
+
+    /** The desktop app is quitting to install an update, and comes straight back. */
+    const val RESTART = "restart"
+
+    /** Sharing was switched off (the goodbye also carries a `message`). */
+    const val SHARING_OFF = "sharing-off"
+}
 
 @Serializable
 data class PermissionAskParams(
@@ -272,10 +343,17 @@ data class QuestionAskParams(
     val request: JsonObject,
 )
 
+/** `chats/config` answer from a host with [RemoteFeature.CONFIG_RESULT]. */
+@Serializable
+data class ChatConfigResult(
+    /** The chat's options after the set, in the same shape as `chats/open`. */
+    val configOptions: JsonElement? = null,
+)
+
 @Serializable
 data class PromptResolvedParams(
     val promptID: String,
-    /** Who resolved it, for a short "answered on the PC" note. */
+    /** Who resolved it, for a short "answered on the computer" note. */
     val resolvedBy: String? = null,
 )
 

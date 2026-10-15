@@ -1,5 +1,6 @@
 package to.eyed.spettro.mobile.core.acp
 
+import java.time.Instant
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -10,6 +11,11 @@ import kotlinx.serialization.json.JsonObject
  * Transcript items are externally tagged (`{"message": {...}}` /
  * `{"tool": {...}}`); Swift's synthesized Codable additionally nests the
  * payload under `"_0"`, so both forms are accepted.
+ *
+ * A host with the `snapshotV2` feature adds optional keys the Swift shape
+ * never had (a message's steering state and reasoning span, a tool's images
+ * and workflow state, …); every one of them is optional here, so a snapshot
+ * from either kind of host parses.
  */
 data class StoredSessionData(
     val id: String,
@@ -50,6 +56,21 @@ sealed class StoredItemData {
         val text: String = "",
         val attachments: List<StoredAttachmentData> = emptyList(),
         val timestamp: String = "",
+        /** `sending` | `queued` | `delivered`, for a message sent mid-turn. */
+        val steering: String? = null,
+        /** Still arriving when the snapshot was taken. */
+        val isStreaming: Boolean = false,
+        /** A reasoning bubble's first and latest chunk, epoch millis. */
+        val startedAt: Long? = null,
+        val endedAt: Long? = null,
+        /** Project-relative files the message @-mentioned. */
+        val mentions: List<String> = emptyList(),
+        /** A slash command's reply, in the CLI's own plain text. */
+        val plain: Boolean = false,
+        /** The divider a `/clear` turn leaves. */
+        val contextCleared: Boolean = false,
+        /** The error notice a turn ended on. */
+        val endsTurn: Boolean = false,
     ) : StoredItemData()
 
     data class Tool(
@@ -59,9 +80,15 @@ sealed class StoredItemData {
         val status: String = "unknown",
         val output: String = "",
         val diffs: List<StoredDiffData> = emptyList(),
-        val locations: List<String> = emptyList(),
+        val locations: List<AcpToolLocation> = emptyList(),
         val argsJSON: String? = null,
         val timestamp: String = "",
+        val images: List<AcpToolImage> = emptyList(),
+        val rawOutput: String? = null,
+        /** The user turned this call down in its approval. */
+        val denied: Boolean = false,
+        /** A workflow card's run state (`_meta["spettro.app/workflow"]`). */
+        val workflow: JsonObject? = null,
     ) : StoredItemData()
 
     companion object {
@@ -91,6 +118,14 @@ sealed class StoredItemData {
                     )
                 },
                 timestamp = obj["timestamp"].asString ?: "",
+                steering = obj["steering"].asString,
+                isStreaming = obj["isStreaming"].asBool ?: false,
+                startedAt = epochMillis(obj["startedAt"]),
+                endedAt = epochMillis(obj["endedAt"]),
+                mentions = (obj["mentions"].asArr ?: emptyList()).mapNotNull { it.asString },
+                plain = obj["plain"].asBool ?: false,
+                contextCleared = obj["contextCleared"].asBool ?: false,
+                endsTurn = obj["endsTurn"].asBool ?: false,
             )
         }
 
@@ -110,10 +145,34 @@ sealed class StoredItemData {
                         newText = diff["newText"].asString ?: "",
                     )
                 },
-                locations = (obj["locations"].asArr ?: emptyList()).mapNotNull { it.asString },
+                // Bare paths on the wire today; `{path, line}` accepted too.
+                locations = (obj["locations"].asArr ?: emptyList()).mapNotNull { loc ->
+                    loc.asString?.let { AcpToolLocation(it) } ?: AcpToolLocation.parse(loc)
+                },
                 argsJSON = obj["argsJSON"].asString,
                 timestamp = obj["timestamp"].asString ?: "",
+                images = (obj["images"].asArr ?: emptyList()).mapNotNull { img ->
+                    val i = img.asObj ?: return@mapNotNull null
+                    val data = i["data"].asString?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                    AcpToolImage(data, i["mimeType"].asString ?: return@mapNotNull null)
+                }.take(AcpToolImage.MAX_PER_CALL),
+                rawOutput = obj["rawOutput"].asString,
+                denied = obj["denied"].asBool ?: false,
+                workflow = obj["workflow"].asObj,
             )
+        }
+
+        /**
+         * An RFC 3339 instant (with or without fractional seconds) as epoch
+         * millis; null when absent or malformed.
+         */
+        private fun epochMillis(element: JsonElement?): Long? {
+            val text = element.asString ?: return null
+            return try {
+                Instant.parse(text).toEpochMilli()
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 }

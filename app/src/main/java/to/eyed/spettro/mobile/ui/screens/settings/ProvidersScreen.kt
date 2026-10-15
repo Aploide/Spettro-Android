@@ -1,5 +1,21 @@
 package to.eyed.spettro.mobile.ui.screens.settings
 
+import to.eyed.spettro.mobile.ui.components.Pill
+import to.eyed.spettro.mobile.ui.components.SpettroTopBar
+import to.eyed.spettro.mobile.ui.components.SpettroTextField
+import to.eyed.spettro.mobile.ui.components.SpettroSwitch
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
+import to.eyed.spettro.mobile.ui.components.SpettroButton
+import to.eyed.spettro.mobile.ui.components.RingSpinner
+import to.eyed.spettro.mobile.ui.components.EmptyState
+import to.eyed.spettro.mobile.ui.components.ConfirmDialog
+import to.eyed.spettro.mobile.ui.components.ButtonStyle
+import to.eyed.spettro.mobile.ui.components.ButtonSize
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.Close
@@ -27,16 +42,11 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -87,7 +97,7 @@ import to.eyed.spettro.mobile.ui.theme.SpettroTheme
  * @param probeResult the outcome message of the last local-endpoint probe
  *   (success or failure copy), delivered asynchronously by the caller.
  * @param probeSucceeded whether that probe found a server — gates the
- *   "Add Server" button in [AddLocalServerSheet].
+ *   "Add server" button in [AddLocalServerSheet].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,38 +121,34 @@ fun ProvidersScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var connectingId by rememberSaveable { mutableStateOf<String?>(null) }
     var addingLocal by rememberSaveable { mutableStateOf(false) }
+    var disconnectingId by rememberSaveable { mutableStateOf<String?>(null) }
 
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("Providers", style = MaterialTheme.typography.titleMedium) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            SpettroTopBar(
+                title = "Models & providers",
+                onBack = onBack,
                 actions = {
                     if (isLoading) {
-                        SpettroSpinner(size = 16.dp, modifier = Modifier.padding(end = Dimens.spacingLg))
+                        RingSpinner(size = 16.dp, modifier = Modifier.padding(end = Dimens.spacingLg))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
             )
         },
     ) { padding ->
         if (providers == null && models == null) {
             // Nothing known yet — first load.
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                if (isLoading) SpettroSpinner(size = 28.dp)
-                else Text(
-                    "Providers unavailable",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                if (isLoading) {
+                    RingSpinner(size = 24.dp)
+                } else {
+                    EmptyState(
+                        title = "Couldn’t load your providers",
+                        message = "Spettro on your computer didn’t answer. Go back and try again in a moment.",
+                    )
+                }
             }
             return@Scaffold
         }
@@ -156,37 +162,39 @@ fun ProvidersScreen(
                 end = Dimens.spacingLg,
                 bottom = Dimens.spacingXl,
             ),
-            verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (lastRefreshFailed) {
                 item(key = "banner") { RefreshFailedBanner() }
             }
 
             item(key = "search") {
-                OutlinedTextField(
+                SpettroTextField(
                     value = search,
                     onValueChange = { search = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Search models", style = MaterialTheme.typography.bodyMedium) },
-                    leadingIcon = {
+                    placeholder = "Search models",
+                    leading = {
                         Icon(
                             Icons.Outlined.Search,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
+                            tint = colors.textTertiary,
+                            modifier = Modifier.size(17.dp),
                         )
                     },
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    singleLine = true,
-                    shape = RoundedCornerShape(Dimens.radiusInputPill),
                 )
             }
 
+            // While a search is typed, its results come straight under the
+            // box, as in the desktop's model picker: the sections above the
+            // models would otherwise keep the matches off screen.
+            val searching = search.isNotBlank()
+
             // Subscription.
-            if (providers != null && providers.subscription.connected) {
+            if (!searching && providers != null && providers.subscription.connected) {
                 item(key = "subscription") {
                     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
-                        SectionHeader("Subscription", modifier = Modifier.padding(start = Dimens.spacingXs))
+                        SectionHeader("Spettro subscription", modifier = Modifier.padding(start = 12.dp))
                         SpettroCard(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier
@@ -198,7 +206,7 @@ fun ProvidersScreen(
                                 Icon(
                                     Icons.Outlined.Verified,
                                     contentDescription = null,
-                                    tint = colors.accent,
+                                    tint = colors.accentText,
                                     modifier = Modifier.size(20.dp),
                                 )
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -206,7 +214,7 @@ fun ProvidersScreen(
                                     Text(
                                         "${providers.subscription.modelCount} models included with " +
                                             "your plan — no API key needed.",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = colors.textSecondary,
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 }
@@ -217,10 +225,10 @@ fun ProvidersScreen(
             }
 
             // Local endpoints.
-            if (providers != null) {
+            if (!searching && providers != null) {
                 item(key = "local") {
                     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
-                        SectionHeader("Local Endpoints", modifier = Modifier.padding(start = Dimens.spacingXs))
+                        SectionHeader("Models on your computer", modifier = Modifier.padding(start = 12.dp))
                         SpettroCard(modifier = Modifier.fillMaxWidth()) {
                             providers.local.forEachIndexed { index, endpoint ->
                                 if (index > 0) HairlineDivider()
@@ -238,22 +246,22 @@ fun ProvidersScreen(
                                     Icon(
                                         Icons.Filled.Add,
                                         contentDescription = null,
-                                        tint = colors.accent,
+                                        tint = colors.accentText,
                                         modifier = Modifier.size(18.dp),
                                     )
                                     Text(
-                                        "Add Local Server",
-                                        color = colors.accent,
+                                        "Add a local server…",
+                                        color = colors.accentText,
                                         style = MaterialTheme.typography.bodyMedium,
                                     )
                                 }
                             }
                         }
                         Text(
-                            "An OpenAI-compatible server on your PC's network, like LM Studio or Ollama.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(start = Dimens.spacingXs),
+                            "Run a model on your computer with LM Studio (easiest) or Ollama, then add its address here.",
+                            color = colors.textSecondary.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal, lineHeight = 16.sp),
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp),
                         )
                     }
                 }
@@ -261,16 +269,14 @@ fun ProvidersScreen(
                 // API providers.
                 item(key = "providers") {
                     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
-                        SectionHeader("Providers", modifier = Modifier.padding(start = Dimens.spacingXs))
+                        SectionHeader("Providers", modifier = Modifier.padding(start = 12.dp))
                         SpettroCard(modifier = Modifier.fillMaxWidth()) {
                             providers.providers.forEachIndexed { index, provider ->
                                 if (index > 0) HairlineDivider()
                                 ProviderRow(
                                     provider = provider,
-                                    onClick = {
-                                        if (provider.connected) onDisconnectProvider(provider.id)
-                                        else connectingId = provider.id
-                                    },
+                                    onConnect = { connectingId = provider.id },
+                                    onDisconnect = { disconnectingId = provider.id },
                                 )
                             }
                         }
@@ -293,11 +299,21 @@ fun ProvidersScreen(
                     }
                     if (filtered.isEmpty()) null else group.copy(models = filtered)
                 }
+                if (searching && groups.isEmpty()) {
+                    item(key = "no-match") {
+                        Text(
+                            "No model matches “${search.trim()}”.",
+                            color = colors.textSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(start = 12.dp, top = Dimens.spacingSm),
+                        )
+                    }
+                }
                 if (groups.isNotEmpty()) {
                     item(key = "models-header") {
                         SectionHeader(
                             "Models",
-                            modifier = Modifier.padding(start = Dimens.spacingXs, top = Dimens.spacingSm),
+                            modifier = Modifier.padding(start = 12.dp, top = Dimens.spacingSm),
                         )
                     }
                 }
@@ -306,9 +322,9 @@ fun ProvidersScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(Dimens.spacingXs)) {
                         Text(
                             text = group.provider,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.textTertiary,
                             style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(start = Dimens.spacingXs),
+                            modifier = Modifier.padding(start = 12.dp),
                         )
                         SpettroCard(modifier = Modifier.fillMaxWidth()) {
                             group.models.forEachIndexed { modelIndex, model ->
@@ -339,6 +355,20 @@ fun ProvidersScreen(
         )
     }
 
+    val disconnectingProvider = providers?.providers?.firstOrNull { it.id == disconnectingId }
+    if (disconnectingProvider != null) {
+        ConfirmDialog(
+            title = "Disconnect “${disconnectingProvider.name}”?",
+            message = "Its key is removed from your computer. Chats using its models will need another model.",
+            confirmLabel = "Disconnect",
+            onConfirm = {
+                disconnectingId = null
+                onDisconnectProvider(disconnectingProvider.id)
+            },
+            onDismiss = { disconnectingId = null },
+        )
+    }
+
     if (addingLocal) {
         AddLocalServerSheet(
             probeResult = probeResult,
@@ -355,27 +385,33 @@ fun ProvidersScreen(
 
 // MARK: - Rows
 
+/** The list is from the last good refresh: the desktop's inline warning notice. */
 @Composable
 private fun RefreshFailedBanner() {
-    val warn = LocalSpettroColors.current.modeColor("yellow")
+    val colors = LocalSpettroColors.current
+    val shape = RoundedCornerShape(Dimens.radiusMd)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(warn.copy(alpha = 0.14f), RoundedCornerShape(Dimens.radiusSm))
+            .background(colors.warning.copy(alpha = 0.10f).compositeOver(colors.canvas), shape)
+            .border(1.dp, colors.warning.copy(alpha = 0.35f), shape)
             .padding(Dimens.spacingMd),
         horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         Icon(
             Icons.Outlined.WarningAmber,
             contentDescription = null,
-            tint = warn,
+            tint = colors.warning,
             modifier = Modifier.size(16.dp),
         )
         Text(
-            "Couldn't refresh — showing last known",
-            color = warn,
-            style = MaterialTheme.typography.labelMedium,
+            buildAnnotatedString {
+                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("Showing the last list Spettro sent") }
+                append(". It couldn’t refresh just now; pull back in later to try again.")
+            },
+            color = colors.textPrimary,
+            style = MaterialTheme.typography.bodyMedium,
         )
     }
 }
@@ -393,7 +429,7 @@ private fun LocalEndpointRow(endpoint: AcpLocalEndpoint, onRemove: () -> Unit) {
         Icon(
             Icons.Outlined.Computer,
             contentDescription = null,
-            tint = colors.accent,
+            tint = colors.accentText,
             modifier = Modifier.size(18.dp),
         )
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -405,7 +441,7 @@ private fun LocalEndpointRow(endpoint: AcpLocalEndpoint, onRemove: () -> Unit) {
             )
             Text(
                 endpoint.shortHost,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.textSecondary,
                 style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -413,35 +449,45 @@ private fun LocalEndpointRow(endpoint: AcpLocalEndpoint, onRemove: () -> Unit) {
         }
         Text(
             "${endpoint.modelCount} models",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.textSecondary,
             style = MaterialTheme.typography.labelMedium,
         )
         IconButton(onClick = onRemove) {
             Icon(
                 Icons.Outlined.Close,
                 contentDescription = "Remove ${endpoint.name}",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = colors.textSecondary,
                 modifier = Modifier.size(16.dp),
             )
         }
     }
 }
 
+/**
+ * One API provider. A connected one is not a button: removing its key takes
+ * the explicit "Disconnect…" (the desktop's row), so a tap on the row on the
+ * way to somewhere else can't land on it. An unconnected one opens Connect.
+ */
 @Composable
-private fun ProviderRow(provider: AcpProviderEntry, onClick: () -> Unit) {
+private fun ProviderRow(provider: AcpProviderEntry, onConnect: () -> Unit, onDisconnect: () -> Unit) {
     val colors = LocalSpettroColors.current
-    Surface(onClick = onClick, color = Color.Transparent) {
+    val content: @Composable () -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Dimens.spacingMd),
+                .padding(
+                    start = Dimens.spacingMd,
+                    end = Dimens.spacingMd,
+                    top = if (provider.connected) Dimens.spacingSm else Dimens.spacingMd,
+                    bottom = if (provider.connected) Dimens.spacingSm else Dimens.spacingMd,
+                ),
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                Icons.Outlined.Key,
-                contentDescription = null,
-                tint = if (provider.connected) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                if (provider.connected) Icons.Outlined.Verified else Icons.Outlined.Key,
+                contentDescription = if (provider.connected) "Connected" else null,
+                tint = if (provider.connected) colors.accentText else colors.textTertiary,
                 modifier = Modifier.size(18.dp),
             )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -453,45 +499,40 @@ private fun ProviderRow(provider: AcpProviderEntry, onClick: () -> Unit) {
                     if (provider.suggested && !provider.connected) {
                         Text(
                             "popular",
-                            color = colors.accent,
+                            color = colors.accentText,
                             style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Medium),
                             modifier = Modifier
-                                .background(colors.accent.copy(alpha = 0.14f), CircleShape)
+                                .background(colors.accentSoft, CircleShape)
                                 .padding(horizontal = 6.dp, vertical = 1.dp),
                         )
                     }
                 }
                 if (provider.connected) {
                     Text(
-                        "${provider.modelCount} models",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (provider.modelCount > 0) "Connected · ${provider.modelCount} models" else "Connected",
+                        color = colors.textSecondary,
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }
             }
             if (provider.connected) {
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = colors.accent,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text("Connected", color = colors.accent, style = MaterialTheme.typography.labelMedium)
+                SpettroButton("Disconnect…", onClick = onDisconnect, size = ButtonSize.Small)
             } else {
                 Text(
                     "Connect",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.textSecondary,
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
             }
         }
     }
+    if (provider.connected) content() else Surface(onClick = onConnect, color = Color.Transparent) { content() }
 }
 
 @Composable
@@ -509,10 +550,10 @@ private fun ModelRow(model: AcpModelEntry, onToggleFavorite: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (model.active) StatusDot(color = colors.accent, size = 6.dp)
+                if (model.active) StatusDot(color = colors.accentText, size = 6.dp)
                 Text(
                     text = model.displayName,
-                    color = if (model.active) colors.accent else MaterialTheme.colorScheme.onSurface,
+                    color = if (model.active) colors.accentText else MaterialTheme.colorScheme.onSurface,
                     style = TextStyle(
                         fontSize = 13.sp,
                         fontWeight = if (model.active) FontWeight.SemiBold else FontWeight.Normal,
@@ -528,7 +569,7 @@ private fun ModelRow(model: AcpModelEntry, onToggleFavorite: () -> Unit) {
                 model.contextLabel?.let {
                     Text(
                         it,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.textSecondary,
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
@@ -541,7 +582,7 @@ private fun ModelRow(model: AcpModelEntry, onToggleFavorite: () -> Unit) {
             Icon(
                 imageVector = if (model.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                 contentDescription = if (model.favorite) "Unfavorite" else "Favorite",
-                tint = if (model.favorite) colors.accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (model.favorite) colors.accentText else colors.textSecondary,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -550,22 +591,14 @@ private fun ModelRow(model: AcpModelEntry, onToggleFavorite: () -> Unit) {
 
 @Composable
 private fun CapabilityChip(label: String) {
-    val tint = MaterialTheme.colorScheme.onSurfaceVariant
-    Text(
-        text = label,
-        color = tint,
-        style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Medium),
-        modifier = Modifier
-            .background(tint.copy(alpha = 0.12f), CircleShape)
-            .padding(horizontal = 6.dp, vertical = 1.dp),
-    )
+    Pill(label)
 }
 
 // MARK: - Connect provider sheet
 
 /**
  * API-key entry for one provider. The key is typed here but never lives
- * here — it travels straight to the PC's encrypted key store.
+ * here — it travels straight to the computer's encrypted key store.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -574,13 +607,7 @@ fun ConnectProviderSheet(
     onConnect: (apiKey: String, activate: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         ConnectProviderSheetContent(provider = provider, onConnect = onConnect)
     }
 }
@@ -602,19 +629,21 @@ internal fun ConnectProviderSheetContent(
     ) {
         Text(
             "Connect ${provider.name}",
-            style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+            style = MaterialTheme.typography.titleMedium,
+            color = colors.textPrimary,
         )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API key") },
-            placeholder = { Text(provider.envKey ?: "sk-…") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionHeader("API key")
+            SpettroTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = provider.envKey ?: "sk-…",
+                mono = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm),
             verticalAlignment = Alignment.CenterVertically,
@@ -623,24 +652,26 @@ internal fun ConnectProviderSheetContent(
                 Text("Switch to this provider", style = MaterialTheme.typography.bodyMedium)
                 Text(
                     "Make one of its models active after connecting.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.textSecondary,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Switch(checked = activate, onCheckedChange = { activate = it })
+            SpettroSwitch(checked = activate, onCheckedChange = { activate = it })
         }
         Text(
-            "Sent straight to your PC and stored in the CLI's encrypted key store. " +
+            "Sent straight to your computer and stored in the CLI's encrypted key store. " +
                 "It is never kept on this device.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.textSecondary,
             style = MaterialTheme.typography.bodySmall,
         )
-        Button(
+        SpettroButton(
+            "Connect",
             onClick = { onConnect(apiKey.trim(), activate) },
             enabled = apiKey.isNotBlank(),
+            style = ButtonStyle.Prominent,
+            size = ButtonSize.Large,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
-        ) { Text("Connect") }
+        )
     }
 }
 
@@ -668,13 +699,7 @@ fun AddLocalServerSheet(
     onAdd: (endpoint: String, apiKey: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) {
+    SpettroSheet(onDismissRequest = onDismiss) {
         AddLocalServerSheetContent(
             probeResult = probeResult,
             probeSucceeded = probeSucceeded,
@@ -705,69 +730,75 @@ internal fun AddLocalServerSheetContent(
         verticalArrangement = Arrangement.spacedBy(Dimens.spacingMd),
     ) {
         Text(
-            "Add Local Server",
-            style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+            "Add a local server",
+            style = MaterialTheme.typography.titleMedium,
+            color = colors.textPrimary,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
             for (preset in LocalPresets) {
-                AssistChip(
+                SpettroButton(
+                    preset.name,
                     onClick = { endpoint = "http://localhost:${preset.port}" },
-                    label = { Text(preset.name, style = MaterialTheme.typography.labelMedium) },
+                    size = ButtonSize.Small,
                 )
             }
         }
-        OutlinedTextField(
-            value = endpoint,
-            onValueChange = { endpoint = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Endpoint") },
-            placeholder = { Text("http://localhost:1234") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-        )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API key (optional)") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionHeader("Endpoint")
+            SpettroTextField(
+                value = endpoint,
+                onValueChange = { endpoint = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "http://localhost:1234",
+                mono = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionHeader("API key (optional)")
+            SpettroTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = "Only if the server asks for one",
+                mono = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+        }
         Text(
-            "The address as your PC sees it — localhost here means your PC, not this phone.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            "The address as your computer sees it — localhost here means your computer, not this phone.",
+            color = colors.textSecondary,
             style = MaterialTheme.typography.bodySmall,
         )
         probeResult?.let {
             Text(
                 text = it,
-                color = if (probeSucceeded) colors.diffAdded else colors.diffRemoved,
+                color = if (probeSucceeded) colors.success else colors.danger,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.spacingSm)) {
-            OutlinedButton(
+            SpettroButton(
+                "Check",
                 onClick = { onProbe(endpoint.trim(), keyOrNull()) },
                 enabled = endpoint.isNotBlank(),
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.accent),
-            ) { Text("Probe") }
-            Button(
+            )
+            SpettroButton(
+                "Add server",
                 onClick = { onAdd(endpoint.trim(), keyOrNull()) },
                 enabled = probeSucceeded,
+                style = ButtonStyle.Prominent,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.accent),
-            ) { Text("Add Server") }
+            )
         }
     }
 }
 
 // MARK: - Previews
 
-private val previewProviders = AcpProvidersList(
+internal val previewProviders = AcpProvidersList(
     providers = listOf(
         AcpProviderEntry(id = "anthropic", name = "Anthropic", connected = true, modelCount = 8),
         AcpProviderEntry(id = "openai", name = "OpenAI", suggested = true),
@@ -779,7 +810,7 @@ private val previewProviders = AcpProvidersList(
     subscription = AcpProviderEntry(id = "spettro", name = "Spettro Subscription", connected = true, modelCount = 12),
 )
 
-private val previewModels = AcpModelsList(
+internal val previewModels = AcpModelsList(
     models = listOf(
         AcpModelEntry(
             provider = "anthropic", providerName = "Anthropic",
@@ -802,7 +833,7 @@ private val previewModels = AcpModelsList(
     activeModel = "claude-sonnet",
 )
 
-@Preview(name = "Providers dark", showBackground = true, backgroundColor = 0xFF0E0E0E, heightDp = 980)
+@Preview(name = "Providers dark", showBackground = true, backgroundColor = 0xFF1C1C1E, heightDp = 980)
 @Composable
 private fun ProvidersScreenPreview() {
     SpettroTheme(darkTheme = true) {
@@ -824,7 +855,7 @@ private fun ProvidersScreenPreview() {
     }
 }
 
-@Preview(name = "Connect sheet light", showBackground = true, backgroundColor = 0xFFF9F9F7)
+@Preview(name = "Connect sheet light", showBackground = true, backgroundColor = 0xFFFAFAFA)
 @Composable
 private fun ConnectProviderSheetPreview() {
     SpettroTheme(darkTheme = false) {
@@ -836,7 +867,7 @@ private fun ConnectProviderSheetPreview() {
     }
 }
 
-@Preview(name = "Add local dark", showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(name = "Add local dark", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun AddLocalServerSheetPreview() {
     SpettroTheme(darkTheme = true) {

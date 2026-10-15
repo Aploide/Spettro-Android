@@ -42,7 +42,7 @@ private const val PERIOD_MILLIS = 400
 @Composable
 fun SpettroSpinner(
     size: Dp = 16.dp,
-    color: Color = LocalSpettroColors.current.accent,
+    color: Color = LocalSpettroColors.current.accentText,
     modifier: Modifier = Modifier,
 ) {
     val transition = rememberInfiniteTransition(label = "spettroSpinner")
@@ -80,7 +80,39 @@ fun SpettroSpinner(
     }
 }
 
-@Preview(name = "Spinner sizes", showBackground = true, backgroundColor = 0xFF0E0E0E)
+/**
+ * The desktop's shell spinner: a plain ring turning once every 0.8s — a
+ * 22% track with a full-strength arc — in text-secondary. For loading
+ * screens and buttons, where the transcript's dot ring would be too loud.
+ */
+@Composable
+fun RingSpinner(
+    size: Dp = 18.dp,
+    color: Color = LocalSpettroColors.current.textSecondary,
+    modifier: Modifier = Modifier,
+) {
+    val transition = rememberInfiniteTransition(label = "ringSpinner")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "ringAngle",
+    )
+    Canvas(modifier = modifier.size(size)) {
+        val stroke = max(1.5.dp.toPx(), this.size.minDimension * 0.11f)
+        val inset = stroke / 2f
+        val arcSize = androidx.compose.ui.geometry.Size(this.size.width - stroke, this.size.height - stroke)
+        val topLeft = Offset(inset, inset)
+        val style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
+        drawArc(color.copy(alpha = color.alpha * 0.22f), 0f, 360f, false, topLeft, arcSize, style = style)
+        drawArc(color, angle - 90f, 90f, false, topLeft, arcSize, style = style)
+    }
+}
+
+@Preview(name = "Spinner sizes", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun SpettroSpinnerPreview() {
     SpettroTheme(darkTheme = true) {
@@ -92,6 +124,7 @@ private fun SpettroSpinnerPreview() {
             SpettroSpinner(size = 16.dp)
             SpettroSpinner(size = 24.dp, color = LocalSpettroColors.current.agentAccent)
             SpettroSpinner(size = 40.dp)
+            RingSpinner()
         }
     }
 }

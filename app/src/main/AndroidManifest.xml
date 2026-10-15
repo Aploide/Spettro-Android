@@ -7,14 +7,18 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Android 17 (API 37) local network protection: needed to browse mDNS
+         and open sockets to the computer on the LAN. Requested at runtime
+         with a rationale; unknown to, and ignored by, older Android. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />
 
-    <!-- Both Spettro protocols are deliberately plaintext on the trusted LAN
-         (auth is HMAC proof-of-key, hosts are raw IPs — TLS certs can't work
-         here), so cleartext must be allowed app-wide. -->
+    <!-- The computer is only reached on the LAN, deliberately over
+         plaintext ws:// (auth is HMAC proof-of-key, hosts are raw IPs — TLS
+         certs can't work there), so cleartext must be allowed app-wide. -->
     <application
         android:usesCleartextTraffic="true"
         android:allowBackup="false"
@@ -30,11 +34,27 @@
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Spettro"
+            android:launchMode="singleTask"
+            android:configChanges="uiMode"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The desktop offers "Copy link" for when the QR can't be
+                 scanned; opening that link on the phone lands in pairing.
+                 singleTask so it reaches the running app, not a second copy
+                 stacked on whatever app the link was tapped in. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="pair"
+                    android:scheme="spettro-pair" />
             </intent-filter>
         </activity>
     </application>

@@ -18,18 +18,59 @@
 #   SERIAL=emulator-5558 ./tools/playstore-screenshots.sh tablet
 #   SKIP_INSTALL=1 ./tools/playstore-screenshots.sh  # reuse the installed APK
 #
-# ScreenshotActivity also serves the orchestration scenes, which are for
-# eyeballing changes to the workflow/swarm cards rather than for the listing:
+# ScreenshotActivity serves more scenes than the listing uses, for eyeballing
+# a surface after changing it:
 #
-#   workflow  workflow_done  workflow_failed  swarm  swarm_done
-#   orchestration            (both kinds of run mixed into a conversation)
-#   activation               (the "ultracode" highlight, composer and sent)
+#   chat  chat_busy  list  split  config  projects  pairing  settings
+#                            (the listing's own; split is the tablet shell)
+#   error                    (a turn that ended on an error, with Try again)
+#   mention                  (the @-mention menu over a project's files)
+#   tools                    (tool rows: reads folded, a two-hunk diff, exit status, Needs approval)
+#   tools_diff               (the folded reads and the edit open, as a unified diff)
+#   todo                     (a seven-task list open above the composer while a turn runs)
+#   permission | prompt_dock (two approvals docked above the composer, "1 of 2")
+#   permission_edit          (an approval with a diff, docked above the composer)
+#   question                 (two questions in the dock, one at a time)
+#   permission_sheet  question_sheet   (the sheet a prompt naming no chat gets)
+#   workflow  workflow_done  workflow_paused  workflow_continued
+#   workflow_stopped  workflow_failed
+#   orchestration            (two runs mixed into a conversation)
+#   activation               (the "ultracode" and "+500k" highlight, and the budget line)
+#   activation_askfirst      (the same under Ask first: muted, with the way out)
+#   thinking  thinking_meteor  thinking_smoulder  thinking_paused  thinking_off
+#   thinking_low  thinking_unset  thinking_inert  thinking_inert_off  thinking_live
+#                            (the slider open over the chat; a meteor's
+#                             instant via --es progress 0.35 [--es from 5],
+#                             0 for Off, the smoulder's via --es idle 1.5)
+#   thinking_chip_off        (the chat's chip reading "Thinking off")
+#   new_session              (what "+" opens: greeting, "Working in", starter prompts)
+#   new_chat                 (an empty chat: the greeting over starter prompts)
+#   reconnecting | disconnected_reconnecting
+#                            (a dropped link ridden out in place: the pill, the
+#                             composer's reconnecting placeholder)
+#   list_reconnecting        (the list then: the dot by the computer's name amber
+#                             and pulsing)
+#   disconnected_<reason>[_repeated]
+#                            (searching hostasleep sharingoff hostquit hostrestarting
+#                             nolocalnetwork turnedaway versionmismatch revoked
+#                             transport disconnected; _repeated after a run of
+#                             refusals)
+#   pairing_link  pairing_link_bad
+#                            (a spettro-pair:// link opened while paired elsewhere,
+#                             and one that isn't a pairing link)
+#   providers  archived
+#
+# Every scene takes the phone's accent too: add `--es accent mono` for
+# Monochrome (Lilac is the default).
+# And a size: `--es dpwidth 360` lays it out as a screen 360dp wide,
+# `--es fontscale 1.3` scales the type, without touching the device's own
+# display settings.
 #
 # Drive one directly rather than through this script:
 #
 #   adb shell am start -n \
 #       to.eyed.spettro.mobile.dev/to.eyed.spettro.mobile.screenshots.ScreenshotActivity \
-#       --es scene swarm --es theme dark --es form phone
+#       --es scene workflow_paused --es theme dark --es form phone
 #
 set -euo pipefail
 

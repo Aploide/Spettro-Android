@@ -9,174 +9,187 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 
 /**
- * Spacing and radius tokens, 1:1 with `Theme.Spacing` / `Theme.Radius` in the
- * iOS app (a 4-point grid).
+ * Spacing and radius tokens, 1:1 with the desktop's `--sp-*` and `--rad-*`
+ * (a 4-point grid, plus the 2 and 32 ends).
  */
 object Dimens {
+    val spacing2xs = 2.dp
     val spacingXs = 4.dp
     val spacingSm = 8.dp
     val spacingMd = 12.dp
     val spacingLg = 16.dp
     val spacingXl = 24.dp
+    val spacing2xl = 32.dp
 
-    /** Small cards, code-block strokes, attachment thumbnails. */
+    /** Rows, menu items, segmented-control buttons. */
+    val radiusXs = 6.dp
+
+    /** Chips, small cards, code-block strokes, attachment thumbnails. */
     val radiusSm = 8.dp
 
-    /** The default card radius. */
+    /** The default card, popover, menu and dialog radius. */
     val radiusMd = 12.dp
 
-    /** The composer's outer rounded rectangle. */
-    val radiusLg = 18.dp
+    /** The composer and the top corners of a sheet. */
+    val radiusLg = 20.dp
 
     /** The user chat bubble. */
-    val radiusBubble = 16.dp
+    val radiusBubble = 18.dp
 
-    /** Pill-shaped input fields. */
-    val radiusInputPill = 20.dp
+    /** An approval or question card. */
+    val radiusPrompt = 16.dp
+
+    /** An option inside a prompt card. */
+    val radiusOption = 10.dp
 
     /** One-dp strokes everywhere a border appears. */
     val hairlineWidth = 1.dp
+
+    /** The reading column on a wide screen (`--measure`). */
+    val measure = 760.dp
+
+    /** The phone's minimum touch target, the desktop's 40px rows grown to fit a finger. */
+    val minTouch = 48.dp
 }
 
 // ---------------------------------------------------------------------------
-// Material color schemes. The brand palette is fixed — no dynamic color.
-// primary = accent, background/surface = canvas, the surfaceContainer ladder
-// sits around surfaceRaised, error = diffRemoved, outlineVariant = hairline.
+// Material color schemes, derived from the tokens so Material components that
+// are not given explicit colours still land on the palette: primary = accent,
+// background/surface = canvas, the surfaceContainer ladder around
+// surface-raised, error = danger, outlineVariant = hairline. Containers are
+// the desktop's tinted fills flattened onto the canvas.
 // ---------------------------------------------------------------------------
 
-private val LightColorScheme: ColorScheme = lightColorScheme(
-    primary = AccentLight,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFE2E8FF),
-    onPrimaryContainer = Color(0xFF23348F),
-    secondary = Color(0xFF5A5F73),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE6E8F2),
-    onSecondaryContainer = Color(0xFF2E3242),
-    tertiary = AgentAccent,
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFEFE4FE),
-    onTertiaryContainer = Color(0xFF4A2B85),
-    error = DiffRemoved,
-    onError = Color.White,
-    errorContainer = Color(0xFFFFE1DF),
-    onErrorContainer = Color(0xFF8C1210),
-    background = CanvasLight,
-    onBackground = Color(0xFF1A1A1A),
-    surface = CanvasLight,
-    onSurface = Color(0xFF1A1A1A),
-    surfaceVariant = Color(0xFFEFEFEC),
-    onSurfaceVariant = Color(0xFF63635F),
-    surfaceTint = Color.Transparent,
-    inverseSurface = Color(0xFF2C2C2C),
-    inverseOnSurface = Color(0xFFF2F2F0),
-    inversePrimary = AccentDark,
-    outline = Color(0x33000000),
-    outlineVariant = HairlineLight,
-    scrim = Color(0x66000000),
-    surfaceBright = Color.White,
-    surfaceDim = Color(0xFFEDEDEA),
-    surfaceContainerLowest = Color.White,
-    surfaceContainerLow = SurfaceRaisedLight,
-    surfaceContainer = SurfaceRaisedLight,
-    surfaceContainerHigh = Color(0xFFF3F3F0),
-    surfaceContainerHighest = Color(0xFFEDEDEA),
-)
+internal fun colorSchemeFor(c: SpettroColors): ColorScheme {
+    val primaryContainer = c.accentSoft.compositeOver(c.canvas)
+    val secondaryContainer = c.selectedFill.compositeOver(c.canvas)
+    val errorContainer = c.danger.copy(alpha = 0.08f).compositeOver(c.canvas)
+    return if (c.isDark) {
+        darkColorScheme(
+            primary = c.accent,
+            onPrimary = c.accentContrast,
+            primaryContainer = primaryContainer,
+            onPrimaryContainer = c.accentText,
+            inversePrimary = spettroColors(dark = false, accent = c.accentKind).accent,
+            secondary = c.textSecondary,
+            onSecondary = c.canvas,
+            secondaryContainer = secondaryContainer,
+            onSecondaryContainer = c.textPrimary,
+            tertiary = c.agentAccent,
+            onTertiary = c.accentContrast,
+            tertiaryContainer = primaryContainer,
+            onTertiaryContainer = c.textPrimary,
+            error = c.danger,
+            onError = c.canvas,
+            errorContainer = errorContainer,
+            onErrorContainer = c.textPrimary,
+            background = c.canvas,
+            onBackground = c.textPrimary,
+            surface = c.canvas,
+            onSurface = c.textPrimary,
+            surfaceVariant = c.surfaceRaised,
+            onSurfaceVariant = c.textSecondary,
+            surfaceTint = Color.Transparent,
+            inverseSurface = c.textPrimary,
+            inverseOnSurface = c.canvas,
+            outline = Color(0x33FFFFFF),
+            outlineVariant = c.hairline,
+            scrim = c.scrim,
+            surfaceBright = Color(0xFF3A3A3C),
+            surfaceDim = c.sidebar,
+            surfaceContainerLowest = c.sidebar,
+            surfaceContainerLow = Color(0xFF232325),
+            surfaceContainer = c.surfaceRaised,
+            surfaceContainerHigh = c.surfaceRaised,
+            surfaceContainerHighest = Color(0xFF3A3A3C),
+        )
+    } else {
+        lightColorScheme(
+            primary = c.accent,
+            onPrimary = c.accentContrast,
+            primaryContainer = primaryContainer,
+            onPrimaryContainer = c.accentText,
+            inversePrimary = spettroColors(dark = true, accent = c.accentKind).accent,
+            secondary = c.textSecondary,
+            onSecondary = Color.White,
+            secondaryContainer = secondaryContainer,
+            onSecondaryContainer = c.textPrimary,
+            tertiary = c.agentAccent,
+            onTertiary = Color.White,
+            tertiaryContainer = primaryContainer,
+            onTertiaryContainer = c.textPrimary,
+            error = c.danger,
+            onError = Color.White,
+            errorContainer = errorContainer,
+            onErrorContainer = c.textPrimary,
+            background = c.canvas,
+            onBackground = c.textPrimary,
+            surface = c.canvas,
+            onSurface = c.textPrimary,
+            surfaceVariant = c.userBubble,
+            onSurfaceVariant = c.textSecondary,
+            surfaceTint = Color.Transparent,
+            inverseSurface = c.textPrimary,
+            inverseOnSurface = c.canvas,
+            outline = Color(0x33000000),
+            outlineVariant = c.hairline,
+            scrim = c.scrim,
+            surfaceBright = c.surfaceRaised,
+            surfaceDim = c.surfaceSunken,
+            surfaceContainerLowest = c.surfaceRaised,
+            surfaceContainerLow = c.surfaceRaised,
+            surfaceContainer = c.surfaceRaised,
+            surfaceContainerHigh = c.sidebar,
+            surfaceContainerHighest = c.userBubble,
+        )
+    }
+}
 
-private val DarkColorScheme: ColorScheme = darkColorScheme(
-    primary = AccentDark,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF2E3A78),
-    onPrimaryContainer = Color(0xFFDDE1FF),
-    secondary = Color(0xFFB9BDCC),
-    onSecondary = Color(0xFF23273A),
-    secondaryContainer = Color(0xFF2A2E3E),
-    onSecondaryContainer = Color(0xFFDDE0EC),
-    tertiary = AgentAccent,
-    onTertiary = Color(0xFF2C0A5E),
-    tertiaryContainer = Color(0xFF432579),
-    onTertiaryContainer = Color(0xFFEADDFF),
-    error = DiffRemoved,
-    onError = Color.White,
-    errorContainer = Color(0xFF6E100E),
-    onErrorContainer = Color(0xFFFFDAD6),
-    background = CanvasDark,
-    onBackground = Color(0xFFECECEC),
-    surface = CanvasDark,
-    onSurface = Color(0xFFECECEC),
-    surfaceVariant = Color(0xFF262626),
-    onSurfaceVariant = Color(0xFFA7A7A3),
-    surfaceTint = Color.Transparent,
-    inverseSurface = Color(0xFFECECEC),
-    inverseOnSurface = Color(0xFF1C1C1C),
-    inversePrimary = AccentLight,
-    outline = Color(0x33FFFFFF),
-    outlineVariant = HairlineDark,
-    scrim = Color(0x99000000),
-    surfaceBright = Color(0xFF333333),
-    surfaceDim = Color(0xFF0E0E0E),
-    surfaceContainerLowest = Color(0xFF121212),
-    surfaceContainerLow = Color(0xFF171717),
-    surfaceContainer = SurfaceRaisedDark,
-    surfaceContainerHigh = Color(0xFF212121),
-    surfaceContainerHighest = Color(0xFF262626),
-)
+/** Whether [appearance] resolves to the dark scheme right now. */
+@Composable
+fun Appearance.isDark(): Boolean = when (this) {
+    Appearance.Dark -> true
+    Appearance.Light -> false
+    Appearance.System -> isSystemInDarkTheme()
+}
 
 /**
- * The app theme: Material 3 Expressive with **dynamic (Material You) color**
- * drawn from the user's wallpaper (minSdk 33, so always available), plus the
- * expressive motion scheme. The Spettro tokens in [LocalSpettroColors] are
- * derived from the dynamic scheme so the whole app follows the user's
- * palette; only the semantic colors (diff green/red, agent purple, per-mode
- * tints) stay fixed — they carry meaning, not branding.
- *
- * Previews (`LocalInspectionMode`) keep the static brand palette: dynamic
- * schemes need a real device context. Pass `dynamicColor = false` to force the
- * brand palette on a real device too — that is what the store-screenshot
- * harness does, so the listing shows Spettro's own colors instead of whichever
- * wallpaper the capture device happened to have.
+ * The app theme: the desktop's palette — neutral greys with a Lilac or
+ * Monochrome accent — on Material 3 Expressive components, with the quiet
+ * standard motion scheme (the desktop's motion is all short ease-outs, never
+ * springy). The palette is fixed: no dynamic (Material You) colour, so the
+ * phone reads as the same product as the computer it drives. The appearance
+ * and accent are the phone's own settings (`ThemePrefs`).
  */
+@Composable
+fun SpettroTheme(
+    appearance: Appearance = Appearance.System,
+    accent: Accent = Accent.Lilac,
+    content: @Composable () -> Unit,
+) {
+    SpettroTheme(darkTheme = appearance.isDark(), accent = accent, content = content)
+}
+
+/** [SpettroTheme] with the scheme decided by the caller (previews, the screenshot harness). */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SpettroTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    darkTheme: Boolean,
+    accent: Accent = Accent.Lilac,
     content: @Composable () -> Unit,
 ) {
-    val useDynamic = dynamicColor && !androidx.compose.ui.platform.LocalInspectionMode.current
-    val colorScheme = if (useDynamic) {
-        val context = androidx.compose.ui.platform.LocalContext.current
-        if (darkTheme) {
-            androidx.compose.material3.dynamicDarkColorScheme(context)
-        } else {
-            androidx.compose.material3.dynamicLightColorScheme(context)
-        }
-    } else {
-        if (darkTheme) DarkColorScheme else LightColorScheme
-    }
-    val spettroColors = if (useDynamic) {
-        SpettroColors(
-            isDark = darkTheme,
-            accent = colorScheme.primary,
-            canvas = colorScheme.background,
-            surfaceRaised = colorScheme.surfaceContainer,
-            hairline = if (darkTheme) HairlineDark else HairlineLight,
-            diffAdded = DiffAdded,
-            diffRemoved = DiffRemoved,
-            agentAccent = AgentAccent,
-            userBubble = colorScheme.primary,
-        )
-    } else {
-        if (darkTheme) DarkSpettroColors else LightSpettroColors
-    }
+    val spettroColors = spettroColors(darkTheme, accent)
+    val colorScheme = remember(spettroColors) { colorSchemeFor(spettroColors) }
     CompositionLocalProvider(LocalSpettroColors provides spettroColors) {
         MaterialExpressiveTheme(
             colorScheme = colorScheme,
-            motionScheme = MotionScheme.expressive(),
+            motionScheme = MotionScheme.standard(),
             typography = SpettroTypography,
         ) {
             // Without a root Surface, LocalContentColor stays at its default

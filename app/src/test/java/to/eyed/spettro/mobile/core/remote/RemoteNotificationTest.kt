@@ -147,6 +147,72 @@ class RemoteNotificationTest {
     }
 
     @Test
+    fun `a goodbye's reason is parsed, and absent from older hosts`() {
+        val restart = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":false,"shuttingDown":true,"reason":"restart"}""",
+        ) as RemoteNotification.HostState
+        assertEquals("restart", restart.reason)
+        assertEquals(null, restart.message)
+        val sharingOff = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":false,"shuttingDown":true,"reason":"sharing-off","message":"Remote access was turned off."}""",
+        ) as RemoteNotification.HostState
+        assertEquals("sharing-off", sharingOff.reason)
+        assertEquals("Remote access was turned off.", sharingOff.message)
+        val old = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":false,"shuttingDown":true}""",
+        ) as RemoteNotification.HostState
+        assertEquals(null, old.reason)
+    }
+
+    @Test
+    fun `a remoteHost from an older host is ignored`() {
+        val note = parse(
+            RemoteMethod.HOST_STATE,
+            """{"agentReady":true,"shuttingDown":false,"remoteHost":"spettro.example.com"}""",
+        )
+        assertEquals(RemoteNotification.HostState(agentReady = true, shuttingDown = false, message = null), note)
+    }
+
+    @Test
+    fun `hello and auth result carry features, absent meaning none`() {
+        val hello = (parse(
+            RemoteMethod.HELLO,
+            """{"protocolVersion":1,"hostID":"H1","hostName":"Spettro","challenge":"AAAA",
+               "features":["configResult","rename","somethingNewer"]}""",
+        ) as RemoteNotification.Hello).hello
+        assertEquals(listOf("configResult", "rename", "somethingNewer"), hello.features)
+
+        val old = (parse(
+            RemoteMethod.HELLO,
+            """{"protocolVersion":1,"hostID":"H1","hostName":"Spettro","challenge":"AAAA"}""",
+        ) as RemoteNotification.Hello).hello
+        assertTrue(old.features.isEmpty())
+
+        val result = SpettroJson.decodeFromString(
+            RemoteAuthResult.serializer(),
+            """{"hostID":"H1","hostName":"Mac","hostKind":"app","agentReady":true,
+               "features":["rename"]}""",
+        )
+        assertEquals(listOf(RemoteFeature.RENAME), result.features)
+        // An older host still names its internet address and feature: both pass unnoticed.
+        val tunnelResult = SpettroJson.decodeFromString(
+            RemoteAuthResult.serializer(),
+            """{"hostID":"H1","hostName":"Mac","hostKind":"app","agentReady":true,
+               "features":["rename","remoteHost"],"remoteHost":"spettro.example.com"}""",
+        )
+        assertEquals("H1", tunnelResult.hostID)
+        assertEquals(listOf("rename", "remoteHost"), tunnelResult.features)
+        val oldResult = SpettroJson.decodeFromString(
+            RemoteAuthResult.serializer(),
+            """{"hostID":"H1","hostName":"Mac","agentReady":false}""",
+        )
+        assertTrue(oldResult.features.isEmpty())
+    }
+
+    @Test
     fun `parses permission ask with the request verbatim and optional chatID`() {
         val note = parse(
             RemoteMethod.PERMISSION_ASK,

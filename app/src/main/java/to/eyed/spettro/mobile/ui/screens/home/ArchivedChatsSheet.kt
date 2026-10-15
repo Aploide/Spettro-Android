@@ -2,6 +2,7 @@ package to.eyed.spettro.mobile.ui.screens.home
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import to.eyed.spettro.mobile.core.remote.ChatSummary
 import to.eyed.spettro.mobile.ui.components.HairlineDivider
+import to.eyed.spettro.mobile.ui.components.EmptyState
+import to.eyed.spettro.mobile.ui.components.SpettroSheet
 import to.eyed.spettro.mobile.ui.theme.Dimens
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
 import to.eyed.spettro.mobile.ui.theme.SpettroTheme
@@ -45,17 +52,19 @@ fun ArchivedChatsSheet(
     onUnarchive: (String) -> Unit,
     onDelete: (String) -> Unit,
     onDismiss: () -> Unit,
+    /** The app's toast, drawn over the sheet: a delete's Undo lands here. */
+    toast: @Composable () -> Unit = {},
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = LocalSpettroColors.current.surfaceRaised,
-    ) {
-        ArchivedChatsContent(
-            chats = chats,
-            onOpen = onOpen,
-            onUnarchive = onUnarchive,
-            onDelete = onDelete,
-        )
+    SpettroSheet(onDismissRequest = onDismiss) {
+        Box {
+            ArchivedChatsContent(
+                chats = chats,
+                onOpen = onOpen,
+                onUnarchive = onUnarchive,
+                onDelete = onDelete,
+            )
+            toast()
+        }
     }
 }
 
@@ -66,11 +75,24 @@ private fun ArchivedChatsContent(
     onUnarchive: (String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
+    // The chat whose trash button was tapped, waiting on "Delete this chat?".
+    var confirmingDelete by remember { mutableStateOf<ChatSummary?>(null) }
+    confirmingDelete?.let { chat ->
+        DeleteChatDialog(
+            title = chat.title,
+            isBusy = chat.isBusy,
+            onConfirm = {
+                confirmingDelete = null
+                onDelete(chat.id)
+            },
+            onDismiss = { confirmingDelete = null },
+        )
+    }
     Column(Modifier.fillMaxWidth().padding(bottom = Dimens.spacingXl)) {
         Text(
             "Archived",
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
+            color = LocalSpettroColors.current.textPrimary,
             modifier = Modifier.padding(
                 start = Dimens.spacingLg,
                 end = Dimens.spacingLg,
@@ -79,11 +101,10 @@ private fun ArchivedChatsContent(
         )
         HairlineDivider()
         if (chats.isEmpty()) {
-            Text(
-                "Nothing archived.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(Dimens.spacingXl).align(Alignment.CenterHorizontally),
+            EmptyState(
+                title = "Nothing archived yet",
+                message = "Archive a chat by swiping it left in the list.",
+                modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         } else {
             LazyColumn(Modifier.weight(1f, fill = false)) {
@@ -92,7 +113,7 @@ private fun ArchivedChatsContent(
                         chat = chat,
                         onOpen = { onOpen(chat.id) },
                         onUnarchive = { onUnarchive(chat.id) },
-                        onDelete = { onDelete(chat.id) },
+                        onDelete = { confirmingDelete = chat },
                     )
                 }
             }
@@ -128,24 +149,23 @@ private fun ArchivedRow(
             ) {
                 Text(
                     chat.title.ifBlank { "Untitled chat" },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                    color = colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Text(
                     relativeTimeLabel(chat.updatedAt),
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TabularNums),
+                    color = colors.textTertiary,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal, fontFeatureSettings = TabularNums),
                 )
             }
             if (chat.preview.isNotBlank()) {
                 Text(
                     chat.preview,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textTertiary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -156,7 +176,7 @@ private fun ArchivedRow(
                 Icons.Outlined.Unarchive,
                 contentDescription = "Unarchive",
                 modifier = Modifier.size(18.dp),
-                tint = colors.accent,
+                tint = colors.textSecondary,
             )
         }
         IconButton(onClick = onDelete) {
@@ -164,7 +184,7 @@ private fun ArchivedRow(
                 Icons.Outlined.Delete,
                 contentDescription = "Delete",
                 modifier = Modifier.size(18.dp),
-                tint = colors.diffRemoved,
+                tint = colors.danger,
             )
         }
     }
@@ -172,7 +192,7 @@ private fun ArchivedRow(
 
 // MARK: - Previews (content only — the sheet itself is a window)
 
-@Preview(name = "Archived", showBackground = true, backgroundColor = 0xFF1C1C1C)
+@Preview(name = "Archived", showBackground = true, backgroundColor = 0xFF2C2C2E)
 @Composable
 private fun ArchivedChatsPreview() {
     SpettroTheme(darkTheme = true) {

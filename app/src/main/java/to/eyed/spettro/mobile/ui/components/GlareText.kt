@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import to.eyed.spettro.mobile.ui.theme.LocalSpettroColors
@@ -41,6 +42,8 @@ private const val PERIOD_MILLIS = 1800
  *
  * @param isActive false renders the plain label without the sweep, so callers
  *   can toggle liveness without swapping composables (and losing the layout).
+ * @param maxLines / [overflow] apply to both renderings, so a title row can
+ *   cap a long label at one ellipsized line whether or not it is live.
  */
 @Composable
 fun GlareText(
@@ -49,9 +52,18 @@ fun GlareText(
     style: TextStyle = MaterialTheme.typography.labelMedium,
     color: Color = LocalSpettroColors.current.accent,
     isActive: Boolean = true,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
 ) {
     if (!isActive) {
-        Text(text, modifier = modifier, style = style, color = color)
+        Text(
+            text,
+            modifier = modifier,
+            style = style,
+            color = color,
+            maxLines = maxLines,
+            overflow = overflow,
+        )
         return
     }
 
@@ -82,10 +94,68 @@ fun GlareText(
             )
         }
     }
-    Text(text, modifier = modifier, style = style.merge(TextStyle(brush = brush)))
+    Text(
+        text,
+        modifier = modifier,
+        style = style.merge(TextStyle(brush = brush)),
+        maxLines = maxLines,
+        overflow = overflow,
+    )
 }
 
-@Preview(name = "Glare", showBackground = true, backgroundColor = 0xFF0E0E0E)
+/** One pass of the transcript shimmer, as the desktop's `tr-shimmer` (2s). */
+private const val SHIMMER_PERIOD_MILLIS = 2000
+
+/**
+ * The desktop's transcript shimmer — "Thinking…", "Working…": a neutral
+ * band of text-primary travelling through text-secondary, 2s a pass. Not the
+ * accent: it marks that something is live, not that it is special.
+ */
+@Composable
+fun Shimmer(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+    isActive: Boolean = true,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+) {
+    val colors = LocalSpettroColors.current
+    if (!isActive) {
+        Text(text, modifier = modifier, style = style, color = colors.textSecondary, maxLines = maxLines, overflow = overflow)
+        return
+    }
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(SHIMMER_PERIOD_MILLIS, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "shimmerPhase",
+    )
+    val base = colors.textSecondary
+    val bright = colors.textPrimary
+    val brush = object : ShaderBrush() {
+        override fun createShader(size: Size): Shader {
+            // A 250%-wide gradient (secondary → primary at the middle →
+            // secondary) slid from right to left across the label.
+            val width = size.width * 2.5f
+            val originX = size.width - width * phase
+            return LinearGradientShader(
+                from = Offset(originX, 0f),
+                to = Offset(originX + width, 0f),
+                colors = listOf(base, base, bright, base, base),
+                colorStops = listOf(0f, 0.4f, 0.5f, 0.6f, 1f),
+                tileMode = TileMode.Clamp,
+            )
+        }
+    }
+    Text(text, modifier = modifier, style = style.merge(TextStyle(brush = brush)), maxLines = maxLines, overflow = overflow)
+}
+
+@Preview(name = "Glare", showBackground = true, backgroundColor = 0xFF1C1C1E)
 @Composable
 private fun GlareTextPreview() {
     SpettroTheme(darkTheme = true) {
@@ -96,6 +166,7 @@ private fun GlareTextPreview() {
             GlareText(text = "coding · editing AppModel.swift")
             GlareText(text = "explore", color = Color(0xFFF59E0B))
             GlareText(text = "not running", isActive = false)
+            Shimmer(text = "Thinking…")
         }
     }
 }

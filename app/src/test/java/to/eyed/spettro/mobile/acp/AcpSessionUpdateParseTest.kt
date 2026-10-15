@@ -10,6 +10,8 @@ import to.eyed.spettro.mobile.core.SpettroJson
 import to.eyed.spettro.mobile.core.acp.AcpParser
 import to.eyed.spettro.mobile.core.acp.AcpSessionUpdate
 import to.eyed.spettro.mobile.core.acp.AcpToolContent
+import to.eyed.spettro.mobile.core.acp.AcpToolImage
+import to.eyed.spettro.mobile.core.acp.AcpToolLocation
 import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 
 private fun obj(text: String): JsonObject = SpettroJson.parseToJsonElement(text).jsonObject
@@ -56,7 +58,7 @@ class AcpSessionUpdateParseTest {
         assertEquals("[agent#1] bash {\"command\":\"ls -la\"}", e.title)
         assertEquals("execute", e.kind)
         assertEquals(AcpToolStatus.IN_PROGRESS, e.status)
-        assertEquals(listOf("/tmp/project/file.txt"), e.locations)
+        assertEquals(listOf(AcpToolLocation("/tmp/project/file.txt")), e.locations)
         assertEquals(listOf<AcpToolContent>(AcpToolContent.Text("listing")), e.content)
     }
 
@@ -167,5 +169,69 @@ class AcpSessionUpdateParseTest {
         ) as AcpSessionUpdate.ConfigUpdate
         assertEquals(1, update.options.size)
         assertTrue(update.options[0].kind is to.eyed.spettro.mobile.core.acp.AcpConfigOption.Kind.Select)
+    }
+
+    // MARK: Tool details the desktop keeps (acpGaps.test.ts "tool output")
+
+    @Test
+    fun toolCallKeepsImagesAtMostFourRawOutputAndLocationLines() {
+        val image = """{"type":"content","content":{"type":"image","data":"iVBOR","mimeType":"image/png"}}"""
+        val update = AcpParser.parseSessionUpdate(
+            obj(
+                """
+                {"sessionUpdate":"tool_call_update","toolCallId":"call-1",
+                 "content":[{"type":"content","content":{"type":"text","text":"shot taken"}},
+                   $image,$image,$image,$image,$image],
+                 "rawOutput":{"output":"the full output"},
+                 "locations":[{"path":"/p/a.go","line":42},{"path":"/p/b.go"}]}
+                """.trimIndent()
+            )
+        ) as AcpSessionUpdate.ToolCallUpdate
+        val e = update.event
+        assertEquals(listOf<AcpToolContent>(AcpToolContent.Text("shot taken")), e.content)
+        assertEquals(4, e.images.size)
+        assertEquals(AcpToolImage("iVBOR", "image/png"), e.images[0])
+        assertEquals("the full output", e.rawOutput)
+        assertEquals(listOf(AcpToolLocation("/p/a.go", 42), AcpToolLocation("/p/b.go")), e.locations)
+    }
+
+    @Test
+    fun rawOutputMayBeABareString() {
+        val update = AcpParser.parseSessionUpdate(
+            obj("""{"sessionUpdate":"tool_call_update","toolCallId":"c","rawOutput":"plain"}""")
+        ) as AcpSessionUpdate.ToolCallUpdate
+        assertEquals("plain", update.event.rawOutput)
+    }
+
+    @Test
+    fun workflowMetaIsCarriedAndNothingElseOfMeta() {
+        val card = AcpParser.parseSessionUpdate(
+            obj(
+                """
+                {"sessionUpdate":"tool_call_update","toolCallId":"workflow-wf_1","status":"in_progress",
+                 "_meta":{"spettro.app/workflow":{"version":1,"runId":"wf_1","status":"paused"},
+                          "other.app/thing":1}}
+                """.trimIndent()
+            )
+        ) as AcpSessionUpdate.ToolCallUpdate
+        assertEquals(obj("""{"version":1,"runId":"wf_1","status":"paused"}"""), card.event.workflowMeta)
+        val plain = AcpParser.parseSessionUpdate(
+            obj("""{"sessionUpdate":"tool_call","toolCallId":"call-1","_meta":{"other.app/thing":1}}""")
+        ) as AcpSessionUpdate.ToolCall
+        assertNull(plain.event.workflowMeta)
+        // Not an object: dropped.
+        val odd = AcpParser.parseSessionUpdate(
+            obj("""{"sessionUpdate":"tool_call","toolCallId":"w","_meta":{"spettro.app/workflow":"nope"}}""")
+        ) as AcpSessionUpdate.ToolCall
+        assertNull(odd.event.workflowMeta)
+    }
+
+    @Test
+    fun currentModeUpdate() {
+        assertEquals(
+            AcpSessionUpdate.ModeUpdate("ask"),
+            AcpParser.parseSessionUpdate(obj("""{"sessionUpdate":"current_mode_update","currentModeId":"ask"}""")),
+        )
+        assertNull(AcpParser.parseSessionUpdate(obj("""{"sessionUpdate":"current_mode_update"}""")))
     }
 }

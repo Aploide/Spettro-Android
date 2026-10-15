@@ -36,6 +36,8 @@ sealed class RemoteNotification {
         val agentReady: Boolean,
         val shuttingDown: Boolean,
         val message: String?,
+        /** Why a goodbye was said ([GoodbyeReason]); null from hosts that don't say. */
+        val reason: String? = null,
     ) : RemoteNotification()
 
     data class PermissionAsk(
@@ -85,7 +87,7 @@ sealed class RemoteNotification {
                     }
                     RemoteMethod.HOST_STATE -> params?.let {
                         val p = SpettroJson.decodeFromJsonElement(HostStateParams.serializer(), it)
-                        HostState(p.agentReady, p.shuttingDown, p.message)
+                        HostState(p.agentReady, p.shuttingDown, p.message, p.reason)
                     }
                     RemoteMethod.PERMISSION_ASK -> params?.let {
                         val p = SpettroJson.decodeFromJsonElement(PermissionAskParams.serializer(), it)

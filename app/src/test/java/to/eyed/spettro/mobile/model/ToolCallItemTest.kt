@@ -3,6 +3,7 @@ package to.eyed.spettro.mobile.model
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import to.eyed.spettro.mobile.core.acp.AcpToolLocation
 import to.eyed.spettro.mobile.core.acp.AcpToolStatus
 
 class ToolCallItemTest {
@@ -16,7 +17,7 @@ class ToolCallItemTest {
         diffs: List<ToolCallItem.ToolDiff> = emptyList(),
     ) = ToolCallItem(
         id = "t1", title = title, kind = kind, status = AcpToolStatus.COMPLETED,
-        output = output, diffs = diffs, locations = locations, argsJSON = argsJSON,
+        output = output, diffs = diffs, locations = locations.map { AcpToolLocation(it) }, argsJSON = argsJSON,
     )
 
     // MARK: Title parsing
@@ -24,7 +25,7 @@ class ToolCallItemTest {
     @Test
     fun bashTitleWithAgentPrefixShowsCommand() {
         val t = item("""[agent#1] bash {"command":"ls -la"}""", kind = "execute")
-        assertEquals("Terminal", t.displayName)
+        assertEquals("Bash", t.displayName)
         assertEquals("[agent#1] ls -la", t.displayDetail)
         assertEquals(ToolIcon.EXECUTE, t.icon)
     }
